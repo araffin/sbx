@@ -12,5 +12,4 @@ def test_tqc(tmp_path):
     )
     model.learn(total_timesteps=300)
     model.save(tmp_path / "test_save.zip")
-    env = model.get_env()
-    model = TQC.load(tmp_path / "test_save.zip", env=env)
+    model = TQC.load(tmp_path / "test_save.zip")

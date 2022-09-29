@@ -1,10 +1,7 @@
-import copy
 from functools import partial
-from typing import Dict, NamedTuple, Optional, Tuple, Union
+from typing import Dict, Optional, Union
 
-import flax
 import flax.linen as nn
-import gym
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -12,19 +9,10 @@ import optax
 from flax.training.train_state import TrainState
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
-from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import is_vectorized_observation
 
-from sbx.tqc.policies import Actor, Critic
-
-
-class ReplayBufferSamplesNp(NamedTuple):
-    observations: np.ndarray
-    actions: np.ndarray
-    next_observations: np.ndarray
-    dones: np.ndarray
-    rewards: np.ndarray
+from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
+from sbx.tqc.policies import TQCPolicy
 
 
 class EntropyCoef(nn.Module):
@@ -36,26 +24,10 @@ class EntropyCoef(nn.Module):
         return jnp.exp(log_ent_coef)
 
 
-class RLTrainState(TrainState):
-    target_params: flax.core.FrozenDict
-
-
-@partial(jax.jit, static_argnames="actor")
-def sample_action(actor, actor_state, obervations, key):
-    dist = actor.apply(actor_state.params, obervations)
-    action = dist.sample(seed=key)
-    return action
-
-
-@partial(jax.jit, static_argnames="actor")
-def select_action(actor, actor_state, obervations):
-    return actor.apply(actor_state.params, obervations).mode()
-
-
 class TQC(OffPolicyAlgorithm):
 
     policy_aliases: Dict[str, Optional[nn.Module]] = {
-        "MlpPolicy": None,
+        "MlpPolicy": TQCPolicy,
     }
 
     def __init__(
@@ -90,11 +62,6 @@ class TQC(OffPolicyAlgorithm):
         # self.agent = agent
         # Will be updated later
         self.key = jax.random.PRNGKey(0)
-        self.dropout_rate = 0.0
-        self.layer_norm = False
-        self.n_units = 256
-        self.top_quantiles_to_drop_per_net = 2
-        self.squash_output = True
 
         if _init_setup_model:
             self._setup_model()
@@ -127,28 +94,18 @@ class TQC(OffPolicyAlgorithm):
         # Convert train freq parameter to TrainFreq object
         self._convert_train_freq()
 
-        # self.policy = self.policy_class(  # pytype:disable=not-instantiable
-        #     self.observation_space,
-        #     self.action_space,
-        #     self.lr_schedule,
-        #     **self.policy_kwargs,  # pytype:disable=not-instantiable
-        # )
-        # self.policy = self.policy.to(self.device)
-        self.key, actor_key, qf1_key, qf2_key = jax.random.split(self.key, 4)
-        self.key, dropout_key1, dropout_key2, ent_key = jax.random.split(self.key, 4)
-
-        obs = jnp.array([self.observation_space.sample()])
-        action = jnp.array([self.action_space.sample()])
-
-        self.actor = Actor(
-            action_dim=np.prod(self.action_space.shape),
-            n_units=self.n_units,
+        self.policy = self.policy_class(  # pytype:disable=not-instantiable
+            self.observation_space,
+            self.action_space,
+            self.lr_schedule,
+            **self.policy_kwargs,  # pytype:disable=not-instantiable
         )
-        self.actor_state = TrainState.create(
-            apply_fn=self.actor.apply,
-            params=self.actor.init(actor_key, obs),
-            tx=optax.adam(learning_rate=self.learning_rate),
-        )
+
+        self.key = self.policy.build(self.key, self.lr_schedule)
+        self.key, ent_key = jax.random.split(self.key, 2)
+
+        self.actor = self.policy.actor
+        self.qf = self.policy.qf
 
         ent_coef_init = 1.0
         self.ent_coef = EntropyCoef(ent_coef_init)
@@ -160,64 +117,8 @@ class TQC(OffPolicyAlgorithm):
             ),
         )
 
-        # Sort and drop top k quantiles to control overestimation.
-        n_quantiles = 25
-        n_critics = 2
-        quantiles_total = n_quantiles * n_critics
-        top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
-        self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * n_critics
-
         # automatically set target entropy if needed
         self.target_entropy = -np.prod(self.action_space.shape).astype(np.float32)
-
-        self.qf = Critic(
-            dropout_rate=self.dropout_rate,
-            use_layer_norm=self.layer_norm,
-            n_units=self.n_units,
-            n_quantiles=n_quantiles,
-        )
-
-        self.qf1_state = RLTrainState.create(
-            apply_fn=self.qf.apply,
-            params=self.qf.init(
-                {"params": qf1_key, "dropout": dropout_key1},
-                obs,
-                action,
-            ),
-            target_params=self.qf.init(
-                {"params": qf1_key, "dropout": dropout_key1},
-                obs,
-                action,
-            ),
-            tx=optax.adam(learning_rate=self.learning_rate),
-        )
-        self.qf2_state = RLTrainState.create(
-            apply_fn=self.qf.apply,
-            params=self.qf.init(
-                {"params": qf2_key, "dropout": dropout_key2},
-                obs,
-                action,
-            ),
-            target_params=self.qf.init(
-                {"params": qf2_key, "dropout": dropout_key2},
-                obs,
-                action,
-            ),
-            tx=optax.adam(learning_rate=self.learning_rate),
-        )
-        self.actor.apply = jax.jit(self.actor.apply)
-        self.qf.apply = jax.jit(self.qf.apply, static_argnames=("dropout_rate", "use_layer_norm"))
-
-        obs = self.env.reset()
-        real_next_obs, rewards, dones, infos = self.env.step(action)
-        self.replay_buffer.add(obs, real_next_obs, action, rewards, dones, infos)
-        self.train()
-        print(self.predict(obs, deterministic=False)[0])
-        print(self.predict(obs, deterministic=False)[0])
-        print(self.predict(obs, deterministic=True)[0])
-        print(self.predict(obs, deterministic=True)[0])
-        self.train()
-        print(self.predict(obs, deterministic=True)[0])
 
     def learn(
         self,
@@ -231,92 +132,21 @@ class TQC(OffPolicyAlgorithm):
         eval_log_path: Optional[str] = None,
         reset_num_timesteps: bool = True,
     ):
-        pass
-        # return super().learn(
-        #     total_timesteps=total_timesteps,
-        #     callback=callback,
-        #     log_interval=log_interval,
-        #     eval_env=eval_env,
-        #     eval_freq=eval_freq,
-        #     n_eval_episodes=n_eval_episodes,
-        #     tb_log_name=tb_log_name,
-        #     eval_log_path=eval_log_path,
-        #     reset_num_timesteps=reset_num_timesteps,
-        # )
+        return super().learn(
+            total_timesteps=total_timesteps,
+            callback=callback,
+            log_interval=log_interval,
+            eval_env=eval_env,
+            eval_freq=eval_freq,
+            n_eval_episodes=n_eval_episodes,
+            tb_log_name=tb_log_name,
+            eval_log_path=eval_log_path,
+            reset_num_timesteps=reset_num_timesteps,
+        )
 
-    def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:
-        if deterministic:
-            return select_action(self.actor, self.actor_state, observation)
-        self.key, noise_key = jax.random.split(self.key, 2)
-        return sample_action(self.actor, self.actor_state, observation, noise_key)
-
-    def predict(
-        self,
-        observation: Union[np.ndarray, Dict[str, np.ndarray]],
-        state: Optional[Tuple[np.ndarray, ...]] = None,
-        episode_start: Optional[np.ndarray] = None,
-        deterministic: bool = False,
-    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
-        # self.set_training_mode(False)
-
-        observation, vectorized_env = self.prepare_obs(observation)
-
-        actions = self._predict(observation, deterministic=deterministic)
-
-        # Convert to numpy, and reshape to the original action shape
-        actions = np.array(actions).reshape((-1,) + self.action_space.shape)
-
-        if isinstance(self.action_space, gym.spaces.Box):
-            if self.squash_output:
-                # Rescale to proper domain when using squashing
-                # actions = self.unscale_action(actions)
-                # TODO: move that to policy
-                pass
-            else:
-                # Actions could be on arbitrary scale, so clip the actions to avoid
-                # out of bound error (e.g. if sampling from a Gaussian distribution)
-                actions = np.clip(actions, self.action_space.low, self.action_space.high)
-
-        # Remove batch dimension if needed
-        if not vectorized_env:
-            actions = actions.squeeze(axis=0)
-
-        return actions, state
-
-    def prepare_obs(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> Tuple[np.ndarray, bool]:
-        vectorized_env = False
-        if isinstance(observation, dict):
-            # need to copy the dict as the dict in VecFrameStack will become a torch tensor
-            observation = copy.deepcopy(observation)
-            for key, obs in observation.items():
-                obs_space = self.observation_space.spaces[key]
-                if is_image_space(obs_space):
-                    obs_ = maybe_transpose(obs, obs_space)
-                else:
-                    obs_ = np.array(obs)
-                vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
-                # Add batch dimension if needed
-                observation[key] = obs_.reshape((-1,) + self.observation_space[key].shape)
-
-        elif is_image_space(self.observation_space):
-            # Handle the different cases for images
-            # as PyTorch use channel first format
-            observation = maybe_transpose(observation, self.observation_space)
-
-        else:
-            observation = np.array(observation)
-
-        if not isinstance(observation, dict):
-            # Dict obs need to be handled separately
-            vectorized_env = is_vectorized_observation(observation, self.observation_space)
-            # Add batch dimension if needed
-            observation = observation.reshape((-1,) + self.observation_space.shape)
-
-        return observation, vectorized_env
-
-    def train(self):
+    def train(self, batch_size, gradient_steps):
         # Sample all at once for efficiency (so we can jit the for loop)
-        data = self.replay_buffer.sample(self.batch_size * self.gradient_steps)
+        data = self.replay_buffer.sample(batch_size * gradient_steps)
         n_updates = 0
         # Convert to numpy
         data = ReplayBufferSamplesNp(
@@ -329,9 +159,9 @@ class TQC(OffPolicyAlgorithm):
 
         (
             n_updates,
-            self.qf1_state,
-            self.qf2_state,
-            self.actor_state,
+            self.policy.qf1_state,
+            self.policy.qf2_state,
+            self.policy.actor_state,
             self.ent_coef_state,
             self.key,
             (qf1_loss_value, qf2_loss_value, actor_loss_value),
@@ -343,12 +173,12 @@ class TQC(OffPolicyAlgorithm):
             self.tau,
             self.target_entropy,
             self.gradient_steps,
-            self.n_target_quantiles,
+            self.policy.n_target_quantiles,
             data,
             n_updates,
-            self.qf1_state,
-            self.qf2_state,
-            self.actor_state,
+            self.policy.qf1_state,
+            self.policy.qf2_state,
+            self.policy.actor_state,
             self.ent_coef_state,
             self.key,
         )
@@ -603,104 +433,8 @@ class TQC(OffPolicyAlgorithm):
 def main():
 
     # eval_envs = make_vec_env(args.env_id, n_envs=args.n_eval_envs, seed=args.seed)
-
-    # agent = Agent(actor_state)
-    # agent.select_action = select_action
-
-    model = TQC("MlpPolicy", "Pendulum-v1", seed=0)
-
-    # model = TQC.load("test_save")
-    # model.agent.select_action = select_action
-    # print(evaluate_policy(model.agent, eval_envs, n_eval_episodes=args.n_eval_episodes))
-    #
-    exit()
-    # start_time = time.time()
-    # n_updates = 0
-    # # for global_step in range(args.total_timesteps):
-    # for global_step in tqdm(range(args.total_timesteps)):
-    #     # ALGO LOGIC: put action logic here
-    #     if global_step < args.learning_starts:
-    #         actions = np.array([envs.action_space.sample() for _ in range(envs.num_envs)])
-    #     else:
-    #         key, exploration_key = jax.random.split(key, 2)
-    #         actions = np.array(sample_action(actor_state, obs, exploration_key))
-    #
-    #     # actions = np.clip(actions, -1.0, 1.0)
-    #     # TRY NOT TO MODIFY: execute the game and log data.
-    #     next_obs, rewards, dones, infos = envs.step(actions)
-    #
-    #     # TRY NOT TO MODIFY: save data to replay buffer; handle `terminal_observation`
-    #     real_next_obs = next_obs.copy()
-    #     for idx, done in enumerate(dones):
-    #         if done:
-    #             real_next_obs[idx] = infos[idx]["terminal_observation"]
-    #         # Timeout handling done inside the replay buffer
-    #         # if infos[idx].get("TimeLimit.truncated", False) == True:
-    #         #     real_dones[idx] = False
-    #
-    #     rb.add(obs, real_next_obs, actions, rewards, dones, infos)
-    #
-    #     # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-    #     obs = next_obs
-    #
-    #     # ALGO LOGIC: training.
-    #     if global_step > args.learning_starts:
-    #         # Sample all at once for efficiency (so we can jit the for loop)
-    #         data = rb.sample(args.batch_size * args.gradient_steps)
-    #         # Convert to numpy
-    #         data = ReplayBufferSamplesNp(
-    #             data.observations.numpy(),
-    #             data.actions.numpy(),
-    #             data.next_observations.numpy(),
-    #             data.dones.numpy().flatten(),
-    #             data.rewards.numpy().flatten(),
-    #         )
-    #
-    #         (
-    #             n_updates,
-    #             qf1_state,
-    #             qf2_state,
-    #             actor_state,
-    #             ent_coef_state,
-    #             key,
-    #             (qf1_loss_value, qf2_loss_value, actor_loss_value),
-    #         ) = train(
-    #             data,
-    #             n_updates,
-    #             qf1_state,
-    #             qf2_state,
-    #             actor_state,
-    #             ent_coef_state,
-    #             key,
-    #         )
-    #
-    #         fps = int(global_step / (time.time() - start_time))
-    #         if args.eval_freq > 0 and global_step % args.eval_freq == 0:
-    #             agent.actor_state = actor_state
-    #             mean_reward, std_reward = evaluate_policy(agent, eval_envs, n_eval_episodes=args.n_eval_episodes)
-    #             print(f"global_step={global_step}, mean_eval_reward={mean_reward:.2f} +/- {std_reward:.2f} - {fps} fps")
-    #             # writer.add_scalar("charts/mean_eval_reward", mean_reward, global_step)
-    #             # writer.add_scalar("charts/std_eval_reward", std_reward, global_step)
-    #
-    #         # if global_step % 100 == 0:
-    #         #     ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
-    #         #     writer.add_scalar("losses/ent_coef_value", ent_coef_value.item(), global_step)
-    #         #     writer.add_scalar("losses/qf1_loss", qf1_loss_value.item(), global_step)
-    #         #     writer.add_scalar("losses/qf2_loss", qf2_loss_value.item(), global_step)
-    #         #     # writer.add_scalar("losses/qf1_values", qf1_a_values.item(), global_step)
-    #         #     # writer.add_scalar("losses/qf2_values", qf2_a_values.item(), global_step)
-    #         #     writer.add_scalar("losses/actor_loss", actor_loss_value.item(), global_step)
-    #         #     if args.verbose >= 2:
-    #         #         print("FPS:", fps)
-    #         #     writer.add_scalar(
-    #         #         "charts/SPS",
-    #         #         int(global_step / (time.time() - start_time)),
-    #         #         global_step,
-    #         #     )
-    #
-    # # envs.close()
-    # # writer.close()
-    # model.save("test_save")
+    model = TQC("MlpPolicy", "Pendulum-v1", seed=0, verbose=1)
+    model.learn(5000)
 
 
 if __name__ == "__main__":
