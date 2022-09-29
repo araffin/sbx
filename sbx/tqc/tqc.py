@@ -1,8 +1,6 @@
 import copy
-import os
-from dataclasses import dataclass
 from functools import partial
-from typing import Any, Dict, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import Dict, NamedTuple, Optional, Tuple, Union
 
 import flax
 import flax.linen as nn
@@ -11,18 +9,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import pybullet_envs  # noqa
-import tensorflow_probability
 from flax.training.train_state import TrainState
 from stable_baselines3.common.buffers import ReplayBuffer
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import is_vectorized_observation
-from stable_baselines3.common.vec_env import DummyVecEnv
-from tqdm.rich import tqdm
 
 from sbx.tqc.policies import Actor, Critic
 
@@ -46,17 +38,6 @@ class EntropyCoef(nn.Module):
 
 class RLTrainState(TrainState):
     target_params: flax.core.FrozenDict
-
-
-@dataclass
-class Agent:
-    # actor: Actor
-    actor_state: TrainState
-
-    def predict(self, obervations: np.ndarray, deterministic=True, state=None, episode_start=None):
-        # actions = np.array(self.actor.apply(self.actor_state.params, obervations).mode())
-        actions = np.array(self.select_action(self.actor_state, obervations))
-        return actions, None
 
 
 @partial(jax.jit, static_argnames="actor")
