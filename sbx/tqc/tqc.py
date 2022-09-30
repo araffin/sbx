@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import flax.linen as nn
 import jax
@@ -67,8 +67,12 @@ class TQC(OffPolicyAlgorithm):
             self._setup_model()
 
     def _get_torch_save_params(self):
-        state_dicts = []
-        return state_dicts, []
+        return [], []
+
+    def _excluded_save_params(self) -> List[str]:
+        excluded = super()._excluded_save_params()
+        excluded.remove("policy")
+        return excluded
 
     def set_random_seed(self, seed: int) -> None:
         super().set_random_seed(seed)
@@ -94,28 +98,29 @@ class TQC(OffPolicyAlgorithm):
         # Convert train freq parameter to TrainFreq object
         self._convert_train_freq()
 
-        self.policy = self.policy_class(  # pytype:disable=not-instantiable
-            self.observation_space,
-            self.action_space,
-            self.lr_schedule,
-            **self.policy_kwargs,  # pytype:disable=not-instantiable
-        )
+        if self.policy is None:
+            self.policy = self.policy_class(  # pytype:disable=not-instantiable
+                self.observation_space,
+                self.action_space,
+                self.lr_schedule,
+                **self.policy_kwargs,  # pytype:disable=not-instantiable
+            )
 
-        self.key = self.policy.build(self.key, self.lr_schedule)
-        self.key, ent_key = jax.random.split(self.key, 2)
+            self.key = self.policy.build(self.key, self.lr_schedule)
+            self.key, ent_key = jax.random.split(self.key, 2)
 
-        self.actor = self.policy.actor
-        self.qf = self.policy.qf
+            self.actor = self.policy.actor
+            self.qf = self.policy.qf
 
-        ent_coef_init = 1.0
-        self.ent_coef = EntropyCoef(ent_coef_init)
-        self.ent_coef_state = TrainState.create(
-            apply_fn=self.ent_coef.apply,
-            params=self.ent_coef.init(ent_key)["params"],
-            tx=optax.adam(
-                learning_rate=self.learning_rate,
-            ),
-        )
+            ent_coef_init = 1.0
+            self.ent_coef = EntropyCoef(ent_coef_init)
+            self.ent_coef_state = TrainState.create(
+                apply_fn=self.ent_coef.apply,
+                params=self.ent_coef.init(ent_key)["params"],
+                tx=optax.adam(
+                    learning_rate=self.learning_rate,
+                ),
+            )
 
         # automatically set target entropy if needed
         self.target_entropy = -np.prod(self.action_space.shape).astype(np.float32)
@@ -381,11 +386,11 @@ class TQC(OffPolicyAlgorithm):
         for i in range(gradient_steps):
             n_updates += 1
 
-            def slice(x):
+            def slice(x, step=i):
                 assert x.shape[0] % gradient_steps == 0
                 # batch_size = batch_size
                 batch_size = x.shape[0] // gradient_steps
-                return x[batch_size * i : batch_size * (i + 1)]
+                return x[batch_size * step : batch_size * (step + 1)]
 
             ((qf1_state, qf2_state, ent_coef_state), (qf1_loss_value, qf2_loss_value), key,) = TQC.update_critic(
                 actor,
