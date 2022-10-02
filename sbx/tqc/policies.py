@@ -1,6 +1,6 @@
 import copy
 from functools import partial
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import flax.linen as nn
 import gym
@@ -88,6 +88,10 @@ class TQCPolicy(BasePolicy):
         action_space: gym.spaces.Space,
         lr_schedule: Schedule,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        dropout_rate: float = 0.0,
+        layer_norm: bool = False,
+        top_quantiles_to_drop_per_net: int = 2,
+        n_quantiles: int = 25,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
         log_std_init: float = -3,
@@ -96,8 +100,8 @@ class TQCPolicy(BasePolicy):
         features_extractor_class=None,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
-        # optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
-        # optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         # share_features_extractor: bool = False,
     ):
@@ -106,14 +110,21 @@ class TQCPolicy(BasePolicy):
             action_space,
             features_extractor_class,
             features_extractor_kwargs,
-            # optimizer_class=optimizer_class,
-            # optimizer_kwargs=optimizer_kwargs,
+            optimizer_class=optimizer_class,
+            optimizer_kwargs=optimizer_kwargs,
             squash_output=True,
         )
-        self.dropout_rate = 0.0
-        self.layer_norm = False
+        self.dropout_rate = dropout_rate
+        self.layer_norm = layer_norm
         self.n_units = 256
-        self.top_quantiles_to_drop_per_net = 2
+        self.n_quantiles = n_quantiles
+        self.n_critics = n_critics
+        self.top_quantiles_to_drop_per_net = top_quantiles_to_drop_per_net
+        # Sort and drop top k quantiles to control overestimation.
+        quantiles_total = self.n_quantiles * self.n_critics
+        top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
+        self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * self.n_critics
+
         self.key = jax.random.PRNGKey(0)
 
     def build(self, key, lr_schedule: Schedule) -> None:
@@ -130,21 +141,14 @@ class TQCPolicy(BasePolicy):
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
-            tx=optax.adam(learning_rate=lr_schedule(1)),
+            tx=self.optimizer_class(learning_rate=lr_schedule(1), **self.optimizer_kwargs),
         )
-
-        # Sort and drop top k quantiles to control overestimation.
-        n_quantiles = 25
-        n_critics = 2
-        quantiles_total = n_quantiles * n_critics
-        top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
-        self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * n_critics
 
         self.qf = Critic(
             dropout_rate=self.dropout_rate,
             use_layer_norm=self.layer_norm,
             n_units=self.n_units,
-            n_quantiles=n_quantiles,
+            n_quantiles=self.n_quantiles,
         )
 
         self.qf1_state = RLTrainState.create(
@@ -173,7 +177,7 @@ class TQCPolicy(BasePolicy):
                 obs,
                 action,
             ),
-            tx=optax.adam(learning_rate=lr_schedule(1)),
+            tx=self.optimizer_class(learning_rate=lr_schedule(1), **self.optimizer_kwargs),
         )
         self.actor.apply = jax.jit(self.actor.apply)
         self.qf.apply = jax.jit(self.qf.apply, static_argnames=("dropout_rate", "use_layer_norm"))

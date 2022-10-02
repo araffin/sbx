@@ -1,4 +1,5 @@
 import numpy as np
+from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.evaluation import evaluate_policy
 
 from sbx import TQC
@@ -35,3 +36,15 @@ def test_tqc(tmp_path):
     evaluate_policy(model, env, reward_threshold=-800)
     action_after = model.predict(obs, deterministic=True)[0]
     assert np.allclose(action_before, action_after)
+
+
+def test_droq():
+    # Multi env
+    train_env = make_vec_env("Pendulum-v1", n_envs=4)
+    policy_kwargs = dict(
+        dropout_rate=0.01,
+        layer_norm=True,
+        top_quantiles_to_drop_per_net=1,
+    )
+    model = TQC("MlpPolicy", train_env, verbose=1, gradient_steps=1, policy_kwargs=policy_kwargs)
+    model.learn(200)

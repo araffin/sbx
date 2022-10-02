@@ -1,13 +1,15 @@
 from functools import partial
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import flax.linen as nn
+import gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 from flax.training.train_state import TrainState
 from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
@@ -41,6 +43,8 @@ class TQC(OffPolicyAlgorithm):
         tau: float = 0.005,
         gamma: float = 0.99,
         gradient_steps: int = 1,
+        action_noise: Optional[ActionNoise] = None,
+        policy_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",
@@ -56,10 +60,13 @@ class TQC(OffPolicyAlgorithm):
             tau=tau,
             gamma=gamma,
             gradient_steps=gradient_steps,
+            action_noise=action_noise,
+            policy_kwargs=policy_kwargs,
             verbose=verbose,
             seed=seed,
+            supported_action_spaces=(gym.spaces.Box),
+            support_multi_env=True,
         )
-        # self.agent = agent
         # Will be updated later
         self.key = jax.random.PRNGKey(0)
 
