@@ -44,7 +44,13 @@ def test_droq():
     policy_kwargs = dict(
         dropout_rate=0.01,
         layer_norm=True,
-        top_quantiles_to_drop_per_net=1,
     )
-    model = TQC("MlpPolicy", train_env, verbose=1, gradient_steps=1, policy_kwargs=policy_kwargs)
+    model = TQC(
+        "MlpPolicy",
+        train_env,
+        top_quantiles_to_drop_per_net=1,
+        verbose=1,
+        gradient_steps=1,
+        policy_kwargs=policy_kwargs,
+    )
     model.learn(200)

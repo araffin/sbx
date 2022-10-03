@@ -43,6 +43,7 @@ class TQC(OffPolicyAlgorithm):
         tau: float = 0.005,
         gamma: float = 0.99,
         gradient_steps: int = 1,
+        top_quantiles_to_drop_per_net: int = 2,
         action_noise: Optional[ActionNoise] = None,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
@@ -71,6 +72,8 @@ class TQC(OffPolicyAlgorithm):
         )
         # Will be updated later
         self.key = jax.random.PRNGKey(0)
+
+        self.policy_kwargs["top_quantiles_to_drop_per_net"] = top_quantiles_to_drop_per_net
 
         if _init_setup_model:
             self._setup_model()
