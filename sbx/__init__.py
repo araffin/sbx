@@ -1,5 +1,6 @@
 import os
 
+from sbx.droq import DroQ
 from sbx.tqc import TQC
 
 # Read version from file

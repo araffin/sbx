@@ -2,7 +2,7 @@ import numpy as np
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import TQC
+from sbx import TQC, DroQ
 
 
 def test_tqc(tmp_path):
@@ -45,7 +45,7 @@ def test_droq():
         dropout_rate=0.01,
         layer_norm=True,
     )
-    model = TQC(
+    model = DroQ(
         "MlpPolicy",
         train_env,
         top_quantiles_to_drop_per_net=1,

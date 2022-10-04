@@ -65,6 +65,10 @@ class Actor(nn.Module):
     log_std_min: float = -20
     log_std_max: float = 2
 
+    def get_std(self):
+        # Make it work with gSDE
+        return jnp.array(0.0)
+
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:
         x = nn.Dense(self.n_units)(x)
@@ -74,7 +78,6 @@ class Actor(nn.Module):
         mean = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
         log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        # dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
         dist = TanhTransformedDistribution(
             tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
         )
@@ -94,6 +97,8 @@ class TQCPolicy(BasePolicy):
         n_quantiles: int = 25,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
+        # Note: most gSDE parameters are not used
+        # this is to keep API consistent with SB3
         log_std_init: float = -3,
         use_expln: bool = False,
         clip_mean: float = 2.0,
@@ -103,7 +108,7 @@ class TQCPolicy(BasePolicy):
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
-        # share_features_extractor: bool = False,
+        share_features_extractor: bool = False,
     ):
         super().__init__(
             observation_space,
@@ -116,7 +121,11 @@ class TQCPolicy(BasePolicy):
         )
         self.dropout_rate = dropout_rate
         self.layer_norm = layer_norm
-        self.n_units = 256
+        if net_arch is not None:
+            assert isinstance(net_arch, list)
+            self.n_units = net_arch[0]
+        else:
+            self.n_units = 256
         self.n_quantiles = n_quantiles
         self.n_critics = n_critics
         self.top_quantiles_to_drop_per_net = top_quantiles_to_drop_per_net
@@ -124,12 +133,15 @@ class TQCPolicy(BasePolicy):
         quantiles_total = self.n_quantiles * self.n_critics
         top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
         self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * self.n_critics
+        self.use_sde = use_sde
 
-        self.key = jax.random.PRNGKey(0)
+        self.key = self.noise_key = jax.random.PRNGKey(0)
 
     def build(self, key, lr_schedule: Schedule) -> None:
         key, actor_key, qf1_key, qf2_key = jax.random.split(key, 4)
         key, dropout_key1, dropout_key2, self.key = jax.random.split(key, 4)
+        # Initialize noise
+        self.reset_noise()
 
         obs = jnp.array([self.observation_space.sample()])
         action = jnp.array([self.action_space.sample()])
@@ -138,6 +150,9 @@ class TQCPolicy(BasePolicy):
             action_dim=np.prod(self.action_space.shape),
             n_units=self.n_units,
         )
+        # Hack to make gSDE work without modifying internal SB3 code
+        self.actor.reset_noise = self.reset_noise
+
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
@@ -184,13 +199,11 @@ class TQCPolicy(BasePolicy):
 
         return key
 
-    # def reset_noise(self, batch_size: int = 1) -> None:
-    #     """
-    #     Sample new weights for the exploration matrix, when using gSDE.
-    #
-    #     :param batch_size:
-    #     """
-    #     self.actor.reset_noise(batch_size=batch_size)
+    def reset_noise(self, batch_size: int = 1) -> None:
+        """
+        Sample new weights for the exploration matrix, when using gSDE.
+        """
+        self.key, self.noise_key = jax.random.split(self.key, 2)
 
     def forward(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
@@ -198,8 +211,10 @@ class TQCPolicy(BasePolicy):
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:
         if deterministic:
             return select_action(self.actor, self.actor_state, observation)
-        self.key, noise_key = jax.random.split(self.key, 2)
-        return sample_action(self.actor, self.actor_state, observation, noise_key)
+        # Trick to use gSDE: repeat sampled noise by using the same noise key
+        if not self.use_sde:
+            self.reset_noise()
+        return sample_action(self.actor, self.actor_state, observation, self.noise_key)
 
     def predict(
         self,

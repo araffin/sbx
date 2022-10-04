@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import flax.linen as nn
 import gym
@@ -26,6 +26,17 @@ class EntropyCoef(nn.Module):
         return jnp.exp(log_ent_coef)
 
 
+class ConstantEntropyCoef(nn.Module):
+    ent_coef_init: float = 1.0
+
+    @nn.compact
+    def __call__(self) -> jnp.ndarray:
+        # Hack to not optimize the entropy coefficient while not having to use if/else for the jit
+        # TODO: add parameter in train to remove that hack
+        self.param("dummy_param", init_fn=lambda key: jnp.full((), self.ent_coef_init))
+        return self.ent_coef_init
+
+
 class TQC(OffPolicyAlgorithm):
 
     policy_aliases: Dict[str, Optional[nn.Module]] = {
@@ -42,9 +53,14 @@ class TQC(OffPolicyAlgorithm):
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
+        train_freq: Union[int, Tuple[int, str]] = 1,
         gradient_steps: int = 1,
         top_quantiles_to_drop_per_net: int = 2,
         action_noise: Optional[ActionNoise] = None,
+        ent_coef: Union[str, float] = "auto",
+        use_sde: bool = False,
+        sde_sample_freq: int = -1,
+        use_sde_at_warmup: bool = False,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
@@ -61,18 +77,23 @@ class TQC(OffPolicyAlgorithm):
             batch_size=batch_size,
             tau=tau,
             gamma=gamma,
+            train_freq=train_freq,
             gradient_steps=gradient_steps,
             action_noise=action_noise,
             policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
+            use_sde=use_sde,
+            sde_sample_freq=sde_sample_freq,
+            use_sde_at_warmup=use_sde_at_warmup,
             supported_action_spaces=(gym.spaces.Box),
             support_multi_env=True,
         )
         # Will be updated later
         self.key = jax.random.PRNGKey(0)
 
+        self.ent_coef_init = ent_coef
         self.policy_kwargs["top_quantiles_to_drop_per_net"] = top_quantiles_to_drop_per_net
 
         if _init_setup_model:
@@ -124,8 +145,25 @@ class TQC(OffPolicyAlgorithm):
             self.actor = self.policy.actor
             self.qf = self.policy.qf
 
-            ent_coef_init = 1.0
-            self.ent_coef = EntropyCoef(ent_coef_init)
+            # The entropy coefficient or entropy can be learned automatically
+            # see Automating Entropy Adjustment for Maximum Entropy RL section
+            # of https://arxiv.org/abs/1812.05905
+            if isinstance(self.ent_coef_init, str) and self.ent_coef_init.startswith("auto"):
+                # Default initial value of ent_coef when learned
+                ent_coef_init = 1.0
+                if "_" in self.ent_coef_init:
+                    ent_coef_init = float(self.ent_coef_init.split("_")[1])
+                    assert ent_coef_init > 0.0, "The initial value of ent_coef must be greater than 0"
+
+                # Note: we optimize the log of the entropy coeff which is slightly different from the paper
+                # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
+                self.ent_coef = EntropyCoef(ent_coef_init)
+            else:
+                # Force conversion to float
+                # this will throw an error if a malformed string (different from 'auto')
+                # is passed
+                self.ent_coef = ConstantEntropyCoef(self.ent_coef_init)
+
             self.ent_coef_state = TrainState.create(
                 apply_fn=self.ent_coef.apply,
                 params=self.ent_coef.init(ent_key)["params"],
@@ -423,18 +461,18 @@ class TQC(OffPolicyAlgorithm):
             )
             qf1_state, qf2_state = TQC.soft_update(tau, qf1_state, qf2_state)
 
-        (actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy) = TQC.update_actor(
-            actor,
-            qf,
-            ent_coef,
-            actor_state,
-            qf1_state,
-            qf2_state,
-            ent_coef_state,
-            slice(data.observations),
-            key,
-        )
-        ent_coef_state, _ = TQC.update_temperature(ent_coef, target_entropy, ent_coef_state, entropy)
+            (actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy) = TQC.update_actor(
+                actor,
+                qf,
+                ent_coef,
+                actor_state,
+                qf1_state,
+                qf2_state,
+                ent_coef_state,
+                slice(data.observations),
+                key,
+            )
+            ent_coef_state, _ = TQC.update_temperature(ent_coef, target_entropy, ent_coef_state, entropy)
 
         return (
             n_updates,
@@ -445,18 +483,3 @@ class TQC(OffPolicyAlgorithm):
             key,
             (qf1_loss_value, qf2_loss_value, actor_loss_value),
         )
-
-
-def main():
-
-    # eval_envs = make_vec_env(args.env_id, n_envs=args.n_eval_envs, seed=args.seed)
-    model = TQC("MlpPolicy", "Pendulum-v1", seed=0, verbose=1)
-    model.learn(5000)
-
-
-if __name__ == "__main__":
-
-    try:
-        main()
-    except KeyboardInterrupt:
-        pass
