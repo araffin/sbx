@@ -9,13 +9,14 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tensorflow_probability
+from flax.linen.initializers import constant
 from flax.training.train_state import TrainState
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.common.utils import is_vectorized_observation
 
-from sbx.common.distributions import TanhTransformedDistribution
+from sbx.common.distributions import StateDependentNoiseDistribution, TanhTransformedDistribution
 from sbx.common.type_aliases import RLTrainState
 
 tfp = tensorflow_probability.substrates.jax
@@ -81,6 +82,36 @@ class Actor(nn.Module):
         return dist
 
 
+class ActorSDE(nn.Module):
+    action_dim: Sequence[int]
+    n_units: int = 256
+    log_std_min: float = -20
+    log_std_max: float = 2
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:
+        x = nn.Dense(self.n_units)(x)
+        x = nn.relu(x)
+        x = nn.Dense(self.n_units)(x)
+        x = nn.relu(x)
+        # gSDE
+        latent_sde = x
+        log_std = self.param("log_std", constant(-3), (latent_sde.shape[1], self.action_dim))
+        # TODO: use expln trick instead
+        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
+        std = jnp.exp(log_std)
+        variance = (jax.lax.stop_gradient(latent_sde) ** 2 @ std**2) + 1e-6
+
+        mean = nn.Dense(self.action_dim)(x)
+        # hard_tanh that clips at [-2, 2]
+        mean = jnp.where(mean > 2.0, 2.0, jnp.where(mean < -2.0, -2.0, mean))
+        # dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
+        dist = TanhTransformedDistribution(
+            StateDependentNoiseDistribution(loc=mean, scale_diag=jnp.sqrt(variance), std=std),
+        )
+        return dist
+
+
 class TQCPolicy(BasePolicy):
     def __init__(
         self,
@@ -120,6 +151,7 @@ class TQCPolicy(BasePolicy):
         self.n_quantiles = n_quantiles
         self.n_critics = n_critics
         self.top_quantiles_to_drop_per_net = top_quantiles_to_drop_per_net
+        self.use_sde = True
         # Sort and drop top k quantiles to control overestimation.
         quantiles_total = self.n_quantiles * self.n_critics
         top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
@@ -134,10 +166,17 @@ class TQCPolicy(BasePolicy):
         obs = jnp.array([self.observation_space.sample()])
         action = jnp.array([self.action_space.sample()])
 
-        self.actor = Actor(
-            action_dim=np.prod(self.action_space.shape),
-            n_units=self.n_units,
-        )
+        if self.use_sde:
+            self.actor = ActorSDE(
+                action_dim=np.prod(self.action_space.shape),
+                n_units=self.n_units,
+            )
+        else:
+            self.actor = Actor(
+                action_dim=np.prod(self.action_space.shape),
+                n_units=self.n_units,
+            )
+
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
@@ -184,13 +223,13 @@ class TQCPolicy(BasePolicy):
 
         return key
 
-    # def reset_noise(self, batch_size: int = 1) -> None:
-    #     """
-    #     Sample new weights for the exploration matrix, when using gSDE.
-    #
-    #     :param batch_size:
-    #     """
-    #     self.actor.reset_noise(batch_size=batch_size)
+    def reset_noise(self, batch_size: int = 1) -> None:
+        """
+        Sample new weights for the exploration matrix, when using gSDE.
+
+        :param batch_size:
+        """
+        self.actor.reset_noise(batch_size=batch_size)
 
     def forward(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
