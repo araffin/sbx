@@ -123,7 +123,7 @@ class TQC(OffPolicyAlgorithm):
             self.buffer_size,
             self.observation_space,
             self.action_space,
-            device=self.device,
+            device="cpu",  # force cpu device to easy torch -> numpy conversion
             n_envs=self.n_envs,
             optimize_memory_usage=self.optimize_memory_usage,
             **self.replay_buffer_kwargs,
