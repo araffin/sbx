@@ -25,7 +25,7 @@ pip install git+https://github.com/araffin/sbx
 ```python
 import gym
 
-from sbx import TQC
+from sbx import TQC, DroQ
 
 env = gym.make("Pendulum-v1")
 

@@ -5,8 +5,8 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from sbx import TQC, DroQ
 
 
-def test_tqc(tmp_path):
-    model = TQC(
+def test_droq(tmp_path):
+    model = DroQ(
         "MlpPolicy",
         "Pendulum-v1",
         learning_starts=50,
@@ -16,7 +16,10 @@ def test_tqc(tmp_path):
         verbose=1,
         buffer_size=5000,
         gradient_steps=2,
+        ent_coef="auto_1.0",
         seed=1,
+        dropout_rate=0.001,
+        layer_norm=True,
         # action_noise=NormalActionNoise(np.zeros(1), np.zeros(1)),
     )
     model.learn(total_timesteps=100)
@@ -38,19 +41,16 @@ def test_tqc(tmp_path):
     assert np.allclose(action_before, action_after)
 
 
-def test_droq():
+def test_tqc():
     # Multi env
     train_env = make_vec_env("Pendulum-v1", n_envs=4)
-    policy_kwargs = dict(
-        dropout_rate=0.01,
-        layer_norm=True,
-    )
-    model = DroQ(
+    model = TQC(
         "MlpPolicy",
         train_env,
         top_quantiles_to_drop_per_net=1,
+        ent_coef=0.01,
         verbose=1,
         gradient_steps=1,
-        policy_kwargs=policy_kwargs,
+        use_sde=True,
     )
     model.learn(200)

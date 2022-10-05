@@ -9,6 +9,17 @@ with open(os.path.join("sbx", "version.txt")) as file_handler:
 long_description = """
 
 # Stable Baselines Jax (SB3 + JAX = SBX)
+
+See https://github.com/araffin/sbx
+
+## Example
+
+```python
+from sbx import TQC, DroQ
+
+model = TQC("MlpPolicy", "Pendulum-v1", verbose=1)
+model.learn(total_timesteps=10_000)
+
 """
 
 
@@ -17,7 +28,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3~=1.6.0",
+        "stable_baselines3~=1.6.1",
         "jax",
         "jaxlib",
         "flax",
