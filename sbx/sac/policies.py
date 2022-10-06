@@ -34,7 +34,6 @@ def select_action(actor, actor_state, obervations):
 class Critic(nn.Module):
     use_layer_norm: bool = False
     dropout_rate: Optional[float] = None
-    n_quantiles: int = 25
     n_units: int = 256
 
     @nn.compact
@@ -52,7 +51,7 @@ class Critic(nn.Module):
         if self.use_layer_norm:
             x = nn.LayerNorm()(x)
         x = nn.relu(x)
-        x = nn.Dense(self.n_quantiles)(x)
+        x = nn.Dense(1)(x)
         return x
 
 
@@ -81,7 +80,7 @@ class Actor(nn.Module):
         return dist
 
 
-class TQCPolicy(BaseJaxPolicy):
+class SACPolicy(BaseJaxPolicy):
     def __init__(
         self,
         observation_space: gym.spaces.Space,
@@ -90,8 +89,6 @@ class TQCPolicy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
-        top_quantiles_to_drop_per_net: int = 2,
-        n_quantiles: int = 25,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
@@ -123,13 +120,7 @@ class TQCPolicy(BaseJaxPolicy):
             self.n_units = net_arch[0]
         else:
             self.n_units = 256
-        self.n_quantiles = n_quantiles
         self.n_critics = n_critics
-        self.top_quantiles_to_drop_per_net = top_quantiles_to_drop_per_net
-        # Sort and drop top k quantiles to control overestimation.
-        quantiles_total = self.n_quantiles * self.n_critics
-        top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
-        self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * self.n_critics
         self.use_sde = use_sde
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
@@ -160,7 +151,6 @@ class TQCPolicy(BaseJaxPolicy):
             dropout_rate=self.dropout_rate,
             use_layer_norm=self.layer_norm,
             n_units=self.n_units,
-            n_quantiles=self.n_quantiles,
         )
 
         self.qf1_state = RLTrainState.create(

@@ -2,7 +2,7 @@ import numpy as np
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import TQC, DroQ
+from sbx import SAC, TQC, DroQ
 
 
 def test_droq(tmp_path):
@@ -54,3 +54,14 @@ def test_tqc():
         use_sde=True,
     )
     model.learn(200)
+
+
+def test_SAC():
+    model = SAC(
+        "MlpPolicy",
+        "Pendulum-v1",
+        verbose=1,
+        gradient_steps=1,
+        learning_rate=1e-3,
+    )
+    model.learn(110)
