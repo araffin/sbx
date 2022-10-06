@@ -38,6 +38,7 @@ def test_droq(tmp_path):
     model.set_env(env, force_reset=False)
     model.learn(100, reset_num_timesteps=False)
 
+
 def test_tqc():
     # Multi env
     train_env = make_vec_env("Pendulum-v1", n_envs=4)
@@ -53,7 +54,7 @@ def test_tqc():
     model.learn(200)
 
 
-def test_SAC():
+def test_sac():
     model = SAC(
         "MlpPolicy",
         "Pendulum-v1",

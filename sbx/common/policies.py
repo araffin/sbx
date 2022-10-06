@@ -9,7 +9,7 @@ from stable_baselines3.common.utils import is_vectorized_observation
 
 
 class BaseJaxPolicy(BasePolicy):
-    def __init__(self, *args, squash_output: bool = False, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(
             *args,
             **kwargs,
