@@ -110,7 +110,7 @@ class DroQ(TQC):
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 
-            ((qf1_state, qf2_state, ent_coef_state), (qf1_loss_value, qf2_loss_value), key,) = TQC.update_critic(
+            ((qf1_state, qf2_state), (qf1_loss_value, qf2_loss_value, ent_coef_value), key,) = TQC.update_critic(
                 actor,
                 qf,
                 ent_coef,
@@ -150,5 +150,5 @@ class DroQ(TQC):
             actor_state,
             ent_coef_state,
             key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value),
+            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_value),
         )
