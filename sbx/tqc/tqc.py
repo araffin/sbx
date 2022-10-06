@@ -171,7 +171,6 @@ class TQC(OffPolicyAlgorithmJax):
     def train(self, batch_size, gradient_steps):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps)
-        n_updates = 0
         # Convert to numpy
         data = ReplayBufferSamplesNp(
             data.observations.numpy(),
@@ -182,13 +181,13 @@ class TQC(OffPolicyAlgorithmJax):
         )
 
         (
-            n_updates,
+            self._n_updates,
             self.policy.qf1_state,
             self.policy.qf2_state,
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value),
+            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_value),
         ) = self._train(
             self.actor,
             self.qf,
@@ -199,13 +198,17 @@ class TQC(OffPolicyAlgorithmJax):
             self.gradient_steps,
             self.policy.n_target_quantiles,
             data,
-            n_updates,
+            self._n_updates,
             self.policy.qf1_state,
             self.policy.qf2_state,
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
         )
+        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        self.logger.record("train/actor_loss", actor_loss_value.item())
+        self.logger.record("train/critic_loss", qf1_loss_value.item())
+        self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
     @partial(jax.jit, static_argnames=["actor", "qf", "ent_coef", "gamma", "n_target_quantiles"])
@@ -292,8 +295,8 @@ class TQC(OffPolicyAlgorithmJax):
         qf2_state = qf2_state.apply_gradients(grads=grads2)
 
         return (
-            (qf1_state, qf2_state, ent_coef_state),
-            (qf1_loss_value, qf2_loss_value),
+            (qf1_state, qf2_state),
+            (qf1_loss_value, qf2_loss_value, ent_coef_value),
             key,
         )
 
@@ -408,7 +411,7 @@ class TQC(OffPolicyAlgorithmJax):
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 
-            ((qf1_state, qf2_state, ent_coef_state), (qf1_loss_value, qf2_loss_value), key,) = TQC.update_critic(
+            ((qf1_state, qf2_state), (qf1_loss_value, qf2_loss_value, ent_coef_value), key,) = TQC.update_critic(
                 actor,
                 qf,
                 ent_coef,
@@ -447,5 +450,5 @@ class TQC(OffPolicyAlgorithmJax):
             actor_state,
             ent_coef_state,
             key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value),
+            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_value),
         )

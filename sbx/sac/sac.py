@@ -150,7 +150,7 @@ class SAC(OffPolicyAlgorithmJax):
         eval_env: Optional[GymEnv] = None,
         eval_freq: int = -1,
         n_eval_episodes: int = 5,
-        tb_log_name: str = "TQC",
+        tb_log_name: str = "SAC",
         eval_log_path: Optional[str] = None,
         reset_num_timesteps: bool = True,
     ):
@@ -169,7 +169,6 @@ class SAC(OffPolicyAlgorithmJax):
     def train(self, batch_size, gradient_steps):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps)
-        n_updates = 0
         # Convert to numpy
         data = ReplayBufferSamplesNp(
             data.observations.numpy(),
@@ -180,12 +179,12 @@ class SAC(OffPolicyAlgorithmJax):
         )
 
         (
-            n_updates,
+            self._n_updates,
             self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
-            (qf_loss_value, actor_loss_value),
+            (actor_loss_value, qf_loss_value, ent_coef_value),
         ) = self._train(
             self.actor,
             self.qf,
@@ -195,12 +194,16 @@ class SAC(OffPolicyAlgorithmJax):
             self.target_entropy,
             self.gradient_steps,
             data,
-            n_updates,
+            self._n_updates,
             self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
         )
+        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        self.logger.record("train/actor_loss", actor_loss_value.item())
+        self.logger.record("train/critic_loss", qf_loss_value.item())
+        self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
     @partial(jax.jit, static_argnames=["actor", "qf", "ent_coef", "gamma"])
@@ -249,8 +252,8 @@ class SAC(OffPolicyAlgorithmJax):
         qf_state = qf_state.apply_gradients(grads=grads)
 
         return (
-            (qf_state, ent_coef_state),
-            qf_loss_value,
+            qf_state,
+            (qf_loss_value, ent_coef_value),
             key,
         )
 
@@ -281,7 +284,7 @@ class SAC(OffPolicyAlgorithmJax):
                 rngs={"dropout": dropout_key},
             )
             # Take min among all critics (mean for droq)
-            min_qf_pi = jnp.min(qf_pi, axis=1, keepdims=True)
+            min_qf_pi = jnp.min(qf_pi, axis=0, keepdims=True)
             ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
 
             actor_loss = (ent_coef_value * log_prob - min_qf_pi).mean()
@@ -303,7 +306,6 @@ class SAC(OffPolicyAlgorithmJax):
     def update_temperature(ent_coef, target_entropy, ent_coef_state: TrainState, entropy: float):
         def temperature_loss(temp_params):
             ent_coef_value = ent_coef.apply({"params": temp_params})
-            # ent_coef_loss = (jnp.log(ent_coef_value) * (entropy - target_entropy)).mean()
             ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()
             return ent_coef_loss
 
@@ -348,7 +350,7 @@ class SAC(OffPolicyAlgorithmJax):
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 
-            ((qf_state, ent_coef_state), qf_loss_value, key,) = SAC.update_critic(
+            (qf_state, (qf_loss_value, ent_coef_value), key,) = SAC.update_critic(
                 actor,
                 qf,
                 ent_coef,
@@ -383,5 +385,5 @@ class SAC(OffPolicyAlgorithmJax):
             actor_state,
             ent_coef_state,
             key,
-            (qf_loss_value, actor_loss_value),
+            (actor_loss_value, qf_loss_value, ent_coef_value),
         )
