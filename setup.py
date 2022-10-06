@@ -15,7 +15,7 @@ See https://github.com/araffin/sbx
 ## Example
 
 ```python
-from sbx import TQC, DroQ
+from sbx import TQC, DroQ, SAC
 
 model = TQC("MlpPolicy", "Pendulum-v1", verbose=1)
 model.learn(total_timesteps=10_000)
