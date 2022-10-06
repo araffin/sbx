@@ -5,8 +5,7 @@ import gym
 import numpy as np
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
-
-# from stable_baselines3.common.utils import is_vectorized_observation
+from stable_baselines3.common.utils import is_vectorized_observation
 
 
 class BaseJaxPolicy(BasePolicy):
@@ -74,11 +73,10 @@ class BaseJaxPolicy(BasePolicy):
             observation = np.array(observation)
 
         if not isinstance(observation, dict):
-            raise NotImplementedError()
-            # # Dict obs need to be handled separately
-            # vectorized_env = is_vectorized_observation(observation, self.observation_space)
-            # # Add batch dimension if needed
-            # observation = observation.reshape((-1,) + self.observation_space.shape)
+            # Dict obs need to be handled separately
+            vectorized_env = is_vectorized_observation(observation, self.observation_space)
+            # Add batch dimension if needed
+            observation = observation.reshape((-1,) + self.observation_space.shape)
 
         return observation, vectorized_env
 

@@ -181,12 +181,11 @@ class SAC(OffPolicyAlgorithmJax):
 
         (
             n_updates,
-            self.policy.qf1_state,
-            self.policy.qf2_state,
+            self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value),
+            (qf_loss_value, actor_loss_value),
         ) = self._train(
             self.actor,
             self.qf,
@@ -197,8 +196,7 @@ class SAC(OffPolicyAlgorithmJax):
             self.gradient_steps,
             data,
             n_updates,
-            self.policy.qf1_state,
-            self.policy.qf2_state,
+            self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
@@ -212,8 +210,7 @@ class SAC(OffPolicyAlgorithmJax):
         ent_coef,
         gamma,
         actor_state: TrainState,
-        qf1_state: RLTrainState,
-        qf2_state: RLTrainState,
+        qf_state: RLTrainState,
         ent_coef_state: TrainState,
         observations: np.ndarray,
         actions: np.ndarray,
@@ -224,8 +221,7 @@ class SAC(OffPolicyAlgorithmJax):
     ):
         # TODO Maybe pre-generate a lot of random keys
         # also check https://jax.readthedocs.io/en/latest/jax.random.html
-        key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
-        key, dropout_key_3, dropout_key_4 = jax.random.split(key, 3)
+        key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # sample action from the actor
         dist = actor.apply(actor_state.params, next_observations)
         next_state_actions = dist.sample(seed=noise_key)
@@ -233,41 +229,30 @@ class SAC(OffPolicyAlgorithmJax):
 
         ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
 
-        qf1_next_values = qf.apply(
-            qf1_state.target_params,
+        qf_next_values = qf.apply(
+            qf_state.target_params,
             next_observations,
             next_state_actions,
-            True,
-            rngs={"dropout": dropout_key_1},
-        )
-        qf2_next_values = qf.apply(
-            qf2_state.target_params,
-            next_observations,
-            next_state_actions,
-            True,
-            rngs={"dropout": dropout_key_2},
+            rngs={"dropout": dropout_key_target},
         )
 
-        # Concatenate quantiles from both critics to get a single tensor
-        qf_next_values = jnp.concatenate((qf1_next_values, qf2_next_values), axis=1)
-        next_q_values = jnp.min(qf_next_values, axis=1, keepdims=True)
-
+        next_q_values = jnp.min(qf_next_values, axis=0)
         # td error + entropy term
-        next_q_values = qf_next_values - ent_coef_value * next_log_prob.reshape(-1, 1)
+        next_q_values = next_q_values - ent_coef_value * next_log_prob.reshape(-1, 1)
+        # shape is (batch_size, 1)
         target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
 
-        def mse_loss(params, noise_key):
-            current_q_values = qf.apply(params, observations, actions, True, rngs={"dropout": noise_key})
+        def mse_loss(params, dropout_key):
+            # shape is (n_critics, batch_size, 1)
+            current_q_values = qf.apply(params, observations, actions, rngs={"dropout": dropout_key})
             return ((target_q_values - current_q_values) ** 2).mean()
 
-        qf1_loss_value, grads1 = jax.value_and_grad(mse_loss, has_aux=False)(qf1_state.params, dropout_key_3)
-        qf2_loss_value, grads2 = jax.value_and_grad(mse_loss, has_aux=False)(qf2_state.params, dropout_key_4)
-        qf1_state = qf1_state.apply_gradients(grads=grads1)
-        qf2_state = qf2_state.apply_gradients(grads=grads2)
+        qf_loss_value, grads = jax.value_and_grad(mse_loss, has_aux=False)(qf_state.params, dropout_key_current)
+        qf_state = qf_state.apply_gradients(grads=grads)
 
         return (
-            (qf1_state, qf2_state, ent_coef_state),
-            (qf1_loss_value, qf2_loss_value),
+            (qf_state, ent_coef_state),
+            qf_loss_value,
             key,
         )
 
@@ -278,13 +263,12 @@ class SAC(OffPolicyAlgorithmJax):
         qf,
         ent_coef,
         actor_state: RLTrainState,
-        qf1_state: RLTrainState,
-        qf2_state: RLTrainState,
+        qf_state: RLTrainState,
         ent_coef_state: TrainState,
         observations: np.ndarray,
         key: jnp.ndarray,
     ):
-        key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
+        key, dropout_key, noise_key = jax.random.split(key, 3)
 
         def actor_loss(params):
 
@@ -292,42 +276,29 @@ class SAC(OffPolicyAlgorithmJax):
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
 
-            qf1_pi = qf.apply(
-                qf1_state.params,
+            qf_pi = qf.apply(
+                qf_state.params,
                 observations,
                 actor_actions,
-                True,
-                rngs={"dropout": dropout_key_1},
+                rngs={"dropout": dropout_key},
             )
-            qf2_pi = qf.apply(
-                qf2_state.params,
-                observations,
-                actor_actions,
-                True,
-                rngs={"dropout": dropout_key_2},
-            )
-            qf1_pi = jnp.expand_dims(qf1_pi, axis=-1)
-            qf2_pi = jnp.expand_dims(qf2_pi, axis=-1)
-
-            # Concatenate quantiles from both critics
-            # (batch, n_quantiles, n_critics)
-            qf_pi = jnp.concatenate((qf1_pi, qf2_pi), axis=1)
-            qf_pi = qf_pi.mean(axis=2).mean(axis=1, keepdims=True)
-
+            # Take min among all critics (mean for droq)
+            min_qf_pi = jnp.min(qf_pi, axis=1, keepdims=True)
             ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
-            return (ent_coef_value * log_prob - qf_pi).mean(), -log_prob.mean()
+
+            actor_loss = (ent_coef_value * log_prob - min_qf_pi).mean()
+            return actor_loss, -log_prob.mean()
 
         (actor_loss_value, entropy), grads = jax.value_and_grad(actor_loss, has_aux=True)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=grads)
 
-        return actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy
+        return actor_state, qf_state, actor_loss_value, key, entropy
 
     @staticmethod
     @partial(jax.jit, static_argnames=["tau"])
-    def soft_update(tau, qf1_state: RLTrainState, qf2_state: RLTrainState):
-        qf1_state = qf1_state.replace(target_params=optax.incremental_update(qf1_state.params, qf1_state.target_params, tau))
-        qf2_state = qf2_state.replace(target_params=optax.incremental_update(qf2_state.params, qf2_state.target_params, tau))
-        return qf1_state, qf2_state
+    def soft_update(tau, qf_state: RLTrainState):
+        qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
+        return qf_state
 
     @staticmethod
     @partial(jax.jit, static_argnames=["ent_coef", "target_entropy"])
@@ -366,8 +337,7 @@ class SAC(OffPolicyAlgorithmJax):
         gradient_steps,
         data: ReplayBufferSamplesNp,
         n_updates: int,
-        qf1_state: RLTrainState,
-        qf2_state: RLTrainState,
+        qf_state: RLTrainState,
         actor_state: TrainState,
         ent_coef_state: TrainState,
         key,
@@ -381,14 +351,13 @@ class SAC(OffPolicyAlgorithmJax):
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 
-            ((qf1_state, qf2_state, ent_coef_state), (qf1_loss_value, qf2_loss_value), key,) = SAC.update_critic(
+            ((qf_state, ent_coef_state), qf_loss_value, key,) = SAC.update_critic(
                 actor,
                 qf,
                 ent_coef,
                 gamma,
                 actor_state,
-                qf1_state,
-                qf2_state,
+                qf_state,
                 ent_coef_state,
                 slice(data.observations),
                 slice(data.actions),
@@ -397,15 +366,14 @@ class SAC(OffPolicyAlgorithmJax):
                 slice(data.dones),
                 key,
             )
-            qf1_state, qf2_state = SAC.soft_update(tau, qf1_state, qf2_state)
+            qf_state = SAC.soft_update(tau, qf_state)
 
-            (actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy) = SAC.update_actor(
+            (actor_state, qf_state, actor_loss_value, key, entropy) = SAC.update_actor(
                 actor,
                 qf,
                 ent_coef,
                 actor_state,
-                qf1_state,
-                qf2_state,
+                qf_state,
                 ent_coef_state,
                 slice(data.observations),
                 key,
@@ -414,10 +382,9 @@ class SAC(OffPolicyAlgorithmJax):
 
         return (
             n_updates,
-            qf1_state,
-            qf2_state,
+            qf_state,
             actor_state,
             ent_coef_state,
             key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value),
+            (qf_loss_value, actor_loss_value),
         )
