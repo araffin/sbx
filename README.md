@@ -10,6 +10,7 @@
 Proof of concept version of [Stable-Baselines3](https://github.com/DLR-RM/stable-baselines3) in Jax.
 
 Implemented algorithms:
+- [Soft Actor-Critic (SAC)](https://arxiv.org/abs/1801.01290) and [SAC-N](https://arxiv.org/abs/2110.01548)
 - [Truncated Quantile Critics (TQC)](https://arxiv.org/abs/2005.04269)
 - [Dropout Q-Functions for Doubly Efficient Reinforcement Learning (DroQ)](https://openreview.net/forum?id=xCVJMsPv3RT)
 
