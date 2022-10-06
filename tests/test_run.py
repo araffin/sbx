@@ -22,24 +22,21 @@ def test_droq(tmp_path):
         layer_norm=True,
         # action_noise=NormalActionNoise(np.zeros(1), np.zeros(1)),
     )
-    model.learn(total_timesteps=100)
-    model.save(tmp_path / "test_save.zip")
-    env = model.get_env()
-    obs = env.observation_space.sample()
-    model = TQC.load(tmp_path / "test_save.zip")
-    model.set_env(env, force_reset=False)
-    model.learn(1500, reset_num_timesteps=False)
-    action_before = model.predict(obs, deterministic=True)[0]
+    model.learn(total_timesteps=1500)
     # Check that something was learned
     evaluate_policy(model, model.get_env(), reward_threshold=-800)
     model.save(tmp_path / "test_save.zip")
     env = model.get_env()
+    obs = env.observation_space.sample()
+    action_before = model.predict(obs, deterministic=True)[0]
     # Check we have the same performance
-    model = TQC.load(tmp_path / "test_save.zip")
+    model = DroQ.load(tmp_path / "test_save.zip")
     evaluate_policy(model, env, reward_threshold=-800)
     action_after = model.predict(obs, deterministic=True)[0]
     assert np.allclose(action_before, action_after)
-
+    # Continue training
+    model.set_env(env, force_reset=False)
+    model.learn(100, reset_num_timesteps=False)
 
 def test_tqc():
     # Multi env
