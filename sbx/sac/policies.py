@@ -63,10 +63,12 @@ class VectorCritic(nn.Module):
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
+        # Idea taken from https://github.com/perrin-isir/xpag
+        # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
         vmap_critic = nn.vmap(
             Critic,
-            variable_axes={"params": 0},
-            split_rngs={"params": True},
+            variable_axes={"params": 0}, # parameters not shared between the critics
+            split_rngs={"params": True}, # different initializations
             in_axes=None,
             out_axes=0,
             axis_size=self.n_critics,
