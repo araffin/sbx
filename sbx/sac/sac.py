@@ -284,9 +284,8 @@ class SAC(OffPolicyAlgorithmJax):
                 rngs={"dropout": dropout_key},
             )
             # Take min among all critics (mean for droq)
-            min_qf_pi = jnp.min(qf_pi, axis=0, keepdims=True)
+            min_qf_pi = jnp.min(qf_pi, axis=0)
             ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
-
             actor_loss = (ent_coef_value * log_prob - min_qf_pi).mean()
             return actor_loss, -log_prob.mean()
 
