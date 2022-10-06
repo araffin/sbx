@@ -34,12 +34,11 @@ def select_action(actor, actor_state, obervations):
 class Critic(nn.Module):
     use_layer_norm: bool = False
     dropout_rate: Optional[float] = None
-    n_quantiles: int = 25
     n_units: int = 256
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, a: jnp.ndarray, training: bool = False) -> jnp.ndarray:
-        x = jnp.concatenate([x, a], -1)
+    def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
+        x = jnp.concatenate([x, action], -1)
         x = nn.Dense(self.n_units)(x)
         if self.dropout_rate is not None and self.dropout_rate > 0:
             x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
@@ -52,8 +51,34 @@ class Critic(nn.Module):
         if self.use_layer_norm:
             x = nn.LayerNorm()(x)
         x = nn.relu(x)
-        x = nn.Dense(self.n_quantiles)(x)
+        x = nn.Dense(1)(x)
         return x
+
+
+class VectorCritic(nn.Module):
+    use_layer_norm: bool = False
+    dropout_rate: Optional[float] = None
+    n_units: int = 256
+    n_critics: int = 2
+
+    @nn.compact
+    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
+        # Idea taken from https://github.com/perrin-isir/xpag
+        # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
+        vmap_critic = nn.vmap(
+            Critic,
+            variable_axes={"params": 0},  # parameters not shared between the critics
+            split_rngs={"params": True},  # different initializations
+            in_axes=None,
+            out_axes=0,
+            axis_size=self.n_critics,
+        )
+        q_values = vmap_critic(
+            use_layer_norm=self.use_layer_norm,
+            dropout_rate=self.dropout_rate,
+            n_units=self.n_units,
+        )(obs, action)
+        return q_values
 
 
 class Actor(nn.Module):
@@ -81,7 +106,7 @@ class Actor(nn.Module):
         return dist
 
 
-class TQCPolicy(BaseJaxPolicy):
+class SACPolicy(BaseJaxPolicy):
     def __init__(
         self,
         observation_space: gym.spaces.Space,
@@ -90,8 +115,6 @@ class TQCPolicy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
-        top_quantiles_to_drop_per_net: int = 2,
-        n_quantiles: int = 25,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
@@ -123,20 +146,15 @@ class TQCPolicy(BaseJaxPolicy):
             self.n_units = net_arch[0]
         else:
             self.n_units = 256
-        self.n_quantiles = n_quantiles
         self.n_critics = n_critics
-        self.top_quantiles_to_drop_per_net = top_quantiles_to_drop_per_net
-        # Sort and drop top k quantiles to control overestimation.
-        quantiles_total = self.n_quantiles * self.n_critics
-        top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
-        self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * self.n_critics
         self.use_sde = use_sde
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
     def build(self, key, lr_schedule: Schedule) -> None:
-        key, actor_key, qf1_key, qf2_key = jax.random.split(key, 4)
-        key, dropout_key1, dropout_key2, self.key = jax.random.split(key, 4)
+        key, actor_key, qf_key, dropout_key = jax.random.split(key, 4)
+        # Keep a key for the actor
+        key, self.key = jax.random.split(key, 2)
         # Initialize noise
         self.reset_noise()
 
@@ -156,41 +174,28 @@ class TQCPolicy(BaseJaxPolicy):
             tx=self.optimizer_class(learning_rate=lr_schedule(1), **self.optimizer_kwargs),
         )
 
-        self.qf = Critic(
+        self.qf = VectorCritic(
             dropout_rate=self.dropout_rate,
             use_layer_norm=self.layer_norm,
             n_units=self.n_units,
-            n_quantiles=self.n_quantiles,
+            n_critics=self.n_critics,
         )
 
-        self.qf1_state = RLTrainState.create(
+        self.qf_state = RLTrainState.create(
             apply_fn=self.qf.apply,
             params=self.qf.init(
-                {"params": qf1_key, "dropout": dropout_key1},
+                {"params": qf_key, "dropout": dropout_key},
                 obs,
                 action,
             ),
             target_params=self.qf.init(
-                {"params": qf1_key, "dropout": dropout_key1},
+                {"params": qf_key, "dropout": dropout_key},
                 obs,
                 action,
             ),
             tx=optax.adam(learning_rate=lr_schedule(1)),
         )
-        self.qf2_state = RLTrainState.create(
-            apply_fn=self.qf.apply,
-            params=self.qf.init(
-                {"params": qf2_key, "dropout": dropout_key2},
-                obs,
-                action,
-            ),
-            target_params=self.qf.init(
-                {"params": qf2_key, "dropout": dropout_key2},
-                obs,
-                action,
-            ),
-            tx=self.optimizer_class(learning_rate=lr_schedule(1), **self.optimizer_kwargs),
-        )
+
         self.actor.apply = jax.jit(self.actor.apply)
         self.qf.apply = jax.jit(self.qf.apply, static_argnames=("dropout_rate", "use_layer_norm"))
 

@@ -107,7 +107,6 @@ class DroQ(TQC):
 
             def slice(x, step=i):
                 assert x.shape[0] % gradient_steps == 0
-                # batch_size = batch_size
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 
