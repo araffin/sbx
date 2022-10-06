@@ -68,7 +68,7 @@ class VectorCritic(nn.Module):
         vmap_critic = nn.vmap(
             Critic,
             variable_axes={"params": 0},  # parameters not shared between the critics
-            split_rngs={"params": True},  # different initializations
+            split_rngs={"params": True, "dropout": True},  # different initializations
             in_axes=None,
             out_axes=0,
             axis_size=self.n_critics,
