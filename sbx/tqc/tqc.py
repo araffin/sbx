@@ -226,8 +226,6 @@ class TQC(OffPolicyAlgorithmJax):
         dones: np.ndarray,
         key: jnp.ndarray,
     ):
-        # TODO Maybe pre-generate a lot of random keys
-        # also check https://jax.readthedocs.io/en/latest/jax.random.html
         key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
         key, dropout_key_3, dropout_key_4 = jax.random.split(key, 3)
         # sample action from the actor
@@ -407,7 +405,6 @@ class TQC(OffPolicyAlgorithmJax):
 
             def slice(x, step=i):
                 assert x.shape[0] % gradient_steps == 0
-                # batch_size = batch_size
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 

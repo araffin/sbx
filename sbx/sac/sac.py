@@ -219,8 +219,6 @@ class SAC(OffPolicyAlgorithmJax):
         dones: np.ndarray,
         key: jnp.ndarray,
     ):
-        # TODO Maybe pre-generate a lot of random keys
-        # also check https://jax.readthedocs.io/en/latest/jax.random.html
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # sample action from the actor
         dist = actor.apply(actor_state.params, next_observations)
@@ -347,7 +345,6 @@ class SAC(OffPolicyAlgorithmJax):
 
             def slice(x, step=i):
                 assert x.shape[0] % gradient_steps == 0
-                # batch_size = batch_size
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 
