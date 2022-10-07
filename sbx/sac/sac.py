@@ -1,6 +1,7 @@
 from functools import partial
 from typing import Any, Dict, Optional, Tuple, Union
 
+import flax
 import flax.linen as nn
 import gym
 import jax
@@ -54,6 +55,7 @@ class SAC(OffPolicyAlgorithmJax):
         gamma: float = 0.99,
         train_freq: Union[int, Tuple[int, str]] = 1,
         gradient_steps: int = 1,
+        policy_delay: int = 1,
         action_noise: Optional[ActionNoise] = None,
         ent_coef: Union[str, float] = "auto",
         use_sde: bool = False,
@@ -89,6 +91,7 @@ class SAC(OffPolicyAlgorithmJax):
             support_multi_env=True,
         )
 
+        self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
 
         if _init_setup_model:
@@ -169,6 +172,11 @@ class SAC(OffPolicyAlgorithmJax):
     def train(self, batch_size, gradient_steps):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps)
+        # Pre-compute the indices where we need to update the actor
+        # This is a hack in order to jit the train loop
+        # It will compile once per value of policy_delay_indices
+        policy_delay_indices = {i: True for i in range(gradient_steps) if ((self._n_updates + i + 1) % self.policy_delay) == 0}
+        policy_delay_indices = flax.core.FrozenDict(policy_delay_indices)
         # Convert to numpy
         data = ReplayBufferSamplesNp(
             data.observations.numpy(),
@@ -179,7 +187,6 @@ class SAC(OffPolicyAlgorithmJax):
         )
 
         (
-            self._n_updates,
             self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,
@@ -194,12 +201,13 @@ class SAC(OffPolicyAlgorithmJax):
             self.target_entropy,
             self.gradient_steps,
             data,
-            self._n_updates,
+            policy_delay_indices,
             self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
         )
+        self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/actor_loss", actor_loss_value.item())
         self.logger.record("train/critic_loss", qf_loss_value.item())
@@ -335,14 +343,15 @@ class SAC(OffPolicyAlgorithmJax):
         target_entropy,
         gradient_steps,
         data: ReplayBufferSamplesNp,
-        n_updates: int,
+        policy_delay_indices: flax.core.FrozenDict,
         qf_state: RLTrainState,
         actor_state: TrainState,
         ent_coef_state: TrainState,
         key,
     ):
+        actor_loss_value = jnp.array(0)
+
         for i in range(gradient_steps):
-            n_updates += 1
 
             def slice(x, step=i):
                 assert x.shape[0] % gradient_steps == 0
@@ -366,20 +375,21 @@ class SAC(OffPolicyAlgorithmJax):
             )
             qf_state = SAC.soft_update(tau, qf_state)
 
-            (actor_state, qf_state, actor_loss_value, key, entropy) = SAC.update_actor(
-                actor,
-                qf,
-                ent_coef,
-                actor_state,
-                qf_state,
-                ent_coef_state,
-                slice(data.observations),
-                key,
-            )
-            ent_coef_state, _ = SAC.update_temperature(ent_coef, target_entropy, ent_coef_state, entropy)
+            # hack to be able to jit (n_updates % policy_delay == 0)
+            if i in policy_delay_indices:
+                (actor_state, qf_state, actor_loss_value, key, entropy) = SAC.update_actor(
+                    actor,
+                    qf,
+                    ent_coef,
+                    actor_state,
+                    qf_state,
+                    ent_coef_state,
+                    slice(data.observations),
+                    key,
+                )
+                ent_coef_state, _ = SAC.update_temperature(ent_coef, target_entropy, ent_coef_state, entropy)
 
         return (
-            n_updates,
             qf_state,
             actor_state,
             ent_coef_state,

@@ -9,7 +9,7 @@ from flax.training.train_state import TrainState
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 
-from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
+from sbx.common.type_aliases import RLTrainState
 from sbx.sac.policies import SACPolicy
 from sbx.sac.sac import SAC
 
@@ -31,7 +31,9 @@ class DroQ_SAC(SAC):
         tau: float = 0.005,
         gamma: float = 0.99,
         train_freq: Union[int, Tuple[int, str]] = 1,
-        gradient_steps: int = 1,
+        gradient_steps: int = 2,
+        # policy_delay = gradient_steps to follow original implementation
+        policy_delay: int = 2,
         dropout_rate: float = 0.01,
         layer_norm: bool = True,
         action_noise: Optional[ActionNoise] = None,
@@ -57,6 +59,7 @@ class DroQ_SAC(SAC):
             gamma=gamma,
             train_freq=train_freq,
             gradient_steps=gradient_steps,
+            policy_delay=policy_delay,
             action_noise=action_noise,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
@@ -107,79 +110,3 @@ class DroQ_SAC(SAC):
         actor_state = actor_state.apply_gradients(grads=grads)
 
         return actor_state, qf_state, actor_loss_value, key, entropy
-
-    @staticmethod
-    @partial(
-        jax.jit,
-        static_argnames=[
-            "actor",
-            "qf",
-            "ent_coef",
-            "gamma",
-            "tau",
-            "target_entropy",
-            "gradient_steps",
-        ],
-    )
-    def _train(
-        actor,
-        qf,
-        ent_coef,
-        gamma,
-        tau,
-        target_entropy,
-        gradient_steps,
-        data: ReplayBufferSamplesNp,
-        n_updates: int,
-        qf_state: RLTrainState,
-        actor_state: TrainState,
-        ent_coef_state: TrainState,
-        key,
-    ):
-        for i in range(gradient_steps):
-            n_updates += 1
-
-            def slice(x, step=i):
-                assert x.shape[0] % gradient_steps == 0
-                batch_size = x.shape[0] // gradient_steps
-                return x[batch_size * step : batch_size * (step + 1)]
-
-            (qf_state, (qf_loss_value, ent_coef_value), key,) = SAC.update_critic(
-                actor,
-                qf,
-                ent_coef,
-                gamma,
-                actor_state,
-                qf_state,
-                ent_coef_state,
-                slice(data.observations),
-                slice(data.actions),
-                slice(data.next_observations),
-                slice(data.rewards),
-                slice(data.dones),
-                key,
-            )
-            qf_state = SAC.soft_update(tau, qf_state)
-
-        # DroQ only updates the actor once
-        # and use the mean over critics
-        (actor_state, qf_state, actor_loss_value, key, entropy) = DroQ_SAC.update_actor(
-            actor,
-            qf,
-            ent_coef,
-            actor_state,
-            qf_state,
-            ent_coef_state,
-            slice(data.observations),
-            key,
-        )
-        ent_coef_state, _ = SAC.update_temperature(ent_coef, target_entropy, ent_coef_state, entropy)
-
-        return (
-            n_updates,
-            qf_state,
-            actor_state,
-            ent_coef_state,
-            key,
-            (actor_loss_value, qf_loss_value, ent_coef_value),
-        )
