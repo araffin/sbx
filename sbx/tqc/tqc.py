@@ -1,9 +1,9 @@
 from functools import partial
 from typing import Any, Dict, Optional, Tuple, Union
 
+import flax
 import flax.linen as nn
 import gym
-import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -415,6 +415,7 @@ class TQC(OffPolicyAlgorithmJax):
         actor_loss_value = jnp.array(0)
 
         for i in range(gradient_steps):
+
             def slice(x, step=i):
                 assert x.shape[0] % gradient_steps == 0
                 batch_size = x.shape[0] // gradient_steps

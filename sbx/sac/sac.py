@@ -321,10 +321,11 @@ class SAC(OffPolicyAlgorithmJax):
 
         return ent_coef_state, ent_coef_loss
 
-    @staticmethod
+    @classmethod
     @partial(
         jax.jit,
         static_argnames=[
+            "cls",
             "actor",
             "qf",
             "ent_coef",
@@ -335,6 +336,7 @@ class SAC(OffPolicyAlgorithmJax):
         ],
     )
     def _train(
+        cls,
         actor,
         qf,
         ent_coef,
@@ -377,7 +379,7 @@ class SAC(OffPolicyAlgorithmJax):
 
             # hack to be able to jit (n_updates % policy_delay == 0)
             if i in policy_delay_indices:
-                (actor_state, qf_state, actor_loss_value, key, entropy) = SAC.update_actor(
+                (actor_state, qf_state, actor_loss_value, key, entropy) = cls.update_actor(
                     actor,
                     qf,
                     ent_coef,
