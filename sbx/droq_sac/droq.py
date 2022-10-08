@@ -74,6 +74,9 @@ class DroQ_SAC(SAC):
         self.policy_kwargs["dropout_rate"] = dropout_rate
         self.policy_kwargs["layer_norm"] = layer_norm
 
+        if _init_setup_model:
+            self._setup_model()
+
     @staticmethod
     @partial(jax.jit, static_argnames=["actor", "qf", "ent_coef"])
     def update_actor(

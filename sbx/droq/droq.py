@@ -65,7 +65,11 @@ class DroQ(TQC):
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
-            _init_setup_model=_init_setup_model,
+            _init_setup_model=False,
         )
+
         self.policy_kwargs["dropout_rate"] = dropout_rate
         self.policy_kwargs["layer_norm"] = layer_norm
+
+        if _init_setup_model:
+            self._setup_model()

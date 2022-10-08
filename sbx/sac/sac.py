@@ -171,7 +171,7 @@ class SAC(OffPolicyAlgorithmJax):
 
     def train(self, batch_size, gradient_steps):
         # Sample all at once for efficiency (so we can jit the for loop)
-        data = self.replay_buffer.sample(batch_size * gradient_steps)
+        data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
         # Pre-compute the indices where we need to update the actor
         # This is a hack in order to jit the train loop
         # It will compile once per value of policy_delay_indices
