@@ -1,7 +1,9 @@
 # import copy
+from functools import partial
 from typing import Dict, Optional, Tuple, Union
 
 import gym
+import jax
 import numpy as np
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
@@ -14,6 +16,18 @@ class BaseJaxPolicy(BasePolicy):
             *args,
             **kwargs,
         )
+
+    @staticmethod
+    @partial(jax.jit, static_argnames="actor")
+    def sample_action(actor, actor_state, obervations, key):
+        dist = actor.apply(actor_state.params, obervations)
+        action = dist.sample(seed=key)
+        return action
+
+    @staticmethod
+    @partial(jax.jit, static_argnames="actor")
+    def select_action(actor, actor_state, obervations):
+        return actor.apply(actor_state.params, obervations).mode()
 
     def predict(
         self,

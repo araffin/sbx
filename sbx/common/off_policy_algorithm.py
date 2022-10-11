@@ -32,7 +32,6 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         verbose: int = 0,
         device: str = "auto",
         support_multi_env: bool = False,
-        create_eval_env: bool = False,
         monitor_wrapper: bool = True,
         seed: Optional[int] = None,
         use_sde: bool = False,

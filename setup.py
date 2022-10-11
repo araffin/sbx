@@ -28,7 +28,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3~=1.6.1",
+        "stable_baselines3~=1.7.0a0",
         "jax",
         "jaxlib",
         "flax",
@@ -48,8 +48,6 @@ setup(
             "pytype",
             # Lint code
             "flake8>=3.8",
-            # flake8 not compatible with importlib-metadata>5.0
-            "importlib-metadata~=4.13",
             # Find likely bugs
             "flake8-bugbear",
             # Sort imports

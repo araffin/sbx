@@ -1,4 +1,3 @@
-from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import flax.linen as nn
@@ -17,18 +16,6 @@ from sbx.common.type_aliases import RLTrainState
 
 tfp = tensorflow_probability.substrates.jax
 tfd = tfp.distributions
-
-
-@partial(jax.jit, static_argnames="actor")
-def sample_action(actor, actor_state, obervations, key):
-    dist = actor.apply(actor_state.params, obervations)
-    action = dist.sample(seed=key)
-    return action
-
-
-@partial(jax.jit, static_argnames="actor")
-def select_action(actor, actor_state, obervations):
-    return actor.apply(actor_state.params, obervations).mode()
 
 
 class Critic(nn.Module):
@@ -207,8 +194,8 @@ class TQCPolicy(BaseJaxPolicy):
 
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:
         if deterministic:
-            return select_action(self.actor, self.actor_state, observation)
+            return BaseJaxPolicy.select_action(self.actor, self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
             self.reset_noise()
-        return sample_action(self.actor, self.actor_state, observation, self.noise_key)
+        return BaseJaxPolicy.sample_action(self.actor, self.actor_state, observation, self.noise_key)
