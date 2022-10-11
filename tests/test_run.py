@@ -3,7 +3,7 @@ import pytest
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import SAC, TQC, DroQ, DroQ_SAC
+from sbx import SAC, TQC, DroQ
 
 
 def test_droq(tmp_path):
@@ -55,7 +55,7 @@ def test_tqc():
     model.learn(200)
 
 
-@pytest.mark.parametrize("model_class", [SAC, DroQ_SAC])
+@pytest.mark.parametrize("model_class", [SAC])
 def test_sac(model_class):
     model = model_class(
         "MlpPolicy",
