@@ -138,7 +138,7 @@ class SACPolicy(BaseJaxPolicy):
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
-    def build(self, key, lr_schedule: Schedule) -> None:
+    def build(self, key, lr_schedule: Schedule, qf_learning_rate: float) -> None:
         key, actor_key, qf_key, dropout_key = jax.random.split(key, 4)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
@@ -180,7 +180,7 @@ class SACPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=optax.adam(learning_rate=lr_schedule(1)),
+            tx=self.optimizer_class(learning_rate=qf_learning_rate, **self.optimizer_kwargs),
         )
 
         self.actor.apply = jax.jit(self.actor.apply)

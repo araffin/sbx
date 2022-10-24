@@ -48,6 +48,7 @@ class TQC(OffPolicyAlgorithmJax):
         policy,
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
+        qf_learning_rate: Optional[float] = None,
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
         batch_size: int = 256,
@@ -73,6 +74,7 @@ class TQC(OffPolicyAlgorithmJax):
             policy=policy,
             env=env,
             learning_rate=learning_rate,
+            qf_learning_rate=qf_learning_rate,
             buffer_size=buffer_size,
             learning_starts=learning_starts,
             batch_size=batch_size,
@@ -110,7 +112,7 @@ class TQC(OffPolicyAlgorithmJax):
                 **self.policy_kwargs,  # pytype:disable=not-instantiable
             )
 
-            self.key = self.policy.build(self.key, self.lr_schedule)
+            self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 
             self.key, ent_key = jax.random.split(self.key, 2)
 
@@ -230,7 +232,7 @@ class TQC(OffPolicyAlgorithmJax):
         next_observations: np.ndarray,
         rewards: np.ndarray,
         dones: np.ndarray,
-        key: jnp.ndarray,
+        key: jax.random.KeyArray,
     ):
         key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
         key, dropout_key_3, dropout_key_4 = jax.random.split(key, 3)
@@ -314,7 +316,7 @@ class TQC(OffPolicyAlgorithmJax):
         qf2_state: RLTrainState,
         ent_coef_state: TrainState,
         observations: np.ndarray,
-        key: jnp.ndarray,
+        key: jax.random.KeyArray,
     ):
         key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
 

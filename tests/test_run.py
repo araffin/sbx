@@ -51,6 +51,7 @@ def test_tqc():
         verbose=1,
         gradient_steps=1,
         use_sde=True,
+        qf_learning_rate=1e-3,
     )
     model.learn(200)
 
