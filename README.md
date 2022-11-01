@@ -13,6 +13,7 @@ Implemented algorithms:
 - [Soft Actor-Critic (SAC)](https://arxiv.org/abs/1801.01290) and [SAC-N](https://arxiv.org/abs/2110.01548)
 - [Truncated Quantile Critics (TQC)](https://arxiv.org/abs/2005.04269)
 - [Dropout Q-Functions for Doubly Efficient Reinforcement Learning (DroQ)](https://openreview.net/forum?id=xCVJMsPv3RT)
+- [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 
 ### Install using pip
 
@@ -26,7 +27,7 @@ pip install git+https://github.com/araffin/sbx
 ```python
 import gym
 
-from sbx import TQC, DroQ
+from sbx import TQC, DroQ, SAC, PPO
 
 env = gym.make("Pendulum-v1")
 
