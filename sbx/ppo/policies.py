@@ -10,6 +10,7 @@ import optax
 import tensorflow_probability
 from flax.linen.initializers import constant
 from flax.training.train_state import TrainState
+from gym import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 # from sbx.common.distributions import TanhTransformedDistribution
@@ -45,9 +46,10 @@ class Critic(nn.Module):
 class Actor(nn.Module):
     action_dim: Sequence[int]
     n_units: int = 256
-    log_std_init: float = 1.0
+    log_std_init: float = 0.0
     # log_std_min: float = -20
     # log_std_max: float = 2
+    continuous: bool = True
 
     def get_std(self):
         # Make it work with gSDE
@@ -66,9 +68,11 @@ class Actor(nn.Module):
         # dist = TanhTransformedDistribution(
         #     tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
         # )
-        log_std = self.param("log_std", constant(self.log_std_init), (1, self.action_dim))
-
-        dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
+        if self.continuous:
+            log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
+            dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
+        else:
+            dist = tfd.Categorical(logits=mean)
         return dist
 
 
@@ -81,11 +85,13 @@ class PPOPolicy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
+        ortho_init: bool = False,
+        activation_fn=None,  # TODO
+        log_std_init: float = 0.0,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
-        log_std_init: float = -3,
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
@@ -106,9 +112,10 @@ class PPOPolicy(BaseJaxPolicy):
         )
         self.dropout_rate = dropout_rate
         self.layer_norm = layer_norm
+        self.log_std_init = log_std_init
         if net_arch is not None:
             assert isinstance(net_arch, list)
-            self.n_units = net_arch[0]
+            self.n_units = net_arch[0]["pi"][0]
         else:
             self.n_units = 256
         self.use_sde = use_sde
@@ -124,9 +131,23 @@ class PPOPolicy(BaseJaxPolicy):
 
         obs = jnp.array([self.observation_space.sample()])
 
+        if isinstance(self.action_space, spaces.Box):
+            actor_kwargs = {
+                "action_dim": np.prod(self.action_space.shape),
+                "continuous": True,
+            }
+        elif isinstance(self.action_space, spaces.Discrete):
+            actor_kwargs = {
+                "action_dim": self.action_space.n,
+                "continuous": False,
+            }
+        else:
+            raise NotImplementedError(f"{self.action_space}")
+
         self.actor = Actor(
-            action_dim=np.prod(self.action_space.shape),
             n_units=self.n_units,
+            log_std_init=self.log_std_init,
+            **actor_kwargs,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -186,15 +207,12 @@ class PPOPolicy(BaseJaxPolicy):
             self.reset_noise()
         return BaseJaxPolicy.sample_action(self.actor, self.actor_state, observation, self.noise_key)
 
-    def evaluate_action(self, observation: np.ndarray) -> np.ndarray:
-        # Trick to use gSDE: repeat sampled noise by using the same noise key
-        if not self.use_sde:
-            self.reset_noise()
-        return self._evaluate_action(self.actor, self.vf, self.actor_state, self.vf_state, observation, self.noise_key)
+    def predict_all(self, observation: np.ndarray, key: jax.random.KeyArray) -> np.ndarray:
+        return self._predict_all(self.actor, self.vf, self.actor_state, self.vf_state, observation, key)
 
     @staticmethod
     @partial(jax.jit, static_argnames=["actor", "vf"])
-    def _evaluate_action(actor, vf, actor_state, vf_state, obervations, key):
+    def _predict_all(actor, vf, actor_state, vf_state, obervations, key):
         dist = actor.apply(actor_state.params, obervations)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)

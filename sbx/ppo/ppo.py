@@ -8,7 +8,7 @@ import numpy as np
 from flax.training.train_state import TrainState
 from gym import spaces
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import get_schedule_fn  # explained_variance
+from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
 from sbx.ppo.policies import PPOPolicy
@@ -111,6 +111,7 @@ class PPO(OnPolicyAlgorithmJax):
             ent_coef=ent_coef,
             vf_coef=vf_coef,
             max_grad_norm=max_grad_norm,
+            # Note: gSDE is not properly implemented,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
             tensorboard_log=tensorboard_log,
@@ -121,7 +122,7 @@ class PPO(OnPolicyAlgorithmJax):
             _init_setup_model=False,
             supported_action_spaces=(
                 spaces.Box,
-                # spaces.Discrete,
+                spaces.Discrete,
                 # spaces.MultiDiscrete,
                 # spaces.MultiBinary,
             ),
@@ -190,7 +191,7 @@ class PPO(OnPolicyAlgorithmJax):
         #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["actor", "vf", "ent_coef", "vf_coef"])
+    @partial(jax.jit, static_argnames=["actor", "vf"])
     def _one_update(
         actor,
         vf,
@@ -201,7 +202,7 @@ class PPO(OnPolicyAlgorithmJax):
         advantages: np.ndarray,
         returns: np.ndarray,
         old_log_prob: np.ndarray,
-        clip_range: np.ndarray,
+        clip_range: float,
         ent_coef: float,
         vf_coef: float,
         key: jax.random.KeyArray,
@@ -209,15 +210,15 @@ class PPO(OnPolicyAlgorithmJax):
 
         key, noise_key, dropout_key = jax.random.split(key, 3)
 
+        # Normalize advantage
+        # Normalization does not make sense if mini batchsize == 1, see GH issue #325
+        # if self.normalize_advantage and len(advantages) > 1:
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
         def actor_loss(params):
             dist = actor.apply(params, observations)
             log_prob = dist.log_prob(actions)
-            # entropy = dist.entropy()
-
-            # Normalize advantage
-            # Normalization does not make sense if mini batchsize == 1, see GH issue #325
-            # if self.normalize_advantage and len(advantages) > 1:
-            #     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            entropy = dist.entropy()
 
             # ratio between old and new policy, should be one at the first iteration
             ratio = jnp.exp(log_prob - old_log_prob)
@@ -229,9 +230,9 @@ class PPO(OnPolicyAlgorithmJax):
 
             # Entropy loss favor exploration
             # Approximate entropy when no analytical form
-            entropy_loss = -jnp.mean(-log_prob)
+            # entropy_loss = -jnp.mean(-log_prob)
             # analytical form
-            # entropy_loss = -jnp.mean(entropy)
+            entropy_loss = -jnp.mean(entropy)
 
             total_policy_loss = policy_loss + ent_coef * entropy_loss
             return total_policy_loss
@@ -255,6 +256,49 @@ class PPO(OnPolicyAlgorithmJax):
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
         return actor_state, vf_state, key
 
+    @staticmethod
+    @partial(jax.jit, static_argnames=["gradient_steps", "actor", "vf"])
+    def _one_epoch(
+        gradient_steps,
+        actor,
+        vf,
+        actor_state: TrainState,
+        vf_state: TrainState,
+        observations: np.ndarray,
+        actions: np.ndarray,
+        advantages: np.ndarray,
+        returns: np.ndarray,
+        old_log_prob: np.ndarray,
+        clip_range: np.ndarray,
+        ent_coef: float,
+        vf_coef: float,
+        key: jax.random.KeyArray,
+    ):
+        for i in range(gradient_steps):
+
+            def slice(x, step=i):
+                assert x.shape[0] % gradient_steps == 0
+                batch_size = x.shape[0] // gradient_steps
+                return x[batch_size * step : batch_size * (step + 1)]
+
+            actor_state, vf_state, key = PPO._one_update(
+                actor,
+                vf,
+                actor_state,
+                vf_state,
+                slice(observations),
+                slice(actions),
+                slice(advantages),
+                slice(returns),
+                slice(old_log_prob),
+                clip_range=clip_range,
+                ent_coef=ent_coef,
+                vf_coef=vf_coef,
+                key=key,
+            )
+
+        return actor_state, vf_state, key
+
     def train(self) -> None:
         """
         Update policy using the currently gathered rollout buffer.
@@ -264,28 +308,67 @@ class PPO(OnPolicyAlgorithmJax):
         # Compute current clip range
         clip_range = self.clip_range(self._current_progress_remaining)
 
+        max_jit_gradient_steps = 20
+        # untruncated batches
+        gradient_steps = (self.env.num_envs * self.n_steps) // self.batch_size
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # Do a complete pass on the rollout buffer
-            for rollout_data in self.rollout_buffer.get(self.batch_size):
-                self.policy.actor_state, self.policy.vf_state, self.key = self._one_update(
+            # JIT only when gradient_steps < some threshold
+            # TODO: check if needed, otherwise remove
+            if gradient_steps < max_jit_gradient_steps and False:
+                # Get the whole batch
+                rollout_data = next(self.rollout_buffer.get(None))
+                if isinstance(self.action_space, spaces.Discrete):
+                    # Convert discrete action from float to long
+                    actions = rollout_data.actions.long().flatten().numpy()
+                else:
+                    actions = rollout_data.actions.numpy()
+
+                self.policy.actor_state, self.policy.vf_state, self.key = self._one_epoch(
+                    gradient_steps,
                     self.actor,
                     self.vf,
                     self.policy.actor_state,
                     self.policy.vf_state,
                     rollout_data.observations.numpy(),
-                    rollout_data.actions.numpy(),
+                    actions,
                     rollout_data.advantages.numpy(),
                     rollout_data.returns.numpy(),
                     rollout_data.old_log_prob.numpy(),
-                    np.array(clip_range),
-                    self.ent_coef,
-                    self.vf_coef,
-                    self.key,
+                    clip_range=np.array(clip_range),
+                    ent_coef=self.ent_coef,
+                    vf_coef=self.vf_coef,
+                    key=self.key,
                 )
 
+            else:
+                # JIT only one update
+                for rollout_data in self.rollout_buffer.get(self.batch_size):
+                    if isinstance(self.action_space, spaces.Discrete):
+                        # Convert discrete action from float to long
+                        actions = rollout_data.actions.long().flatten().numpy()
+                    else:
+                        actions = rollout_data.actions.numpy()
+
+                    self.policy.actor_state, self.policy.vf_state, self.key = self._one_update(
+                        self.actor,
+                        self.vf,
+                        self.policy.actor_state,
+                        self.policy.vf_state,
+                        rollout_data.observations.numpy(),
+                        actions,
+                        rollout_data.advantages.numpy(),
+                        rollout_data.returns.numpy(),
+                        rollout_data.old_log_prob.numpy(),
+                        clip_range=np.array(clip_range),
+                        ent_coef=self.ent_coef,
+                        vf_coef=self.vf_coef,
+                        key=self.key,
+                    )
+
         self._n_updates += self.n_epochs
-        # explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
+        explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
 
         # Logs
         # self.logger.record("train/entropy_loss", np.mean(entropy_losses))
@@ -294,7 +377,7 @@ class PPO(OnPolicyAlgorithmJax):
         # self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         # self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         # self.logger.record("train/loss", loss.item())
-        # self.logger.record("train/explained_variance", explained_var)
+        self.logger.record("train/explained_variance", explained_var)
         # if hasattr(self.policy, "log_std"):
         #     self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
 

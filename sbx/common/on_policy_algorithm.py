@@ -84,10 +84,10 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             self.n_steps,
             self.observation_space,
             self.action_space,
-            device=self.device,
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
             n_envs=self.n_envs,
+            device="cpu",  # force cpu device to easy torch -> numpy conversion
         )
 
     def collect_rollouts(
@@ -126,10 +126,10 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                 # Sample a new noise matrix
                 self.policy.reset_noise(env.num_envs)
 
-            self.key, noise_key, dropout_key = jax.random.split(self.key, 3)
+            # self.key, dropout_key = jax.random.split(self.key, 2)
 
             obs_tensor, _ = self.policy.prepare_obs(self._last_obs)
-            actions, log_probs, values = self.policy.evaluate_action(obs_tensor)
+            actions, log_probs, values = self.policy.predict_all(obs_tensor, self.policy.noise_key)
 
             actions = np.array(actions)
             log_probs = np.array(log_probs)
