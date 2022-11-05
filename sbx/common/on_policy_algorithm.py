@@ -126,8 +126,6 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                 # Sample a new noise matrix
                 self.policy.reset_noise(env.num_envs)
 
-            # self.key, dropout_key = jax.random.split(self.key, 2)
-
             obs_tensor, _ = self.policy.prepare_obs(self._last_obs)
             actions, log_probs, values = self.policy.predict_all(obs_tensor, self.policy.noise_key)
 
@@ -165,33 +163,26 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                     and infos[idx].get("terminal_observation") is not None
                     and infos[idx].get("TimeLimit.truncated", False)
                 ):
-                    self.key, dropout_key = jax.random.split(self.key, 2)
                     terminal_obs = self.policy.prepare_obs(infos[idx]["terminal_observation"])[0]
-
-                    terminal_value = np.array(
-                        self.vf.apply(
-                            self.policy.vf_state.params,
-                            terminal_obs,
-                            rngs={"dropout": dropout_key},
-                        ).flatten()
-                    )
+                    terminal_value = np.array(self.vf.apply(self.policy.vf_state.params, terminal_obs).flatten())
 
                     rewards[idx] += self.gamma * terminal_value
 
             rollout_buffer.add(
-                self._last_obs, actions, rewards, self._last_episode_starts, th.as_tensor(values), th.as_tensor(log_probs)
+                self._last_obs,
+                actions,
+                rewards,
+                self._last_episode_starts,
+                th.as_tensor(values),
+                th.as_tensor(log_probs),
             )
             self._last_obs = new_obs
             self._last_episode_starts = dones
 
-        self.key, dropout_key = jax.random.split(self.key, 2)
-        obs_tensor = self.policy.prepare_obs(new_obs)[0]
-
         values = np.array(
             self.vf.apply(
                 self.policy.vf_state.params,
-                obs_tensor,
-                rngs={"dropout": dropout_key},
+                self.policy.prepare_obs(new_obs)[0],
             ).flatten()
         )
 

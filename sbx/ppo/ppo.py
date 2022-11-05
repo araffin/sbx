@@ -205,10 +205,7 @@ class PPO(OnPolicyAlgorithmJax):
         clip_range: float,
         ent_coef: float,
         vf_coef: float,
-        key: jax.random.KeyArray,
     ):
-
-        key, noise_key, dropout_key = jax.random.split(key, 3)
 
         # Normalize advantage
         # Normalization does not make sense if mini batchsize == 1, see GH issue #325
@@ -222,7 +219,6 @@ class PPO(OnPolicyAlgorithmJax):
 
             # ratio between old and new policy, should be one at the first iteration
             ratio = jnp.exp(log_prob - old_log_prob)
-
             # clipped surrogate loss
             policy_loss_1 = advantages * ratio
             policy_loss_2 = advantages * jnp.clip(ratio, 1 - clip_range, 1 + clip_range)
@@ -240,21 +236,17 @@ class PPO(OnPolicyAlgorithmJax):
         pg_loss_value, grads = jax.value_and_grad(actor_loss, has_aux=False)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=grads)
 
-        def mse_loss(params, dropout_key):
+        def mse_loss(params):
             # Value loss using the TD(gae_lambda) target
-            vf_values = vf.apply(
-                params,
-                observations,
-                rngs={"dropout": dropout_key},
-            ).flatten()
+            vf_values = vf.apply(params, observations).flatten()
 
             return ((returns - vf_values) ** 2).mean()
 
-        vf_loss_value, grads = jax.value_and_grad(mse_loss, has_aux=False)(vf_state.params, dropout_key)
+        vf_loss_value, grads = jax.value_and_grad(mse_loss, has_aux=False)(vf_state.params)
         vf_state = vf_state.apply_gradients(grads=grads)
 
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
-        return actor_state, vf_state, key
+        return actor_state, vf_state
 
     @staticmethod
     @partial(jax.jit, static_argnames=["gradient_steps", "actor", "vf"])
@@ -272,7 +264,6 @@ class PPO(OnPolicyAlgorithmJax):
         clip_range: np.ndarray,
         ent_coef: float,
         vf_coef: float,
-        key: jax.random.KeyArray,
     ):
         for i in range(gradient_steps):
 
@@ -281,7 +272,7 @@ class PPO(OnPolicyAlgorithmJax):
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 
-            actor_state, vf_state, key = PPO._one_update(
+            actor_state, vf_state = PPO._one_update(
                 actor,
                 vf,
                 actor_state,
@@ -294,10 +285,9 @@ class PPO(OnPolicyAlgorithmJax):
                 clip_range=clip_range,
                 ent_coef=ent_coef,
                 vf_coef=vf_coef,
-                key=key,
             )
 
-        return actor_state, vf_state, key
+        return actor_state, vf_state
 
     def train(self) -> None:
         """
@@ -325,7 +315,7 @@ class PPO(OnPolicyAlgorithmJax):
                 else:
                     actions = rollout_data.actions.numpy()
 
-                self.policy.actor_state, self.policy.vf_state, self.key = self._one_epoch(
+                self.policy.actor_state, self.policy.vf_state = self._one_epoch(
                     gradient_steps,
                     self.actor,
                     self.vf,
@@ -339,7 +329,6 @@ class PPO(OnPolicyAlgorithmJax):
                     clip_range=np.array(clip_range),
                     ent_coef=self.ent_coef,
                     vf_coef=self.vf_coef,
-                    key=self.key,
                 )
 
             else:
@@ -351,7 +340,7 @@ class PPO(OnPolicyAlgorithmJax):
                     else:
                         actions = rollout_data.actions.numpy()
 
-                    self.policy.actor_state, self.policy.vf_state, self.key = self._one_update(
+                    self.policy.actor_state, self.policy.vf_state = self._one_update(
                         self.actor,
                         self.vf,
                         self.policy.actor_state,
@@ -364,7 +353,6 @@ class PPO(OnPolicyAlgorithmJax):
                         clip_range=np.array(clip_range),
                         ent_coef=self.ent_coef,
                         vf_coef=self.vf_coef,
-                        key=self.key,
                     )
 
         self._n_updates += self.n_epochs

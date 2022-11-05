@@ -21,24 +21,15 @@ tfd = tfp.distributions
 
 
 class Critic(nn.Module):
-    use_layer_norm: bool = False
-    dropout_rate: float = 0.0
     n_units: int = 256
+    activation_fn: Callable = nn.tanh
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = nn.Dense(self.n_units)(x)
-        if self.dropout_rate > 0:
-            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
-        if self.use_layer_norm:
-            x = nn.LayerNorm()(x)
-        x = nn.relu(x)
+        x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
-        if self.dropout_rate > 0:
-            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
-        if self.use_layer_norm:
-            x = nn.LayerNorm()(x)
-        x = nn.relu(x)
+        x = self.activation_fn(x)
         x = nn.Dense(1)(x)
         return x
 
@@ -47,9 +38,8 @@ class Actor(nn.Module):
     action_dim: Sequence[int]
     n_units: int = 256
     log_std_init: float = 0.0
-    # log_std_min: float = -20
-    # log_std_max: float = 2
     continuous: bool = True
+    activation_fn: Callable = nn.tanh
 
     def get_std(self):
         # Make it work with gSDE
@@ -58,9 +48,9 @@ class Actor(nn.Module):
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:
         x = nn.Dense(self.n_units)(x)
-        x = nn.relu(x)
+        x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
-        x = nn.relu(x)
+        x = self.activation_fn(x)
         mean = nn.Dense(self.action_dim)(x)
         # TODO: Allow state-independent exploration (default)
         # log_std = nn.Dense(self.action_dim)(x)
@@ -83,12 +73,9 @@ class PPOPolicy(BaseJaxPolicy):
         action_space: gym.spaces.Space,
         lr_schedule: Schedule,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
-        dropout_rate: float = 0.0,
-        layer_norm: bool = False,
         ortho_init: bool = False,
-        activation_fn=None,  # TODO
         log_std_init: float = 0.0,
-        # activation_fn: Type[nn.Module] = nn.ReLU,
+        activation_fn=nn.tanh,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
@@ -110,9 +97,8 @@ class PPOPolicy(BaseJaxPolicy):
             optimizer_kwargs=optimizer_kwargs,
             squash_output=True,
         )
-        self.dropout_rate = dropout_rate
-        self.layer_norm = layer_norm
         self.log_std_init = log_std_init
+        self.activation_fn = activation_fn
         if net_arch is not None:
             assert isinstance(net_arch, list)
             self.n_units = net_arch[0]["pi"][0]
@@ -123,7 +109,7 @@ class PPOPolicy(BaseJaxPolicy):
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
     def build(self, key, lr_schedule: Schedule, max_grad_norm: float) -> None:
-        key, actor_key, vf_key, dropout_key = jax.random.split(key, 4)
+        key, actor_key, vf_key = jax.random.split(key, 3)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
         # Initialize noise
@@ -147,6 +133,7 @@ class PPOPolicy(BaseJaxPolicy):
         self.actor = Actor(
             n_units=self.n_units,
             log_std_init=self.log_std_init,
+            activation_fn=self.activation_fn,
             **actor_kwargs,
         )
         # Hack to make gSDE work without modifying internal SB3 code
@@ -164,18 +151,11 @@ class PPOPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.vf = Critic(
-            dropout_rate=self.dropout_rate,
-            use_layer_norm=self.layer_norm,
-            n_units=self.n_units,
-        )
+        self.vf = Critic(n_units=self.n_units, activation_fn=self.activation_fn)
 
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
-            params=self.vf.init(
-                {"params": vf_key, "dropout": dropout_key},
-                obs,
-            ),
+            params=self.vf.init({"params": vf_key}, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
                 optax.inject_hyperparams(self.optimizer_class)(
@@ -186,7 +166,7 @@ class PPOPolicy(BaseJaxPolicy):
         )
 
         self.actor.apply = jax.jit(self.actor.apply)
-        self.vf.apply = jax.jit(self.vf.apply, static_argnames=("dropout_rate", "use_layer_norm"))
+        self.vf.apply = jax.jit(self.vf.apply)
 
         return key
 
@@ -217,9 +197,5 @@ class PPOPolicy(BaseJaxPolicy):
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
 
-        values = vf.apply(
-            vf_state.params,
-            obervations,
-            rngs={"dropout": key},
-        ).flatten()
+        values = vf.apply(vf_state.params, obervations).flatten()
         return actions, log_probs, values
