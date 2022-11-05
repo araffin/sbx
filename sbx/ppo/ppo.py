@@ -248,47 +248,6 @@ class PPO(OnPolicyAlgorithmJax):
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
         return actor_state, vf_state
 
-    @staticmethod
-    @partial(jax.jit, static_argnames=["gradient_steps", "actor", "vf"])
-    def _one_epoch(
-        gradient_steps,
-        actor,
-        vf,
-        actor_state: TrainState,
-        vf_state: TrainState,
-        observations: np.ndarray,
-        actions: np.ndarray,
-        advantages: np.ndarray,
-        returns: np.ndarray,
-        old_log_prob: np.ndarray,
-        clip_range: np.ndarray,
-        ent_coef: float,
-        vf_coef: float,
-    ):
-        for i in range(gradient_steps):
-
-            def slice(x, step=i):
-                assert x.shape[0] % gradient_steps == 0
-                batch_size = x.shape[0] // gradient_steps
-                return x[batch_size * step : batch_size * (step + 1)]
-
-            actor_state, vf_state = PPO._one_update(
-                actor,
-                vf,
-                actor_state,
-                vf_state,
-                slice(observations),
-                slice(actions),
-                slice(advantages),
-                slice(returns),
-                slice(old_log_prob),
-                clip_range=clip_range,
-                ent_coef=ent_coef,
-                vf_coef=vf_coef,
-            )
-
-        return actor_state, vf_state
-
     def train(self) -> None:
         """
         Update policy using the currently gathered rollout buffer.
@@ -298,25 +257,19 @@ class PPO(OnPolicyAlgorithmJax):
         # Compute current clip range
         clip_range = self.clip_range(self._current_progress_remaining)
 
-        max_jit_gradient_steps = 20
         # untruncated batches
         gradient_steps = (self.env.num_envs * self.n_steps) // self.batch_size
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
-            # Do a complete pass on the rollout buffer
-            # JIT only when gradient_steps < some threshold
-            # TODO: check if needed, otherwise remove
-            if gradient_steps < max_jit_gradient_steps and False:
-                # Get the whole batch
-                rollout_data = next(self.rollout_buffer.get(None))
+            # JIT only one update
+            for rollout_data in self.rollout_buffer.get(self.batch_size):
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to long
                     actions = rollout_data.actions.long().flatten().numpy()
                 else:
                     actions = rollout_data.actions.numpy()
 
-                self.policy.actor_state, self.policy.vf_state = self._one_epoch(
-                    gradient_steps,
+                self.policy.actor_state, self.policy.vf_state = self._one_update(
                     self.actor,
                     self.vf,
                     self.policy.actor_state,
@@ -330,30 +283,6 @@ class PPO(OnPolicyAlgorithmJax):
                     ent_coef=self.ent_coef,
                     vf_coef=self.vf_coef,
                 )
-
-            else:
-                # JIT only one update
-                for rollout_data in self.rollout_buffer.get(self.batch_size):
-                    if isinstance(self.action_space, spaces.Discrete):
-                        # Convert discrete action from float to long
-                        actions = rollout_data.actions.long().flatten().numpy()
-                    else:
-                        actions = rollout_data.actions.numpy()
-
-                    self.policy.actor_state, self.policy.vf_state = self._one_update(
-                        self.actor,
-                        self.vf,
-                        self.policy.actor_state,
-                        self.policy.vf_state,
-                        rollout_data.observations.numpy(),
-                        actions,
-                        rollout_data.advantages.numpy(),
-                        rollout_data.returns.numpy(),
-                        rollout_data.old_log_prob.numpy(),
-                        clip_range=np.array(clip_range),
-                        ent_coef=self.ent_coef,
-                        vf_coef=self.vf_coef,
-                    )
 
         self._n_updates += self.n_epochs
         explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
