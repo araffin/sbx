@@ -179,12 +179,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             self._last_obs = new_obs
             self._last_episode_starts = dones
 
-        values = np.array(
-            self.vf.apply(
-                self.policy.vf_state.params,
-                self.policy.prepare_obs(new_obs)[0],
-            ).flatten()
-        )
+        values = np.array(self.vf.apply(self.policy.vf_state.params, self.policy.prepare_obs(new_obs)[0]).flatten())
 
         rollout_buffer.compute_returns_and_advantage(last_values=th.as_tensor(values), dones=dones)
 

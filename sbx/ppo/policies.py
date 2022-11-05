@@ -196,6 +196,5 @@ class PPOPolicy(BaseJaxPolicy):
         dist = actor.apply(actor_state.params, obervations)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
-
         values = vf.apply(vf_state.params, obervations).flatten()
         return actions, log_probs, values

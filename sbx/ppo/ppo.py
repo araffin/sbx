@@ -191,7 +191,7 @@ class PPO(OnPolicyAlgorithmJax):
         #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["actor", "vf"])
+    @partial(jax.jit, static_argnames=["actor", "vf", "normalize_advantage"])
     def _one_update(
         actor,
         vf,
@@ -205,12 +205,13 @@ class PPO(OnPolicyAlgorithmJax):
         clip_range: float,
         ent_coef: float,
         vf_coef: float,
+        normalize_advantage: bool = True,
     ):
 
         # Normalize advantage
         # Normalization does not make sense if mini batchsize == 1, see GH issue #325
-        # if self.normalize_advantage and len(advantages) > 1:
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        if normalize_advantage and len(advantages) > 1:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         def actor_loss(params):
             dist = actor.apply(params, observations)
@@ -236,17 +237,16 @@ class PPO(OnPolicyAlgorithmJax):
         pg_loss_value, grads = jax.value_and_grad(actor_loss, has_aux=False)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=grads)
 
-        def mse_loss(params):
+        def critic_loss(params):
             # Value loss using the TD(gae_lambda) target
             vf_values = vf.apply(params, observations).flatten()
-
             return ((returns - vf_values) ** 2).mean()
 
-        vf_loss_value, grads = jax.value_and_grad(mse_loss, has_aux=False)(vf_state.params)
+        vf_loss_value, grads = jax.value_and_grad(critic_loss, has_aux=False)(vf_state.params)
         vf_state = vf_state.apply_gradients(grads=grads)
 
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
-        return actor_state, vf_state
+        return (actor_state, vf_state), (vf_loss_value, pg_loss_value)
 
     def train(self) -> None:
         """
@@ -264,24 +264,25 @@ class PPO(OnPolicyAlgorithmJax):
             # JIT only one update
             for rollout_data in self.rollout_buffer.get(self.batch_size):
                 if isinstance(self.action_space, spaces.Discrete):
-                    # Convert discrete action from float to long
-                    actions = rollout_data.actions.long().flatten().numpy()
+                    # Convert discrete action from float to int
+                    actions = rollout_data.actions.flatten().numpy().astype(np.int32)
                 else:
                     actions = rollout_data.actions.numpy()
 
-                self.policy.actor_state, self.policy.vf_state = self._one_update(
+                (self.policy.actor_state, self.policy.vf_state), (value_loss, pg_loss) = self._one_update(
                     self.actor,
                     self.vf,
-                    self.policy.actor_state,
-                    self.policy.vf_state,
-                    rollout_data.observations.numpy(),
-                    actions,
-                    rollout_data.advantages.numpy(),
-                    rollout_data.returns.numpy(),
-                    rollout_data.old_log_prob.numpy(),
+                    actor_state=self.policy.actor_state,
+                    vf_state=self.policy.vf_state,
+                    observations=rollout_data.observations.numpy(),
+                    actions=actions,
+                    advantages=rollout_data.advantages.numpy(),
+                    returns=rollout_data.returns.numpy(),
+                    old_log_prob=rollout_data.old_log_prob.numpy(),
                     clip_range=np.array(clip_range),
                     ent_coef=self.ent_coef,
                     vf_coef=self.vf_coef,
+                    normalize_advantage=self.normalize_advantage,
                 )
 
         self._n_updates += self.n_epochs
@@ -290,10 +291,11 @@ class PPO(OnPolicyAlgorithmJax):
         # Logs
         # self.logger.record("train/entropy_loss", np.mean(entropy_losses))
         # self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
-        # self.logger.record("train/value_loss", np.mean(value_losses))
+        # TODO: use mean instead of one point
+        self.logger.record("train/value_loss", value_loss.item())
         # self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
         # self.logger.record("train/clip_fraction", np.mean(clip_fractions))
-        # self.logger.record("train/loss", loss.item())
+        self.logger.record("train/pg_loss", pg_loss.item())
         self.logger.record("train/explained_variance", explained_var)
         # if hasattr(self.policy, "log_std"):
         #     self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
