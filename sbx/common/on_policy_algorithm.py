@@ -117,14 +117,18 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         rollout_buffer.reset()
         # Sample new weights for the state dependent exploration
         if self.use_sde:
-            self.policy.reset_noise(env.num_envs)
+            self.policy.reset_noise()
 
         callback.on_rollout_start()
 
         while n_steps < n_rollout_steps:
             if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
                 # Sample a new noise matrix
-                self.policy.reset_noise(env.num_envs)
+                self.policy.reset_noise()
+
+            if not self.use_sde or isinstance(self.action_space, gym.spaces.Discrete):
+                # Always sample new stochastic action
+                self.policy.reset_noise()
 
             obs_tensor, _ = self.policy.prepare_obs(self._last_obs)
             actions, log_probs, values = self.policy.predict_all(obs_tensor, self.policy.noise_key)
