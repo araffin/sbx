@@ -103,7 +103,7 @@ class PPOPolicy(BaseJaxPolicy):
             assert isinstance(net_arch, list)
             self.n_units = net_arch[0]["pi"][0]
         else:
-            self.n_units = 256
+            self.n_units = 64
         self.use_sde = use_sde
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
