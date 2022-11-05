@@ -88,6 +88,12 @@ class PPOPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         share_features_extractor: bool = False,
     ):
+        if optimizer_kwargs is None:
+            # Small values to avoid NaN in Adam optimizer
+            optimizer_kwargs = {}
+            if optimizer_class == optax.adam:
+                optimizer_kwargs["eps"] = 1e-5
+
         super().__init__(
             observation_space,
             action_space,
