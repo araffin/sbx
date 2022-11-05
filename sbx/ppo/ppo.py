@@ -257,8 +257,6 @@ class PPO(OnPolicyAlgorithmJax):
         # Compute current clip range
         clip_range = self.clip_range(self._current_progress_remaining)
 
-        # untruncated batches
-        gradient_steps = (self.env.num_envs * self.n_steps) // self.batch_size
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # JIT only one update
@@ -279,7 +277,7 @@ class PPO(OnPolicyAlgorithmJax):
                     advantages=rollout_data.advantages.numpy(),
                     returns=rollout_data.returns.numpy(),
                     old_log_prob=rollout_data.old_log_prob.numpy(),
-                    clip_range=np.array(clip_range),
+                    clip_range=clip_range,
                     ent_coef=self.ent_coef,
                     vf_coef=self.vf_coef,
                     normalize_advantage=self.normalize_advantage,
