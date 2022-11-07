@@ -68,12 +68,13 @@ def test_sac(model_class):
     model.learn(110)
 
 
-def test_ppo():
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "CartPole-v1"])
+def test_ppo(env_id):
     model = PPO(
         "MlpPolicy",
-        "Pendulum-v1",
+        env_id,
         verbose=1,
         n_steps=64,
         n_epochs=2,
     )
-    model.learn(128, progress_bar=False)
+    model.learn(128, progress_bar=True)

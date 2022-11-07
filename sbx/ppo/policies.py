@@ -13,7 +13,6 @@ from flax.training.train_state import TrainState
 from gym import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-# from sbx.common.distributions import TanhTransformedDistribution
 from sbx.common.policies import BaseJaxPolicy
 
 tfp = tensorflow_probability.substrates.jax
@@ -52,12 +51,6 @@ class Actor(nn.Module):
         x = nn.Dense(self.n_units)(x)
         x = self.activation_fn(x)
         mean = nn.Dense(self.action_dim)(x)
-        # TODO: Allow state-independent exploration (default)
-        # log_std = nn.Dense(self.action_dim)(x)
-        # log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        # dist = TanhTransformedDistribution(
-        #     tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-        # )
         if self.continuous:
             log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
             dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
