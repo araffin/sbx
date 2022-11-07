@@ -3,7 +3,7 @@ import pytest
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import SAC, TQC, DroQ
+from sbx import PPO, SAC, TQC, DroQ
 
 
 def test_droq(tmp_path):
@@ -66,3 +66,15 @@ def test_sac(model_class):
         learning_rate=1e-3,
     )
     model.learn(110)
+
+
+@pytest.mark.parametrize("env_id", ["Pendulum-v1", "CartPole-v1"])
+def test_ppo(env_id):
+    model = PPO(
+        "MlpPolicy",
+        env_id,
+        verbose=1,
+        n_steps=64,
+        n_epochs=2,
+    )
+    model.learn(128, progress_bar=True)

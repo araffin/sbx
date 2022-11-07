@@ -1,6 +1,7 @@
 import os
 
 from sbx.droq import DroQ
+from sbx.ppo import PPO
 from sbx.sac import SAC
 from sbx.tqc import TQC
 
