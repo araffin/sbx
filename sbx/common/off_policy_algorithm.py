@@ -16,6 +16,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         policy: Type[BasePolicy],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule],
+        qf_learning_rate: Optional[float],
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
         batch_size: int = 256,
@@ -65,6 +66,8 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         )
         # Will be updated later
         self.key = jax.random.PRNGKey(0)
+        # Note: we do not allow schedule for it
+        self.qf_learning_rate = qf_learning_rate
 
     def _get_torch_save_params(self):
         return [], []
@@ -83,6 +86,8 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
 
     def _setup_model(self) -> None:
         self._setup_lr_schedule()
+        # By default qf_learning_rate = pi_learning_rate
+        self.qf_learning_rate = self.qf_learning_rate or self.lr_schedule(1)
         self.set_random_seed(self.seed)
 
         self.replay_buffer_class = ReplayBuffer

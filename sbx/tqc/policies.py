@@ -121,7 +121,7 @@ class TQCPolicy(BaseJaxPolicy):
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
-    def build(self, key, lr_schedule: Schedule) -> None:
+    def build(self, key, lr_schedule: Schedule, qf_learning_rate: float) -> None:
         key, actor_key, qf1_key, qf2_key = jax.random.split(key, 4)
         key, dropout_key1, dropout_key2, self.key = jax.random.split(key, 4)
         # Initialize noise
@@ -162,7 +162,7 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=optax.adam(learning_rate=lr_schedule(1)),
+            tx=optax.adam(learning_rate=qf_learning_rate),
         )
         self.qf2_state = RLTrainState.create(
             apply_fn=self.qf.apply,
@@ -176,7 +176,7 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=self.optimizer_class(learning_rate=lr_schedule(1), **self.optimizer_kwargs),
+            tx=self.optimizer_class(learning_rate=qf_learning_rate, **self.optimizer_kwargs),
         )
         self.actor.apply = jax.jit(self.actor.apply)
         self.qf.apply = jax.jit(self.qf.apply, static_argnames=("dropout_rate", "use_layer_norm"))
