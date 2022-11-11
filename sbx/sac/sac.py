@@ -195,7 +195,7 @@ class SAC(OffPolicyAlgorithmJax):
             self.gamma,
             self.tau,
             self.target_entropy,
-            self.gradient_steps,
+            gradient_steps,
             data,
             policy_delay_indices,
             self.policy.qf_state,

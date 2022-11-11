@@ -145,7 +145,7 @@ class DQN(OffPolicyAlgorithmJax):
         self.policy.qf_state, self.key, qf_loss_value = self._train(
             self.qf,
             self.gamma,
-            self.gradient_steps,
+            gradient_steps,
             data,
             self.policy.qf_state,
             self.key,

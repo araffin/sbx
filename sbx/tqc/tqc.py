@@ -199,7 +199,7 @@ class TQC(OffPolicyAlgorithmJax):
             self.gamma,
             self.tau,
             self.target_entropy,
-            self.gradient_steps,
+            gradient_steps,
             self.policy.n_target_quantiles,
             data,
             policy_delay_indices,

@@ -85,6 +85,7 @@ def test_dqn():
         "MlpPolicy",
         "CartPole-v1",
         verbose=1,
+        gradient_steps=-1,
         target_update_interval=10,
     )
     model.learn(128)
