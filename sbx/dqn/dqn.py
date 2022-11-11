@@ -37,6 +37,7 @@ class DQN(OffPolicyAlgorithmJax):
         exploration_fraction: float = 0.1,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
+        # max_grad_norm: float = 10,
         train_freq: Union[int, Tuple[int, str]] = 1,
         gradient_steps: int = 1,
         tensorboard_log: Optional[str] = None,
@@ -183,7 +184,7 @@ class DQN(OffPolicyAlgorithmJax):
         # shape is (batch_size, 1)
         target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
 
-        def mse_loss(params, dropout_key):
+        def huber_loss(params, dropout_key):
             # Get current Q-values estimates
             current_q_values = qf.apply(params, observations, rngs={"dropout": dropout_key})
             # Retrieve the q-values for the actions from the replay buffer
@@ -191,7 +192,7 @@ class DQN(OffPolicyAlgorithmJax):
             # Compute Huber loss (less sensitive to outliers)
             return optax.huber_loss(current_q_values, target_q_values).mean()
 
-        qf_loss_value, grads = jax.value_and_grad(mse_loss, has_aux=False)(qf_state.params, dropout_key_current)
+        qf_loss_value, grads = jax.value_and_grad(huber_loss, has_aux=False)(qf_state.params, dropout_key_current)
         qf_state = qf_state.apply_gradients(grads=grads)
 
         return qf_state, qf_loss_value, key
