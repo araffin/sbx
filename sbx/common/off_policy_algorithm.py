@@ -16,7 +16,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         policy: Type[BasePolicy],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule],
-        qf_learning_rate: Optional[float],
+        qf_learning_rate: Optional[float] = None,
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
         batch_size: int = 256,
@@ -61,6 +61,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
+            sde_support=sde_support,
             supported_action_spaces=supported_action_spaces,
             support_multi_env=support_multi_env,
         )
