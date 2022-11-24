@@ -250,7 +250,7 @@ class SAC(OffPolicyAlgorithmJax):
         def mse_loss(params, dropout_key):
             # shape is (n_critics, batch_size, 1)
             current_q_values = qf.apply(params, observations, actions, rngs={"dropout": dropout_key})
-            return ((target_q_values - current_q_values) ** 2).mean()
+            return 0.5 * ((target_q_values - current_q_values) ** 2).mean(axis=1).sum()
 
         qf_loss_value, grads = jax.value_and_grad(mse_loss, has_aux=False)(qf_state.params, dropout_key_current)
         qf_state = qf_state.apply_gradients(grads=grads)
