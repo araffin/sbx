@@ -59,10 +59,7 @@ class DQNPolicy(BaseJaxPolicy):
 
         obs = jnp.array([self.observation_space.sample()])
 
-        self.qf = QNetwork(
-            n_actions=self.action_space.n,
-            n_units=self.n_units,
-        )
+        self.qf = QNetwork(n_actions=self.action_space.n, n_units=self.n_units)
 
         self.qf_state = RLTrainState.create(
             apply_fn=self.qf.apply,

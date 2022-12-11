@@ -1,5 +1,4 @@
 import warnings
-from functools import partial
 from typing import Any, Dict, Optional, Tuple, Union
 
 import flax.linen as nn
@@ -54,6 +53,7 @@ class DQN(OffPolicyAlgorithmJax):
             buffer_size=buffer_size,
             learning_starts=learning_starts,
             batch_size=batch_size,
+            tau=tau,
             gamma=gamma,
             train_freq=train_freq,
             gradient_steps=gradient_steps,
@@ -153,6 +153,7 @@ class DQN(OffPolicyAlgorithmJax):
             "indices": indices,
             "info": {
                 "critic_loss": jnp.array([0.0]),
+                "qf_mean_value": jnp.array([0.0]),
             },
         }
 
@@ -166,10 +167,12 @@ class DQN(OffPolicyAlgorithmJax):
 
         self.policy.qf_state = update_carry["qf_state"]
         qf_loss_value = update_carry["info"]["critic_loss"]
+        qf_mean_value = update_carry["info"]["qf_mean_value"] / gradient_steps
 
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/critic_loss", qf_loss_value.item())
+        self.logger.record("train/qf_mean_value", qf_mean_value.item())
 
     @staticmethod
     @jax.jit
@@ -177,16 +180,14 @@ class DQN(OffPolicyAlgorithmJax):
         gamma: float,
         qf_state: RLTrainState,
         observations: np.ndarray,
-        actions: np.ndarray,
+        replay_actions: np.ndarray,
         next_observations: np.ndarray,
         rewards: np.ndarray,
         dones: np.ndarray,
     ):
         # Compute the next Q-values using the target network
-        qf_next_values = qf_state.apply_fn(
-            qf_state.target_params,
-            next_observations,
-        )
+        qf_next_values = qf_state.apply_fn(qf_state.target_params, next_observations)
+
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
         # Avoid potential broadcast issue
@@ -199,14 +200,14 @@ class DQN(OffPolicyAlgorithmJax):
             # Get current Q-values estimates
             current_q_values = qf_state.apply_fn(params, observations)
             # Retrieve the q-values for the actions from the replay buffer
-            current_q_values = jnp.take_along_axis(current_q_values, actions, axis=1)
+            current_q_values = jnp.take_along_axis(current_q_values, replay_actions, axis=1)
             # Compute Huber loss (less sensitive to outliers)
-            return optax.huber_loss(current_q_values, target_q_values).mean()
+            return optax.huber_loss(current_q_values, target_q_values).mean(), current_q_values.mean()
 
-        qf_loss_value, grads = jax.value_and_grad(huber_loss, has_aux=False)(qf_state.params)
+        (qf_loss_value, qf_mean_value), grads = jax.value_and_grad(huber_loss, has_aux=True)(qf_state.params)
         qf_state = qf_state.apply_gradients(grads=grads)
 
-        return qf_state, qf_loss_value
+        return qf_state, (qf_loss_value, qf_mean_value)
 
     @staticmethod
     @jax.jit
@@ -262,17 +263,18 @@ class DQN(OffPolicyAlgorithmJax):
         data = carry["data"]
         indices = carry["indices"][update_idx]
 
-        qf_state, qf_loss_value = DQN.update_qnetwork(
+        qf_state, (qf_loss_value, qf_mean_value) = DQN.update_qnetwork(
             carry["gamma"],
             carry["qf_state"],
-            data.observations[indices],
-            data.actions[indices],
-            data.next_observations[indices],
-            data.rewards[indices],
-            data.dones[indices],
+            observations=data.observations[indices],
+            replay_actions=data.actions[indices],
+            next_observations=data.next_observations[indices],
+            rewards=data.rewards[indices],
+            dones=data.dones[indices],
         )
 
         carry["qf_state"] = qf_state
         carry["info"]["critic_loss"] += qf_loss_value
+        carry["info"]["qf_mean_value"] += qf_mean_value
 
         return carry
