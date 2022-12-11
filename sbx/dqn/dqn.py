@@ -27,10 +27,10 @@ class DQN(OffPolicyAlgorithmJax):
         self,
         policy,
         env: Union[GymEnv, str],
-        learning_rate: Union[float, Schedule] = 3e-4,
+        learning_rate: Union[float, Schedule] = 1e-4,
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
-        batch_size: int = 256,
+        batch_size: int = 32,
         tau: float = 1.0,
         gamma: float = 0.99,
         target_update_interval: int = 1000,
@@ -38,7 +38,7 @@ class DQN(OffPolicyAlgorithmJax):
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
         # max_grad_norm: float = 10,
-        train_freq: Union[int, Tuple[int, str]] = 1,
+        train_freq: Union[int, Tuple[int, str]] = 4,
         gradient_steps: int = 1,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
@@ -209,8 +209,8 @@ class DQN(OffPolicyAlgorithmJax):
         return qf_state, qf_loss_value
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["tau"])
-    def soft_update(tau, qf_state: RLTrainState):
+    @jax.jit
+    def soft_update(tau: float, qf_state: RLTrainState):
         qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
         return qf_state
 
