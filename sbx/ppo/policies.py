@@ -1,4 +1,3 @@
-from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import flax.linen as nn
@@ -180,20 +179,20 @@ class PPOPolicy(BaseJaxPolicy):
 
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:
         if deterministic:
-            return BaseJaxPolicy.select_action(self.actor, self.actor_state, observation)
+            return BaseJaxPolicy.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
             self.reset_noise()
-        return BaseJaxPolicy.sample_action(self.actor, self.actor_state, observation, self.noise_key)
+        return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
 
     def predict_all(self, observation: np.ndarray, key: jax.random.KeyArray) -> np.ndarray:
-        return self._predict_all(self.actor, self.vf, self.actor_state, self.vf_state, observation, key)
+        return self._predict_all(self.actor_state, self.vf_state, observation, key)
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["actor", "vf"])
-    def _predict_all(actor, vf, actor_state, vf_state, obervations, key):
-        dist = actor.apply(actor_state.params, obervations)
+    @jax.jit
+    def _predict_all(actor_state, vf_state, obervations, key):
+        dist = actor_state.apply_fn(actor_state.params, obervations)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
-        values = vf.apply(vf_state.params, obervations).flatten()
+        values = vf_state.apply_fn(vf_state.params, obervations).flatten()
         return actions, log_probs, values

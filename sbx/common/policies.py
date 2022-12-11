@@ -1,5 +1,4 @@
 # import copy
-from functools import partial
 from typing import Dict, Optional, Tuple, Union
 
 import gym
@@ -18,16 +17,16 @@ class BaseJaxPolicy(BasePolicy):
         )
 
     @staticmethod
-    @partial(jax.jit, static_argnames="actor")
-    def sample_action(actor, actor_state, obervations, key):
-        dist = actor.apply(actor_state.params, obervations)
+    @jax.jit
+    def sample_action(actor_state, obervations, key):
+        dist = actor_state.apply_fn(actor_state.params, obervations)
         action = dist.sample(seed=key)
         return action
 
     @staticmethod
-    @partial(jax.jit, static_argnames="actor")
-    def select_action(actor, actor_state, obervations):
-        return actor.apply(actor_state.params, obervations).mode()
+    @jax.jit
+    def select_action(actor_state, obervations):
+        return actor_state.apply_fn(actor_state.params, obervations).mode()
 
     def predict(
         self,
