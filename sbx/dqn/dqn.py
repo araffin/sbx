@@ -147,11 +147,9 @@ class DQN(OffPolicyAlgorithmJax):
         indices = jnp.arange(len(data.dones)).reshape(gradient_steps, batch_size)
 
         update_carry = {
-            "key": self.key,
             "qf_state": self.policy.qf_state,
             "gamma": self.gamma,
             "data": data,
-            "gradient_steps": jnp.array([self.gradient_steps]),
             "indices": indices,
             "info": {
                 "critic_loss": jnp.array([0.0]),
@@ -166,7 +164,6 @@ class DQN(OffPolicyAlgorithmJax):
             init_val=update_carry,
         )
 
-        self.key = update_carry["key"]
         self.policy.qf_state = update_carry["qf_state"]
         qf_loss_value = update_carry["info"]["critic_loss"]
 
@@ -184,15 +181,11 @@ class DQN(OffPolicyAlgorithmJax):
         next_observations: np.ndarray,
         rewards: np.ndarray,
         dones: np.ndarray,
-        key: jax.random.KeyArray,
     ):
-        key, dropout_key_target, dropout_key_current = jax.random.split(key, 3)
-
         # Compute the next Q-values using the target network
         qf_next_values = qf_state.apply_fn(
             qf_state.target_params,
             next_observations,
-            rngs={"dropout": dropout_key_target},
         )
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
@@ -202,18 +195,18 @@ class DQN(OffPolicyAlgorithmJax):
         # shape is (batch_size, 1)
         target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
 
-        def huber_loss(params, dropout_key):
+        def huber_loss(params):
             # Get current Q-values estimates
-            current_q_values = qf_state.apply_fn(params, observations, rngs={"dropout": dropout_key})
+            current_q_values = qf_state.apply_fn(params, observations)
             # Retrieve the q-values for the actions from the replay buffer
             current_q_values = jnp.take_along_axis(current_q_values, actions, axis=1)
             # Compute Huber loss (less sensitive to outliers)
             return optax.huber_loss(current_q_values, target_q_values).mean()
 
-        qf_loss_value, grads = jax.value_and_grad(huber_loss, has_aux=False)(qf_state.params, dropout_key_current)
+        qf_loss_value, grads = jax.value_and_grad(huber_loss, has_aux=False)(qf_state.params)
         qf_state = qf_state.apply_gradients(grads=grads)
 
-        return qf_state, qf_loss_value, key
+        return qf_state, qf_loss_value
 
     @staticmethod
     @partial(jax.jit, static_argnames=["tau"])
@@ -269,7 +262,7 @@ class DQN(OffPolicyAlgorithmJax):
         data = carry["data"]
         indices = carry["indices"][update_idx]
 
-        qf_state, qf_loss_value, key = DQN.update_qnetwork(
+        qf_state, qf_loss_value = DQN.update_qnetwork(
             carry["gamma"],
             carry["qf_state"],
             data.observations[indices],
@@ -277,11 +270,9 @@ class DQN(OffPolicyAlgorithmJax):
             data.next_observations[indices],
             data.rewards[indices],
             data.dones[indices],
-            carry["key"],
         )
 
         carry["qf_state"] = qf_state
-        carry["key"] = key
         carry["info"]["critic_loss"] += qf_loss_value
 
         return carry
