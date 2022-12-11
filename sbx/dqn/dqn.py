@@ -142,14 +142,34 @@ class DQN(OffPolicyAlgorithmJax):
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
         )
+        # Pre compute the slice indices
+        # otherwise jax will complain
+        indices = jnp.arange(len(data.dones)).reshape(gradient_steps, batch_size)
 
-        self.policy.qf_state, self.key, qf_loss_value = self._train(
-            self.gamma,
-            gradient_steps,
-            data,
-            self.policy.qf_state,
-            self.key,
+        update_carry = {
+            "key": self.key,
+            "qf_state": self.policy.qf_state,
+            "gamma": self.gamma,
+            "data": data,
+            "gradient_steps": jnp.array([self.gradient_steps]),
+            "indices": indices,
+            "info": {
+                "critic_loss": jnp.array([0.0]),
+            },
+        }
+
+        # jit the loop similar to https://github.com/Howuhh/sac-n-jax
+        update_carry = jax.lax.fori_loop(
+            lower=0,
+            upper=gradient_steps,
+            body_fun=self._train,
+            init_val=update_carry,
         )
+
+        self.key = update_carry["key"]
+        self.policy.qf_state = update_carry["qf_state"]
+        qf_loss_value = update_carry["info"]["critic_loss"]
+
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/critic_loss", qf_loss_value.item())
@@ -244,34 +264,24 @@ class DQN(OffPolicyAlgorithmJax):
         return action, state
 
     @staticmethod
-    @partial(
-        jax.jit,
-        static_argnames=["gradient_steps"],
-    )
-    def _train(
-        gamma: float,
-        gradient_steps: int,
-        data: ReplayBufferSamplesNp,
-        qf_state: RLTrainState,
-        key,
-    ):
+    @jax.jit
+    def _train(update_idx, carry):
+        data = carry["data"]
+        indices = carry["indices"][update_idx]
 
-        for i in range(gradient_steps):
+        qf_state, qf_loss_value, key = DQN.update_qnetwork(
+            carry["gamma"],
+            carry["qf_state"],
+            data.observations[indices],
+            data.actions[indices],
+            data.next_observations[indices],
+            data.rewards[indices],
+            data.dones[indices],
+            carry["key"],
+        )
 
-            def slice(x, step=i):
-                assert x.shape[0] % gradient_steps == 0
-                batch_size = x.shape[0] // gradient_steps
-                return x[batch_size * step : batch_size * (step + 1)]
+        carry["qf_state"] = qf_state
+        carry["key"] = key
+        carry["info"]["critic_loss"] += qf_loss_value
 
-            qf_state, qf_loss_value, key = DQN.update_qnetwork(
-                gamma,
-                qf_state,
-                slice(data.observations),
-                slice(data.actions),
-                slice(data.next_observations),
-                slice(data.rewards),
-                slice(data.dones),
-                key,
-            )
-
-        return qf_state, key, qf_loss_value
+        return carry
