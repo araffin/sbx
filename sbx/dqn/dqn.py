@@ -144,7 +144,6 @@ class DQN(OffPolicyAlgorithmJax):
         )
 
         self.policy.qf_state, self.key, qf_loss_value = self._train(
-            self.qf,
             self.gamma,
             gradient_steps,
             data,
@@ -156,10 +155,9 @@ class DQN(OffPolicyAlgorithmJax):
         self.logger.record("train/critic_loss", qf_loss_value.item())
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["qf", "gamma"])
+    @jax.jit
     def update_qnetwork(
-        qf,
-        gamma,
+        gamma: float,
         qf_state: RLTrainState,
         observations: np.ndarray,
         actions: np.ndarray,
@@ -171,7 +169,7 @@ class DQN(OffPolicyAlgorithmJax):
         key, dropout_key_target, dropout_key_current = jax.random.split(key, 3)
 
         # Compute the next Q-values using the target network
-        qf_next_values = qf.apply(
+        qf_next_values = qf_state.apply_fn(
             qf_state.target_params,
             next_observations,
             rngs={"dropout": dropout_key_target},
@@ -186,7 +184,7 @@ class DQN(OffPolicyAlgorithmJax):
 
         def huber_loss(params, dropout_key):
             # Get current Q-values estimates
-            current_q_values = qf.apply(params, observations, rngs={"dropout": dropout_key})
+            current_q_values = qf_state.apply_fn(params, observations, rngs={"dropout": dropout_key})
             # Retrieve the q-values for the actions from the replay buffer
             current_q_values = jnp.take_along_axis(current_q_values, actions, axis=1)
             # Compute Huber loss (less sensitive to outliers)
@@ -245,16 +243,14 @@ class DQN(OffPolicyAlgorithmJax):
             action, state = self.policy.predict(observation, state, episode_start, deterministic)
         return action, state
 
-    @classmethod
+    @staticmethod
     @partial(
         jax.jit,
-        static_argnames=["cls", "qf", "gamma", "gradient_steps"],
+        static_argnames=["gradient_steps"],
     )
     def _train(
-        cls,
-        qf,
-        gamma,
-        gradient_steps,
+        gamma: float,
+        gradient_steps: int,
         data: ReplayBufferSamplesNp,
         qf_state: RLTrainState,
         key,
@@ -268,7 +264,6 @@ class DQN(OffPolicyAlgorithmJax):
                 return x[batch_size * step : batch_size * (step + 1)]
 
             qf_state, qf_loss_value, key = DQN.update_qnetwork(
-                qf,
                 gamma,
                 qf_state,
                 slice(data.observations),
