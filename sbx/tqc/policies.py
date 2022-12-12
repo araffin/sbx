@@ -194,8 +194,8 @@ class TQCPolicy(BaseJaxPolicy):
 
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:
         if deterministic:
-            return BaseJaxPolicy.select_action(self.actor, self.actor_state, observation)
+            return BaseJaxPolicy.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
             self.reset_noise()
-        return BaseJaxPolicy.sample_action(self.actor, self.actor_state, observation, self.noise_key)
+        return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)

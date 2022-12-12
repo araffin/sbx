@@ -3,7 +3,7 @@ import pytest
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import PPO, SAC, TQC, DroQ
+from sbx import DQN, PPO, SAC, TQC, DroQ
 
 
 def test_droq(tmp_path):
@@ -78,3 +78,14 @@ def test_ppo(env_id):
         n_epochs=2,
     )
     model.learn(128, progress_bar=True)
+
+
+def test_dqn():
+    model = DQN(
+        "MlpPolicy",
+        "CartPole-v1",
+        verbose=1,
+        gradient_steps=-1,
+        target_update_interval=10,
+    )
+    model.learn(128)

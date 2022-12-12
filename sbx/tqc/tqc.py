@@ -193,13 +193,10 @@ class TQC(OffPolicyAlgorithmJax):
             self.key,
             (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_value),
         ) = self._train(
-            self.actor,
-            self.qf,
-            self.ent_coef,
             self.gamma,
             self.tau,
             self.target_entropy,
-            self.gradient_steps,
+            gradient_steps,
             self.policy.n_target_quantiles,
             data,
             policy_delay_indices,
@@ -216,13 +213,10 @@ class TQC(OffPolicyAlgorithmJax):
         self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["actor", "qf", "ent_coef", "gamma", "n_target_quantiles"])
+    @partial(jax.jit, static_argnames=["n_target_quantiles"])
     def update_critic(
-        actor,
-        qf,
-        ent_coef,
-        gamma,
-        n_target_quantiles,
+        gamma: float,
+        n_target_quantiles: int,
         actor_state: TrainState,
         qf1_state: RLTrainState,
         qf2_state: RLTrainState,
@@ -237,20 +231,20 @@ class TQC(OffPolicyAlgorithmJax):
         key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
         key, dropout_key_3, dropout_key_4 = jax.random.split(key, 3)
         # sample action from the actor
-        dist = actor.apply(actor_state.params, next_observations)
+        dist = actor_state.apply_fn(actor_state.params, next_observations)
         next_state_actions = dist.sample(seed=noise_key)
         next_log_prob = dist.log_prob(next_state_actions)
 
-        ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
+        ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
 
-        qf1_next_quantiles = qf.apply(
+        qf1_next_quantiles = qf1_state.apply_fn(
             qf1_state.target_params,
             next_observations,
             next_state_actions,
             True,
             rngs={"dropout": dropout_key_1},
         )
-        qf2_next_quantiles = qf.apply(
+        qf2_next_quantiles = qf1_state.apply_fn(
             qf2_state.target_params,
             next_observations,
             next_state_actions,
@@ -276,7 +270,7 @@ class TQC(OffPolicyAlgorithmJax):
 
         def huber_quantile_loss(params, noise_key):
             # Compute huber quantile loss
-            current_quantiles = qf.apply(params, observations, actions, True, rngs={"dropout": noise_key})
+            current_quantiles = qf1_state.apply_fn(params, observations, actions, True, rngs={"dropout": noise_key})
             # convert to shape: (batch_size, n_quantiles, 1) for broadcast
             current_quantiles = jnp.expand_dims(current_quantiles, axis=-1)
 
@@ -306,11 +300,8 @@ class TQC(OffPolicyAlgorithmJax):
         )
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["actor", "qf", "ent_coef"])
+    @jax.jit
     def update_actor(
-        actor,
-        qf,
-        ent_coef,
         actor_state: RLTrainState,
         qf1_state: RLTrainState,
         qf2_state: RLTrainState,
@@ -322,18 +313,18 @@ class TQC(OffPolicyAlgorithmJax):
 
         def actor_loss(params):
 
-            dist = actor.apply(params, observations)
+            dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
 
-            qf1_pi = qf.apply(
+            qf1_pi = qf1_state.apply_fn(
                 qf1_state.params,
                 observations,
                 actor_actions,
                 True,
                 rngs={"dropout": dropout_key_1},
             )
-            qf2_pi = qf.apply(
+            qf2_pi = qf1_state.apply_fn(
                 qf2_state.params,
                 observations,
                 actor_actions,
@@ -348,7 +339,7 @@ class TQC(OffPolicyAlgorithmJax):
             qf_pi = jnp.concatenate((qf1_pi, qf2_pi), axis=1)
             qf_pi = qf_pi.mean(axis=2).mean(axis=1, keepdims=True)
 
-            ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
+            ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
             return (ent_coef_value * log_prob - qf_pi).mean(), -log_prob.mean()
 
         (actor_loss_value, entropy), grads = jax.value_and_grad(actor_loss, has_aux=True)(actor_state.params)
@@ -357,17 +348,17 @@ class TQC(OffPolicyAlgorithmJax):
         return actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["tau"])
-    def soft_update(tau, qf1_state: RLTrainState, qf2_state: RLTrainState):
+    @jax.jit
+    def soft_update(tau: float, qf1_state: RLTrainState, qf2_state: RLTrainState):
         qf1_state = qf1_state.replace(target_params=optax.incremental_update(qf1_state.params, qf1_state.target_params, tau))
         qf2_state = qf2_state.replace(target_params=optax.incremental_update(qf2_state.params, qf2_state.target_params, tau))
         return qf1_state, qf2_state
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["ent_coef", "target_entropy"])
-    def update_temperature(ent_coef, target_entropy, ent_coef_state: TrainState, entropy: float):
+    @jax.jit
+    def update_temperature(target_entropy: np.ndarray, ent_coef_state: TrainState, entropy: float):
         def temperature_loss(temp_params):
-            ent_coef_value = ent_coef.apply({"params": temp_params})
+            ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
             # ent_coef_loss = (jnp.log(ent_coef_value) * (entropy - target_entropy)).mean()
             ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()
             return ent_coef_loss
@@ -378,28 +369,13 @@ class TQC(OffPolicyAlgorithmJax):
         return ent_coef_state, ent_coef_loss
 
     @staticmethod
-    @partial(
-        jax.jit,
-        static_argnames=[
-            "actor",
-            "qf",
-            "ent_coef",
-            "gamma",
-            "tau",
-            "target_entropy",
-            "gradient_steps",
-            "n_target_quantiles",
-        ],
-    )
+    @partial(jax.jit, static_argnames=["gradient_steps", "n_target_quantiles"])
     def _train(
-        actor,
-        qf,
-        ent_coef,
-        gamma,
-        tau,
-        target_entropy,
-        gradient_steps,
-        n_target_quantiles,
+        gamma: float,
+        tau: float,
+        target_entropy: np.ndarray,
+        gradient_steps: int,
+        n_target_quantiles: int,
         data: ReplayBufferSamplesNp,
         policy_delay_indices: flax.core.FrozenDict,
         qf1_state: RLTrainState,
@@ -418,9 +394,6 @@ class TQC(OffPolicyAlgorithmJax):
                 return x[batch_size * step : batch_size * (step + 1)]
 
             ((qf1_state, qf2_state), (qf1_loss_value, qf2_loss_value, ent_coef_value), key,) = TQC.update_critic(
-                actor,
-                qf,
-                ent_coef,
                 gamma,
                 n_target_quantiles,
                 actor_state,
@@ -439,9 +412,6 @@ class TQC(OffPolicyAlgorithmJax):
             # hack to be able to jit (n_updates % policy_delay == 0)
             if i in policy_delay_indices:
                 (actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy) = TQC.update_actor(
-                    actor,
-                    qf,
-                    ent_coef,
                     actor_state,
                     qf1_state,
                     qf2_state,
@@ -449,7 +419,7 @@ class TQC(OffPolicyAlgorithmJax):
                     slice(data.observations),
                     key,
                 )
-                ent_coef_state, _ = TQC.update_temperature(ent_coef, target_entropy, ent_coef_state, entropy)
+                ent_coef_state, _ = TQC.update_temperature(target_entropy, ent_coef_state, entropy)
 
         return (
             qf1_state,

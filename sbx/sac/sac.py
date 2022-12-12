@@ -189,13 +189,10 @@ class SAC(OffPolicyAlgorithmJax):
             self.key,
             (actor_loss_value, qf_loss_value, ent_coef_value),
         ) = self._train(
-            self.actor,
-            self.qf,
-            self.ent_coef,
             self.gamma,
             self.tau,
             self.target_entropy,
-            self.gradient_steps,
+            gradient_steps,
             data,
             policy_delay_indices,
             self.policy.qf_state,
@@ -210,12 +207,9 @@ class SAC(OffPolicyAlgorithmJax):
         self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["actor", "qf", "ent_coef", "gamma"])
+    @jax.jit
     def update_critic(
-        actor,
-        qf,
-        ent_coef,
-        gamma,
+        gamma: float,
         actor_state: TrainState,
         qf_state: RLTrainState,
         ent_coef_state: TrainState,
@@ -228,13 +222,13 @@ class SAC(OffPolicyAlgorithmJax):
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # sample action from the actor
-        dist = actor.apply(actor_state.params, next_observations)
+        dist = actor_state.apply_fn(actor_state.params, next_observations)
         next_state_actions = dist.sample(seed=noise_key)
         next_log_prob = dist.log_prob(next_state_actions)
 
-        ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
+        ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
 
-        qf_next_values = qf.apply(
+        qf_next_values = qf_state.apply_fn(
             qf_state.target_params,
             next_observations,
             next_state_actions,
@@ -249,7 +243,7 @@ class SAC(OffPolicyAlgorithmJax):
 
         def mse_loss(params, dropout_key):
             # shape is (n_critics, batch_size, 1)
-            current_q_values = qf.apply(params, observations, actions, rngs={"dropout": dropout_key})
+            current_q_values = qf_state.apply_fn(params, observations, actions, rngs={"dropout": dropout_key})
             return 0.5 * ((target_q_values - current_q_values) ** 2).mean(axis=1).sum()
 
         qf_loss_value, grads = jax.value_and_grad(mse_loss, has_aux=False)(qf_state.params, dropout_key_current)
@@ -262,11 +256,8 @@ class SAC(OffPolicyAlgorithmJax):
         )
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["actor", "qf", "ent_coef"])
+    @jax.jit
     def update_actor(
-        actor,
-        qf,
-        ent_coef,
         actor_state: RLTrainState,
         qf_state: RLTrainState,
         ent_coef_state: TrainState,
@@ -277,11 +268,11 @@ class SAC(OffPolicyAlgorithmJax):
 
         def actor_loss(params):
 
-            dist = actor.apply(params, observations)
+            dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
 
-            qf_pi = qf.apply(
+            qf_pi = qf_state.apply_fn(
                 qf_state.params,
                 observations,
                 actor_actions,
@@ -289,7 +280,7 @@ class SAC(OffPolicyAlgorithmJax):
             )
             # Take min among all critics (mean for droq)
             min_qf_pi = jnp.min(qf_pi, axis=0)
-            ent_coef_value = ent_coef.apply({"params": ent_coef_state.params})
+            ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
             actor_loss = (ent_coef_value * log_prob - min_qf_pi).mean()
             return actor_loss, -log_prob.mean()
 
@@ -299,16 +290,16 @@ class SAC(OffPolicyAlgorithmJax):
         return actor_state, qf_state, actor_loss_value, key, entropy
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["tau"])
-    def soft_update(tau, qf_state: RLTrainState):
+    @jax.jit
+    def soft_update(tau: float, qf_state: RLTrainState):
         qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
         return qf_state
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["ent_coef", "target_entropy"])
-    def update_temperature(ent_coef, target_entropy, ent_coef_state: TrainState, entropy: float):
+    @jax.jit
+    def update_temperature(target_entropy: np.ndarray, ent_coef_state: TrainState, entropy: float):
         def temperature_loss(temp_params):
-            ent_coef_value = ent_coef.apply({"params": temp_params})
+            ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
             ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()
             return ent_coef_loss
 
@@ -318,28 +309,13 @@ class SAC(OffPolicyAlgorithmJax):
         return ent_coef_state, ent_coef_loss
 
     @classmethod
-    @partial(
-        jax.jit,
-        static_argnames=[
-            "cls",
-            "actor",
-            "qf",
-            "ent_coef",
-            "gamma",
-            "tau",
-            "target_entropy",
-            "gradient_steps",
-        ],
-    )
+    @partial(jax.jit, static_argnames=["cls", "gradient_steps"])
     def _train(
         cls,
-        actor,
-        qf,
-        ent_coef,
-        gamma,
-        tau,
-        target_entropy,
-        gradient_steps,
+        gamma: float,
+        tau: float,
+        target_entropy: np.ndarray,
+        gradient_steps: int,
         data: ReplayBufferSamplesNp,
         policy_delay_indices: flax.core.FrozenDict,
         qf_state: RLTrainState,
@@ -357,9 +333,6 @@ class SAC(OffPolicyAlgorithmJax):
                 return x[batch_size * step : batch_size * (step + 1)]
 
             (qf_state, (qf_loss_value, ent_coef_value), key,) = SAC.update_critic(
-                actor,
-                qf,
-                ent_coef,
                 gamma,
                 actor_state,
                 qf_state,
@@ -376,16 +349,13 @@ class SAC(OffPolicyAlgorithmJax):
             # hack to be able to jit (n_updates % policy_delay == 0)
             if i in policy_delay_indices:
                 (actor_state, qf_state, actor_loss_value, key, entropy) = cls.update_actor(
-                    actor,
-                    qf,
-                    ent_coef,
                     actor_state,
                     qf_state,
                     ent_coef_state,
                     slice(data.observations),
                     key,
                 )
-                ent_coef_state, _ = SAC.update_temperature(ent_coef, target_entropy, ent_coef_state, entropy)
+                ent_coef_state, _ = SAC.update_temperature(target_entropy, ent_coef_state, entropy)
 
         return (
             qf_state,
