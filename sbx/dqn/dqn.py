@@ -158,11 +158,12 @@ class DQN(OffPolicyAlgorithmJax):
         }
 
         # jit the loop similar to https://github.com/Howuhh/sac-n-jax
-        update_carry = jax.lax.fori_loop(
-            lower=0,
-            upper=gradient_steps,
-            body_fun=self._train,
-            init_val=update_carry,
+        # we use scan to be update to play with unroll parameter
+        update_carry, _ = jax.lax.scan(
+            self._train,
+            update_carry,
+            indices,
+            unroll=1,
         )
 
         self.policy.qf_state = update_carry["qf_state"]
@@ -259,9 +260,8 @@ class DQN(OffPolicyAlgorithmJax):
 
     @staticmethod
     @jax.jit
-    def _train(update_idx, carry):
+    def _train(carry, indices):
         data = carry["data"]
-        indices = carry["indices"][update_idx]
 
         qf_state, (qf_loss_value, qf_mean_value) = DQN.update_qnetwork(
             carry["gamma"],
@@ -277,4 +277,4 @@ class DQN(OffPolicyAlgorithmJax):
         carry["info"]["critic_loss"] += qf_loss_value
         carry["info"]["qf_mean_value"] += qf_mean_value
 
-        return carry
+        return carry, None
