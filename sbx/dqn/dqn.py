@@ -158,7 +158,7 @@ class DQN(OffPolicyAlgorithmJax):
         }
 
         # jit the loop similar to https://github.com/Howuhh/sac-n-jax
-        # we use scan to be update to play with unroll parameter
+        # we use scan to be able to play with unroll parameter
         update_carry, _ = jax.lax.scan(
             self._train,
             update_carry,
