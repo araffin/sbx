@@ -15,12 +15,3 @@ class ReplayBufferSamplesNp(NamedTuple):
     next_observations: np.ndarray
     dones: np.ndarray
     rewards: np.ndarray
-
-
-class RolloutBufferSamplesNp(NamedTuple):
-    observations: np.ndarray
-    actions: np.ndarray
-    old_values: np.ndarray
-    old_log_prob: np.ndarray
-    advantages: np.ndarray
-    returns: np.ndarray

@@ -1,4 +1,5 @@
 import warnings
+from functools import partial
 from typing import Any, Dict, Optional, Type, TypeVar, Union
 
 import jax
@@ -11,7 +12,6 @@ from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
 from sbx.ppo.policies import PPOPolicy
-from sbx.common.type_aliases import RolloutBufferSamplesNp
 
 PPOSelf = TypeVar("PPOSelf", bound="PPO")
 
@@ -191,8 +191,7 @@ class PPO(OnPolicyAlgorithmJax):
         #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
 
     @staticmethod
-    # @partial(jax.jit, static_argnames=["normalize_advantage"])
-    @jax.jit
+    @partial(jax.jit, static_argnames=["normalize_advantage"])
     def _one_update(
         actor_state: TrainState,
         vf_state: TrainState,
@@ -204,13 +203,13 @@ class PPO(OnPolicyAlgorithmJax):
         clip_range: float,
         ent_coef: float,
         vf_coef: float,
+        normalize_advantage: bool = True,
     ):
 
-        # Normalize advantage: always normalize to avoid
-        # issue with jit for now
+        # Normalize advantage
         # Normalization does not make sense if mini batchsize == 1, see GH issue #325
-        # if normalize_advantage and len(advantages) > 1:
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        if normalize_advantage and len(advantages) > 1:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         def actor_loss(params):
             dist = actor_state.apply_fn(params, observations)
@@ -256,37 +255,6 @@ class PPO(OnPolicyAlgorithmJax):
         # Compute current clip range
         clip_range = self.clip_range(self._current_progress_remaining)
 
-        update_carry = {
-            "actor_state": self.policy.actor_state,
-            "vf_state": self.policy.vf_state,
-            "clip_range": clip_range,
-            "ent_coef": self.ent_coef,
-            "vf_coef": self.vf_coef,
-            "info": {
-                "value_loss": jnp.array([0.0]),
-                "pg_loss": jnp.array([0.0]),
-            },
-        }
-        rollout_data = next(self.rollout_buffer.get(None))
-
-        if isinstance(self.action_space, spaces.Discrete):
-            # Convert discrete action from float to int
-            actions = rollout_data.actions.flatten().numpy().astype(np.int32)
-        else:
-            actions = rollout_data.actions.numpy()
-
-        update_carry["rollout_data"] = RolloutBufferSamplesNp(
-            rollout_data.observations.numpy(),
-            actions,
-            rollout_data.old_values.numpy(),
-            rollout_data.old_log_prob.numpy().flatten(),
-            rollout_data.advantages.numpy().flatten(),
-            rollout_data.returns.numpy().flatten(),
-        )
-        n_data = self.n_steps * self.n_envs
-        n_minibatches = n_data // self.batch_size
-
-
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # JIT only one update
@@ -308,31 +276,8 @@ class PPO(OnPolicyAlgorithmJax):
                     clip_range=clip_range,
                     ent_coef=self.ent_coef,
                     vf_coef=self.vf_coef,
-                    # normalize_advantage=self.normalize_advantage,
+                    normalize_advantage=self.normalize_advantage,
                 )
-
-            # Pre compute the slice indices
-            # otherwise jax will complain
-        #     self.key, permutation_key = jax.random.split(self.key, 2)
-        #     indices = jax.random.permutation(permutation_key, len(rollout_data.returns))
-        #     # truncate and reshape
-        #     update_carry["indices"] = indices[: n_minibatches * self.batch_size].reshape(n_minibatches, self.batch_size)
-        #
-        #     # TODO: normalize advantages here if needed
-        #
-        #     # jit the loop similar to https://github.com/Howuhh/sac-n-jax
-        #     # we use scan to be able to play with unroll parameter
-        #     update_carry, _ = jax.lax.scan(
-        #         self._train,
-        #         update_carry,
-        #         indices,
-        #         unroll=1,
-        #     )
-        #
-        # self.policy.actor_state = update_carry["actor_state"]
-        # self.policy.vf_state = update_carry["vf_state"]
-        # value_loss = update_carry["info"]["value_loss"]
-        # pg_loss = update_carry["info"]["pg_loss"] / (n_minibatches * self.n_epochs)
 
         self._n_updates += self.n_epochs
         explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
@@ -353,30 +298,6 @@ class PPO(OnPolicyAlgorithmJax):
         self.logger.record("train/clip_range", clip_range)
         # if self.clip_range_vf is not None:
         #     self.logger.record("train/clip_range_vf", clip_range_vf)
-
-    @staticmethod
-    @jax.jit
-    def _train(carry, indices):
-        rollout_data = carry["rollout_data"]
-
-        (actor_state, vf_state), (pg_loss, value_loss) = PPO._one_update(
-            actor_state=carry["actor_state"],
-            vf_state=carry["vf_state"],
-            observations=rollout_data.observations[indices],
-            actions=rollout_data.actions[indices],
-            advantages=rollout_data.advantages[indices],
-            returns=rollout_data.returns[indices],
-            old_log_prob=rollout_data.old_log_prob[indices],
-            clip_range=carry["clip_range"],
-            ent_coef=carry["ent_coef"],
-            vf_coef=carry["vf_coef"],
-        )
-        carry["actor_state"] = actor_state
-        carry["vf_state"] = vf_state
-        carry["info"]["value_loss"] += value_loss
-        carry["info"]["pg_loss"] += pg_loss
-
-        return carry, None
 
     def learn(
         self: PPOSelf,
