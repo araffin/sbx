@@ -62,7 +62,7 @@ def test_sac(model_class):
         "MlpPolicy",
         "Pendulum-v1",
         verbose=1,
-        gradient_steps=4,
+        gradient_steps=1,
         learning_rate=1e-3,
     )
     model.learn(110)
