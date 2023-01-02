@@ -1,4 +1,3 @@
-from functools import partial
 from typing import Any, Dict, Optional, Tuple, Union
 
 import flax
@@ -182,24 +181,61 @@ class SAC(OffPolicyAlgorithmJax):
             data.rewards.numpy().flatten(),
         )
 
-        (
-            self.policy.qf_state,
-            self.policy.actor_state,
-            self.ent_coef_state,
-            self.key,
-            (actor_loss_value, qf_loss_value, ent_coef_value),
-        ) = self._train(
-            self.gamma,
-            self.tau,
-            self.target_entropy,
-            gradient_steps,
-            data,
-            policy_delay_indices,
-            self.policy.qf_state,
-            self.policy.actor_state,
-            self.ent_coef_state,
-            self.key,
+        # Pre compute the slice indices
+        # otherwise jax will complain
+        indices = jnp.arange(len(data.dones)).reshape(gradient_steps, batch_size)
+
+        update_carry = {
+            "actor_state": self.policy.actor_state,
+            "qf_state": self.policy.qf_state,
+            "ent_coef_state": self.ent_coef_state,
+            "gamma": self.gamma,
+            "tau": self.tau,
+            "target_entropy": self.target_entropy,
+            "data": data,
+            "indices": indices,
+            "policy_delay_indices": policy_delay_indices,
+            "key": self.key,
+            "info": {
+                "critic_loss": jnp.array([0.0]),
+                "actor_loss": jnp.array([0.0]),
+                "ent_coef_value": jnp.array([0.0]),
+            },
+        }
+
+        update_carry = jax.lax.fori_loop(
+            lower=0,
+            upper=gradient_steps,
+            body_fun=self._train,
+            init_val=update_carry,
         )
+
+        self.policy.actor_state = update_carry["actor_state"]
+        self.policy.qf_state = update_carry["qf_state"]
+        self.ent_coef_state = update_carry["ent_coef_state"]
+        self.key = update_carry["key"]
+        qf_loss_value = update_carry["info"]["critic_loss"] / gradient_steps
+        actor_loss_value = update_carry["info"]["actor_loss"] / gradient_steps
+        ent_coef_value = update_carry["info"]["ent_coef_value"] / gradient_steps
+        #
+        # (
+        #     self.policy.qf_state,
+        #     self.policy.actor_state,
+        #     self.ent_coef_state,
+        #     self.key,
+        #     (actor_loss_value, qf_loss_value, ent_coef_value),
+        # ) = self._train(
+        #     self.gamma,
+        #     self.tau,
+        #     self.target_entropy,
+        #     gradient_steps,
+        #     data,
+        #     policy_delay_indices,
+        #     self.policy.qf_state,
+        #     self.policy.actor_state,
+        #     self.ent_coef_state,
+        #     self.key,
+        # )
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/actor_loss", actor_loss_value.item())
@@ -308,59 +344,111 @@ class SAC(OffPolicyAlgorithmJax):
 
         return ent_coef_state, ent_coef_loss
 
-    @classmethod
-    @partial(jax.jit, static_argnames=["cls", "gradient_steps"])
-    def _train(
-        cls,
-        gamma: float,
-        tau: float,
-        target_entropy: np.ndarray,
-        gradient_steps: int,
-        data: ReplayBufferSamplesNp,
-        policy_delay_indices: flax.core.FrozenDict,
-        qf_state: RLTrainState,
-        actor_state: TrainState,
-        ent_coef_state: TrainState,
-        key,
-    ):
-        actor_loss_value = jnp.array(0)
+    @staticmethod
+    @jax.jit
+    def _train(update_idx, carry):
+        data = carry["data"]
+        actor_state = carry["actor_state"]
+        qf_state = carry["qf_state"]
+        ent_coef_state = carry["ent_coef_state"]
+        indices = carry["indices"][update_idx]
 
-        for i in range(gradient_steps):
-
-            def slice(x, step=i):
-                assert x.shape[0] % gradient_steps == 0
-                batch_size = x.shape[0] // gradient_steps
-                return x[batch_size * step : batch_size * (step + 1)]
-
-            (qf_state, (qf_loss_value, ent_coef_value), key,) = SAC.update_critic(
-                gamma,
-                actor_state,
-                qf_state,
-                ent_coef_state,
-                slice(data.observations),
-                slice(data.actions),
-                slice(data.next_observations),
-                slice(data.rewards),
-                slice(data.dones),
-                key,
-            )
-            qf_state = SAC.soft_update(tau, qf_state)
-
-            # hack to be able to jit (n_updates % policy_delay == 0)
-            if i in policy_delay_indices:
-                (actor_state, qf_state, actor_loss_value, key, entropy) = cls.update_actor(
-                    actor_state,
-                    qf_state,
-                    ent_coef_state,
-                    slice(data.observations),
-                    key,
-                )
-                ent_coef_state, _ = SAC.update_temperature(target_entropy, ent_coef_state, entropy)
-
-        return (
-            qf_state,
+        (qf_state, (qf_loss_value, ent_coef_value), key,) = SAC.update_critic(
+            carry["gamma"],
             actor_state,
+            qf_state,
             ent_coef_state,
-            key,
-            (actor_loss_value, qf_loss_value, ent_coef_value),
+            data.observations[indices],
+            data.actions[indices],
+            data.next_observations[indices],
+            data.rewards[indices],
+            data.dones[indices],
+            carry["key"],
         )
+        qf_state = SAC.soft_update(carry["tau"], qf_state)
+
+        # hack to be able to jit (n_updates % policy_delay == 0)
+        # if carry["policy_delay_indices"][update_idx]:
+        (actor_state, qf_state, actor_loss_value, key, entropy) = SAC.update_actor(
+            actor_state,
+            qf_state,
+            ent_coef_state,
+            data.observations[indices],
+            key,
+        )
+        ent_coef_state, _ = SAC.update_temperature(carry["target_entropy"], ent_coef_state, entropy)
+
+        carry["actor_state"] = actor_state
+        carry["qf_state"] = qf_state
+        carry["ent_coef_state"] = ent_coef_state
+        carry["key"] = key
+
+        carry["info"]["actor_loss"] += actor_loss_value
+        carry["info"]["critic_loss"] += qf_loss_value
+        carry["info"]["ent_coef_value"] += ent_coef_value
+
+        # return (
+        #     qf_state,
+        #     actor_state,
+        #     ent_coef_state,
+        #     key,
+        #     (actor_loss_value, qf_loss_value, ent_coef_value),
+        # )
+        return carry
+
+    # @classmethod
+    # @partial(jax.jit, static_argnames=["cls", "gradient_steps"])
+    # def _train(
+    #     cls,
+    #     gamma: float,
+    #     tau: float,
+    #     target_entropy: np.ndarray,
+    #     gradient_steps: int,
+    #     data: ReplayBufferSamplesNp,
+    #     policy_delay_indices: flax.core.FrozenDict,
+    #     qf_state: RLTrainState,
+    #     actor_state: TrainState,
+    #     ent_coef_state: TrainState,
+    #     key,
+    # ):
+    #     actor_loss_value = jnp.array(0)
+    #
+    #     for i in range(gradient_steps):
+    #
+    #         def slice(x, step=i):
+    #             assert x.shape[0] % gradient_steps == 0
+    #             batch_size = x.shape[0] // gradient_steps
+    #             return x[batch_size * step : batch_size * (step + 1)]
+    #
+    #         (qf_state, (qf_loss_value, ent_coef_value), key,) = SAC.update_critic(
+    #             gamma,
+    #             actor_state,
+    #             qf_state,
+    #             ent_coef_state,
+    #             slice(data.observations),
+    #             slice(data.actions),
+    #             slice(data.next_observations),
+    #             slice(data.rewards),
+    #             slice(data.dones),
+    #             key,
+    #         )
+    #         qf_state = SAC.soft_update(tau, qf_state)
+    #
+    #         # hack to be able to jit (n_updates % policy_delay == 0)
+    #         if i in policy_delay_indices:
+    #             (actor_state, qf_state, actor_loss_value, key, entropy) = cls.update_actor(
+    #                 actor_state,
+    #                 qf_state,
+    #                 ent_coef_state,
+    #                 slice(data.observations),
+    #                 key,
+    #             )
+    #             ent_coef_state, _ = SAC.update_temperature(target_entropy, ent_coef_state, entropy)
+    #
+    #     return (
+    #         qf_state,
+    #         actor_state,
+    #         ent_coef_state,
+    #         key,
+    #         (actor_loss_value, qf_loss_value, ent_coef_value),
+    #     )
