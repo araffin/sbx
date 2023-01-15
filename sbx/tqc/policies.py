@@ -78,6 +78,7 @@ class TQCPolicy(BaseJaxPolicy):
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         top_quantiles_to_drop_per_net: int = 2,
+        flop_quantiles_to_drop_per_net: int = 0,
         n_quantiles: int = 25,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
@@ -113,10 +114,12 @@ class TQCPolicy(BaseJaxPolicy):
         self.n_quantiles = n_quantiles
         self.n_critics = n_critics
         self.top_quantiles_to_drop_per_net = top_quantiles_to_drop_per_net
+        self.flop_quantiles_to_drop_per_net = flop_quantiles_to_drop_per_net
         # Sort and drop top k quantiles to control overestimation.
         quantiles_total = self.n_quantiles * self.n_critics
         top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
-        self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * self.n_critics
+        self.start_quantiles = flop_quantiles_to_drop_per_net * self.n_critics
+        self.end_quantiles = quantiles_total - top_quantiles_to_drop_per_net * self.n_critics
         self.use_sde = use_sde
 
         self.key = self.noise_key = jax.random.PRNGKey(0)

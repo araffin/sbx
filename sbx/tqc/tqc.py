@@ -58,6 +58,7 @@ class TQC(OffPolicyAlgorithmJax):
         gradient_steps: int = 1,
         policy_delay: int = 1,
         top_quantiles_to_drop_per_net: int = 2,
+        flop_quantiles_to_drop_per_net: int = 0,
         action_noise: Optional[ActionNoise] = None,
         ent_coef: Union[str, float] = "auto",
         use_sde: bool = False,
@@ -97,6 +98,7 @@ class TQC(OffPolicyAlgorithmJax):
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
         self.policy_kwargs["top_quantiles_to_drop_per_net"] = top_quantiles_to_drop_per_net
+        self.policy_kwargs["flop_quantiles_to_drop_per_net"] = flop_quantiles_to_drop_per_net
 
         if _init_setup_model:
             self._setup_model()
@@ -197,7 +199,8 @@ class TQC(OffPolicyAlgorithmJax):
             self.tau,
             self.target_entropy,
             gradient_steps,
-            self.policy.n_target_quantiles,
+            self.policy.start_quantiles,
+            self.policy.end_quantiles,
             data,
             policy_delay_indices,
             self.policy.qf1_state,
@@ -213,10 +216,11 @@ class TQC(OffPolicyAlgorithmJax):
         self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_target_quantiles"])
+    @partial(jax.jit, static_argnames=["start_quantiles", "end_quantiles"])
     def update_critic(
         gamma: float,
-        n_target_quantiles: int,
+        start_quantiles: int,
+        end_quantiles: int,
         actor_state: TrainState,
         qf1_state: RLTrainState,
         qf2_state: RLTrainState,
@@ -259,7 +263,7 @@ class TQC(OffPolicyAlgorithmJax):
         # sort next quantiles with jax
         next_quantiles = jnp.sort(qf_next_quantiles)
         # Keep only the quantiles we need
-        next_target_quantiles = next_quantiles[:, :n_target_quantiles]
+        next_target_quantiles = next_quantiles[:, start_quantiles:end_quantiles]
 
         # td error + entropy term
         next_target_quantiles = next_target_quantiles - ent_coef_value * next_log_prob.reshape(-1, 1)
@@ -369,13 +373,14 @@ class TQC(OffPolicyAlgorithmJax):
         return ent_coef_state, ent_coef_loss
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["gradient_steps", "n_target_quantiles"])
+    @partial(jax.jit, static_argnames=["gradient_steps", "start_quantiles", "end_quantiles"])
     def _train(
         gamma: float,
         tau: float,
         target_entropy: np.ndarray,
         gradient_steps: int,
-        n_target_quantiles: int,
+        start_quantiles: int,
+        end_quantiles: int,
         data: ReplayBufferSamplesNp,
         policy_delay_indices: flax.core.FrozenDict,
         qf1_state: RLTrainState,
@@ -395,7 +400,8 @@ class TQC(OffPolicyAlgorithmJax):
 
             ((qf1_state, qf2_state), (qf1_loss_value, qf2_loss_value, ent_coef_value), key,) = TQC.update_critic(
                 gamma,
-                n_target_quantiles,
+                start_quantiles,
+                end_quantiles,
                 actor_state,
                 qf1_state,
                 qf2_state,
