@@ -145,7 +145,7 @@ class PPOPolicy(BaseJaxPolicy):
             params=self.actor.init(actor_key, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
-                optax.inject_hyperparams(self.optimizer_class)(
+                self.optimizer_class(
                     learning_rate=lr_schedule(1),
                     **self.optimizer_kwargs,  # , eps=1e-5
                 ),
