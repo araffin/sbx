@@ -146,7 +146,7 @@ class PPOPolicy(BaseJaxPolicy):
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
                 self.optimizer_class(
-                    learning_rate=lr_schedule(1),
+                    learning_rate=lr_schedule(1),  # type: ignore[call-arg]
                     **self.optimizer_kwargs,  # , eps=1e-5
                 ),
             ),
@@ -159,7 +159,7 @@ class PPOPolicy(BaseJaxPolicy):
             params=self.vf.init({"params": vf_key}, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
-                optax.inject_hyperparams(self.optimizer_class)(
+                self.optimizer_class(
                     learning_rate=lr_schedule(1),  # type: ignore[call-arg]
                     **self.optimizer_kwargs,  # , eps=1e-5
                 ),
