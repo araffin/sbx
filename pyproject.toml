@@ -23,15 +23,18 @@ src_paths = ["sbx"]
 
 [tool.pytype]
 inputs = ["sbx"]
-disable = ["pyi-error"]
+disable = []
 
 [tool.mypy]
 ignore_missing_imports = true
 follow_imports = "silent"
 show_error_codes = true
 exclude = """(?x)(
-    sbx/a2c/a2c.py$
-    | sbx/common/base_class.py$
+    sbx/common/on_policy_algorithm.py$
+    | sbx/common/off_policy_algorithm.py$
+    | sbx/ppo/ppo.py$
+    | sbx/dqn/dqn.py$
+    | sbx/common/policies.py$
   )"""
 
 [tool.pytest.ini_options]

@@ -38,7 +38,7 @@ class ConstantEntropyCoef(nn.Module):
 
 
 class TQC(OffPolicyAlgorithmJax):
-    policy_aliases: Dict[str, Type[TQCPolicy]] = {
+    policy_aliases: Dict[str, Type[TQCPolicy]] = {  # type: ignore[assignment]
         "MlpPolicy": TQCPolicy,
     }
 
@@ -104,12 +104,14 @@ class TQC(OffPolicyAlgorithmJax):
         super()._setup_model()
 
         if self.policy is None:  # type: ignore[has-type]
-            self.policy = self.policy_class(  # pytype:disable=not-instantiable
+            # pytype: disable=not-instantiable
+            self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
-                **self.policy_kwargs,  # pytype:disable=not-instantiable
+                **self.policy_kwargs,
             )
+            # pytype: enable=not-instantiable
             assert isinstance(self.policy, TQCPolicy)
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)

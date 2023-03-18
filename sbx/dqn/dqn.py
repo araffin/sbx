@@ -16,7 +16,7 @@ from sbx.dqn.policies import DQNPolicy
 
 
 class DQN(OffPolicyAlgorithmJax):
-    policy_aliases: Dict[str, Type[DQNPolicy]] = {
+    policy_aliases: Dict[str, Type[DQNPolicy]] = {  # type: ignore[assignment]
         "MlpPolicy": DQNPolicy,
     }
     # Linear schedule will be defined in `_setup_model()`

@@ -68,7 +68,7 @@ class PPO(OnPolicyAlgorithmJax):
     :param _init_setup_model: Whether or not to build the network at the creation of the instance
     """
 
-    policy_aliases: Dict[str, Type[PPOPolicy]] = {
+    policy_aliases: Dict[str, Type[PPOPolicy]] = {  # type: ignore[assignment]
         "MlpPolicy": PPOPolicy,
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,

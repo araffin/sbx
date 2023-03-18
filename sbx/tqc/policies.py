@@ -140,7 +140,10 @@ class TQCPolicy(BaseJaxPolicy):
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
-            tx=self.optimizer_class(learning_rate=lr_schedule(1), **self.optimizer_kwargs),
+            tx=self.optimizer_class(
+                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
+                **self.optimizer_kwargs,
+            ),
         )
 
         self.qf = Critic(
@@ -162,7 +165,7 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=optax.adam(learning_rate=qf_learning_rate),
+            tx=optax.adam(learning_rate=qf_learning_rate),  # type: ignore[call-arg]
         )
         self.qf2_state = RLTrainState.create(
             apply_fn=self.qf.apply,
@@ -176,7 +179,10 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=self.optimizer_class(learning_rate=qf_learning_rate, **self.optimizer_kwargs),
+            tx=self.optimizer_class(
+                learning_rate=qf_learning_rate,  # type: ignore[call-arg]
+                **self.optimizer_kwargs,
+            ),
         )
         self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
         self.qf.apply = jax.jit(  # type: ignore[method-assign]
@@ -195,7 +201,7 @@ class TQCPolicy(BaseJaxPolicy):
     def forward(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
 
-    def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:
+    def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:
             return BaseJaxPolicy.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
