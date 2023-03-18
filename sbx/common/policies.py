@@ -1,9 +1,9 @@
 # import copy
 from typing import Dict, Optional, Tuple, Union
 
-import gym
 import jax
 import numpy as np
+from gym import spaces
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
 from stable_baselines3.common.utils import is_vectorized_observation
@@ -44,7 +44,7 @@ class BaseJaxPolicy(BasePolicy):
         # Convert to numpy, and reshape to the original action shape
         actions = np.array(actions).reshape((-1, *self.action_space.shape))
 
-        if isinstance(self.action_space, gym.spaces.Box):
+        if isinstance(self.action_space, spaces.Box):
             if self.squash_output:
                 # Clip due to numerical instability
                 actions = np.clip(actions, -1, 1)
@@ -64,7 +64,7 @@ class BaseJaxPolicy(BasePolicy):
     def prepare_obs(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> Tuple[np.ndarray, bool]:
         vectorized_env = False
         if isinstance(observation, dict):
-            raise NotImplementedError()
+            pass
             # # need to copy the dict as the dict in VecFrameStack will become a torch tensor
             # observation = copy.deepcopy(observation)
             # for key, obs in observation.items():
@@ -85,11 +85,16 @@ class BaseJaxPolicy(BasePolicy):
         else:
             observation = np.array(observation)
 
+        vectorized_env = is_vectorized_observation(observation, self.observation_space)
+
         if not isinstance(observation, dict):
-            # Dict obs need to be handled separately
-            vectorized_env = is_vectorized_observation(observation, self.observation_space)
             # Add batch dimension if needed
             observation = observation.reshape((-1, *self.observation_space.shape))
+        else:
+            # Minimal dict support: flatten
+            observation: np.ndarray = spaces.flatten(self.observation_space, observation)
+            flattened_space = spaces.flatten_space(self.observation_space)
+            observation = observation.reshape((-1, *flattened_space.shape))
 
         assert isinstance(observation, np.ndarray)
         return observation, vectorized_env

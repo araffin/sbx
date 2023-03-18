@@ -3,12 +3,13 @@ from typing import Any, Dict, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
-import gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 from flax.training.train_state import TrainState
+from gym import spaces
+from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
@@ -40,6 +41,8 @@ class ConstantEntropyCoef(nn.Module):
 class SAC(OffPolicyAlgorithmJax):
     policy_aliases: Dict[str, Type[SACPolicy]] = {  # type: ignore[assignment]
         "MlpPolicy": SACPolicy,
+        # Minimal dict support using flatten()
+        "MultiInputPolicy": SACPolicy,
     }
 
     def __init__(
@@ -57,6 +60,8 @@ class SAC(OffPolicyAlgorithmJax):
         gradient_steps: int = 1,
         policy_delay: int = 1,
         action_noise: Optional[ActionNoise] = None,
+        replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
         use_sde: bool = False,
         sde_sample_freq: int = -1,
@@ -80,6 +85,8 @@ class SAC(OffPolicyAlgorithmJax):
             gamma=gamma,
             train_freq=train_freq,
             gradient_steps=gradient_steps,
+            replay_buffer_class=replay_buffer_class,
+            replay_buffer_kwargs=replay_buffer_kwargs,
             action_noise=action_noise,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
@@ -88,7 +95,7 @@ class SAC(OffPolicyAlgorithmJax):
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
-            supported_action_spaces=(gym.spaces.Box),
+            supported_action_spaces=(spaces.Box),
             support_multi_env=True,
         )
 
@@ -176,11 +183,20 @@ class SAC(OffPolicyAlgorithmJax):
         # It will compile once per value of policy_delay_indices
         policy_delay_indices = {i: True for i in range(gradient_steps) if ((self._n_updates + i + 1) % self.policy_delay) == 0}
         policy_delay_indices = flax.core.FrozenDict(policy_delay_indices)
+
+        if isinstance(data.observations, dict):
+            keys = list(self.observation_space.keys())
+            obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
+            next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
+        else:
+            obs = data.observations.numpy()
+            next_obs = data.next_observations.numpy()
+
         # Convert to numpy
         data = ReplayBufferSamplesNp(
-            data.observations.numpy(),
+            obs,
             data.actions.numpy(),
-            data.next_observations.numpy(),
+            next_obs,
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
         )

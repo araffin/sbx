@@ -1,13 +1,13 @@
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import flax.linen as nn
-import gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import tensorflow_probability
 from flax.training.train_state import TrainState
+from gym import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
@@ -96,8 +96,8 @@ class Actor(nn.Module):
 class SACPolicy(BaseJaxPolicy):
     def __init__(
         self,
-        observation_space: gym.spaces.Space,
-        action_space: gym.spaces.Space,
+        observation_space: spaces.Space,
+        action_space: spaces.Space,
         lr_schedule: Schedule,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
@@ -145,7 +145,10 @@ class SACPolicy(BaseJaxPolicy):
         # Initialize noise
         self.reset_noise()
 
-        obs = jnp.array([self.observation_space.sample()])
+        if isinstance(self.observation_space, spaces.Dict):
+            obs = jnp.array([spaces.flatten(self.observation_space, self.observation_space.sample())])
+        else:
+            obs = jnp.array([self.observation_space.sample()])
         action = jnp.array([self.action_space.sample()])
 
         self.actor = Actor(

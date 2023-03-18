@@ -90,7 +90,6 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         self.qf_learning_rate = self.qf_learning_rate or self.lr_schedule(1)
         self.set_random_seed(self.seed)
 
-        self.replay_buffer_class = ReplayBuffer
         self.replay_buffer = self.replay_buffer_class(
             self.buffer_size,
             self.observation_space,
