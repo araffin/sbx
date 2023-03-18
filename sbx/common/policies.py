@@ -42,7 +42,7 @@ class BaseJaxPolicy(BasePolicy):
         actions = self._predict(observation, deterministic=deterministic)
 
         # Convert to numpy, and reshape to the original action shape
-        actions = np.array(actions).reshape((-1,) + self.action_space.shape)
+        actions = np.array(actions).reshape((-1, *self.action_space.shape))
 
         if isinstance(self.action_space, gym.spaces.Box):
             if self.squash_output:
@@ -89,7 +89,7 @@ class BaseJaxPolicy(BasePolicy):
             # Dict obs need to be handled separately
             vectorized_env = is_vectorized_observation(observation, self.observation_space)
             # Add batch dimension if needed
-            observation = observation.reshape((-1,) + self.observation_space.shape)
+            observation = observation.reshape((-1, *self.observation_space.shape))
 
         return observation, vectorized_env
 

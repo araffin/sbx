@@ -84,7 +84,7 @@ Type checking with `pytype`:
 make type
 ```
 
-Codestyle check with `black`, `isort` and `flake8`:
+Codestyle check with `black`, `isort` and `ruff`:
 
 ```
 make check-codestyle

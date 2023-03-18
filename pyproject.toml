@@ -1,0 +1,55 @@
+[tool.ruff]
+# Same as Black.
+line-length = 127
+# Assume Python 3.7
+target-version = "py37"
+# See https://beta.ruff.rs/docs/rules/
+select = ["E", "F", "B", "UP", "C90", "RUF"]
+# Ignore explicit stacklevel`
+ignore = ["B028"]
+
+
+[tool.ruff.mccabe]
+# Unlike Flake8, default to a complexity level of 10.
+max-complexity = 15
+
+[tool.black]
+line-length = 127
+
+[tool.isort]
+profile = "black"
+line_length = 127
+src_paths = ["sbx"]
+
+[tool.pytype]
+inputs = ["sbx"]
+disable = ["pyi-error"]
+
+[tool.mypy]
+ignore_missing_imports = true
+follow_imports = "silent"
+show_error_codes = true
+exclude = """(?x)(
+    sbx/a2c/a2c.py$
+    | sbx/common/base_class.py$
+  )"""
+
+[tool.pytest.ini_options]
+# Deterministic ordering for tests; useful for pytest-xdist.
+env = [
+	"PYTHONHASHSEED=0"
+]
+
+filterwarnings = [
+    # Tensorboard warnings
+    "ignore::DeprecationWarning:tensorboard",
+    # Gym warnings
+    "ignore:Parameters to load are deprecated.:DeprecationWarning",
+    "ignore:the imp module is deprecated in favour of importlib:PendingDeprecationWarning",
+    "ignore::UserWarning:gym",
+		"ignore:SelectableGroups dict interface is deprecated.:DeprecationWarning",
+		"ignore:`np.bool` is a deprecated alias for the builtin `bool`:DeprecationWarning",
+]
+markers = [
+    "expensive: marks tests as expensive (deselect with '-m \"not expensive\"')"
+]

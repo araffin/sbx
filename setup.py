@@ -37,7 +37,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3~=1.7.0a0",
+        "stable_baselines3>=1.8.0a9",
         "jax",
         "jaxlib",
         "flax",
@@ -56,9 +56,7 @@ setup(
             # Type check
             "pytype",
             # Lint code
-            "flake8>=3.8",
-            # Find likely bugs
-            "flake8-bugbear",
+            "ruff",
             # Sort imports
             "isort>=5.0",
             # Reformat
@@ -82,6 +80,7 @@ setup(
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
     ],
 )
 
