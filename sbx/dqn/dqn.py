@@ -1,7 +1,6 @@
 import warnings
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Type, Union
 
-import flax.linen as nn
 import gym
 import jax
 import jax.numpy as jnp
@@ -17,10 +16,11 @@ from sbx.dqn.policies import DQNPolicy
 
 
 class DQN(OffPolicyAlgorithmJax):
-
-    policy_aliases: Dict[str, Optional[nn.Module]] = {
+    policy_aliases: Dict[str, Type[DQNPolicy]] = {
         "MlpPolicy": DQNPolicy,
     }
+    # Linear schedule will be defined in `_setup_model()`
+    exploration_schedule: Schedule
 
     def __init__(
         self,
@@ -74,8 +74,6 @@ class DQN(OffPolicyAlgorithmJax):
         self._n_calls = 0
         # "epsilon" for the epsilon-greedy exploration
         self.exploration_rate = 0.0
-        # Linear schedule will be defined in `_setup_model()`
-        self.exploration_schedule = None
 
         if _init_setup_model:
             self._setup_model()
@@ -101,14 +99,14 @@ class DQN(OffPolicyAlgorithmJax):
 
             self.target_update_interval = max(self.target_update_interval // self.n_envs, 1)
 
-        if self.policy is None:
+        if self.policy is None:  # type: ignore[has-type]
             self.policy = self.policy_class(  # pytype:disable=not-instantiable
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,  # pytype:disable=not-instantiable
             )
-
+            assert isinstance(self.policy, DQNPolicy)
             self.key = self.policy.build(self.key, self.lr_schedule)
             self.qf = self.policy.qf
 

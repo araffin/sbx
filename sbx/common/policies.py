@@ -91,6 +91,7 @@ class BaseJaxPolicy(BasePolicy):
             # Add batch dimension if needed
             observation = observation.reshape((-1, *self.observation_space.shape))
 
+        assert isinstance(observation, np.ndarray)
         return observation, vectorized_env
 
     def set_training_mode(self, mode: bool) -> None:

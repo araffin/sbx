@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import flax.linen as nn
 import gym
@@ -33,7 +33,7 @@ class Critic(nn.Module):
 
 
 class Actor(nn.Module):
-    action_dim: Sequence[int]
+    action_dim: int
     n_units: int = 256
     log_std_init: float = 0.0
     continuous: bool = True
@@ -44,7 +44,7 @@ class Actor(nn.Module):
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:
+    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
         x = nn.Dense(self.n_units)(x)
         x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
@@ -98,8 +98,11 @@ class PPOPolicy(BaseJaxPolicy):
         self.log_std_init = log_std_init
         self.activation_fn = activation_fn
         if net_arch is not None:
-            assert isinstance(net_arch, list)
-            self.n_units = net_arch[0]["pi"][0]
+            if isinstance(net_arch, list):
+                self.n_units = net_arch[0]
+            else:
+                assert isinstance(net_arch, dict)
+                self.n_units = net_arch["pi"][0]
         else:
             self.n_units = 64
         self.use_sde = use_sde
@@ -163,8 +166,8 @@ class PPOPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.actor.apply = jax.jit(self.actor.apply)
-        self.vf.apply = jax.jit(self.vf.apply)
+        self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
+        self.vf.apply = jax.jit(self.vf.apply)  # type: ignore[method-assign]
 
         return key
 

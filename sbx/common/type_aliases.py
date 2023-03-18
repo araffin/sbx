@@ -5,8 +5,8 @@ import numpy as np
 from flax.training.train_state import TrainState
 
 
-class RLTrainState(TrainState):
-    target_params: flax.core.FrozenDict
+class RLTrainState(TrainState):  # type: ignore[misc]
+    target_params: flax.core.FrozenDict  # type: ignore[misc]
 
 
 class ReplayBufferSamplesNp(NamedTuple):

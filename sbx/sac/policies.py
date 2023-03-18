@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import flax.linen as nn
 import gym
@@ -69,7 +69,7 @@ class VectorCritic(nn.Module):
 
 
 class Actor(nn.Module):
-    action_dim: Sequence[int]
+    action_dim: int
     n_units: int = 256
     log_std_min: float = -20
     log_std_max: float = 2
@@ -79,7 +79,7 @@ class Actor(nn.Module):
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:
+    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
         x = nn.Dense(self.n_units)(x)
         x = nn.relu(x)
         x = nn.Dense(self.n_units)(x)
@@ -183,8 +183,11 @@ class SACPolicy(BaseJaxPolicy):
             tx=self.optimizer_class(learning_rate=qf_learning_rate, **self.optimizer_kwargs),
         )
 
-        self.actor.apply = jax.jit(self.actor.apply)
-        self.qf.apply = jax.jit(self.qf.apply, static_argnames=("dropout_rate", "use_layer_norm"))
+        self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
+        self.qf.apply = jax.jit(  # type: ignore[method-assign]
+            self.qf.apply,
+            static_argnames=("dropout_rate", "use_layer_norm"),
+        )
 
         return key
 

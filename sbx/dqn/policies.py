@@ -69,7 +69,7 @@ class DQNPolicy(BaseJaxPolicy):
         )
 
         # TODO: jit qf.apply_fn too?
-        self.qf.apply = jax.jit(self.qf.apply)
+        self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
 
         return key
 

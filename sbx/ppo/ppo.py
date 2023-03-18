@@ -100,7 +100,6 @@ class PPO(OnPolicyAlgorithmJax):
         device: str = "auto",
         _init_setup_model: bool = True,
     ):
-
         super().__init__(
             policy,
             env,
@@ -167,13 +166,14 @@ class PPO(OnPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if self.policy is None:
+        if self.policy is None:  # type: ignore[has-type]
             self.policy = self.policy_class(  # pytype:disable=not-instantiable
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,  # pytype:disable=not-instantiable
             )
+            assert isinstance(self.policy, PPOPolicy)
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.max_grad_norm)
 
@@ -183,7 +183,7 @@ class PPO(OnPolicyAlgorithmJax):
             self.vf = self.policy.vf
 
         # Initialize schedules for policy/value clipping
-        self.clip_range = get_schedule_fn(self.clip_range)
+        self.clip_range_schedule = get_schedule_fn(self.clip_range)
         # if self.clip_range_vf is not None:
         #     if isinstance(self.clip_range_vf, (float, int)):
         #         assert self.clip_range_vf > 0, "`clip_range_vf` must be positive, " "pass `None` to deactivate vf clipping"
@@ -205,7 +205,6 @@ class PPO(OnPolicyAlgorithmJax):
         vf_coef: float,
         normalize_advantage: bool = True,
     ):
-
         # Normalize advantage
         # Normalization does not make sense if mini batchsize == 1, see GH issue #325
         if normalize_advantage and len(advantages) > 1:
@@ -253,7 +252,7 @@ class PPO(OnPolicyAlgorithmJax):
         # Update optimizer learning rate
         # self._update_learning_rate(self.policy.optimizer)
         # Compute current clip range
-        clip_range = self.clip_range(self._current_progress_remaining)
+        clip_range = self.clip_range_schedule(self._current_progress_remaining)
 
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
@@ -308,7 +307,6 @@ class PPO(OnPolicyAlgorithmJax):
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
     ) -> PPOSelf:
-
         return super().learn(
             total_timesteps=total_timesteps,
             callback=callback,
