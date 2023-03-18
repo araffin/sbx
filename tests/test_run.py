@@ -40,7 +40,7 @@ def test_droq(tmp_path):
     model.learn(100, reset_num_timesteps=False)
 
 
-def test_tqc():
+def test_tqc() -> None:
     # Multi env
     train_env = make_vec_env("Pendulum-v1", n_envs=4)
     model = TQC(
@@ -80,7 +80,7 @@ def test_ppo(env_id):
     model.learn(128, progress_bar=True)
 
 
-def test_dqn():
+def test_dqn() -> None:
     model = DQN(
         "MlpPolicy",
         "CartPole-v1",

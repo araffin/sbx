@@ -17,7 +17,7 @@ OnPolicyAlgorithmSelf = TypeVar("OnPolicyAlgorithmSelf", bound="OnPolicyAlgorith
 class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
     def __init__(
         self,
-        policy: Type[BasePolicy],
+        policy: Union[str, Type[BasePolicy]],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule],
         n_steps: int,
@@ -37,7 +37,6 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         _init_setup_model: bool = True,
         supported_action_spaces: Optional[Tuple[gym.spaces.Space, ...]] = None,
     ):
-
         super().__init__(
             policy=policy,
             env=env,
@@ -110,7 +109,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         :return: True if function returned with at least `n_rollout_steps`
             collected, False if callback terminated rollout prematurely.
         """
-        assert self._last_obs is not None, "No previous observation was provided"
+        assert self._last_obs is not None, "No previous observation was provided"  # type: ignore[has-type]
         # Switch to eval mode (this affects batch norm / dropout)
 
         n_steps = 0
@@ -130,7 +129,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                 # Always sample new stochastic action
                 self.policy.reset_noise()
 
-            obs_tensor, _ = self.policy.prepare_obs(self._last_obs)
+            obs_tensor, _ = self.policy.prepare_obs(self._last_obs)  # type: ignore[has-type]
             actions, log_probs, values = self.policy.predict_all(obs_tensor, self.policy.noise_key)
 
             actions = np.array(actions)
@@ -173,10 +172,10 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                     rewards[idx] += self.gamma * terminal_value
 
             rollout_buffer.add(
-                self._last_obs,
+                self._last_obs,  # type: ignore[has-type]
                 actions,
                 rewards,
-                self._last_episode_starts,
+                self._last_episode_starts,  # type: ignore[has-type]
                 th.as_tensor(values),
                 th.as_tensor(log_probs),
             )

@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
@@ -30,7 +30,7 @@ class ConstantEntropyCoef(nn.Module):
     ent_coef_init: float = 1.0
 
     @nn.compact
-    def __call__(self) -> jnp.ndarray:
+    def __call__(self) -> float:
         # Hack to not optimize the entropy coefficient while not having to use if/else for the jit
         # TODO: add parameter in train to remove that hack
         self.param("dummy_param", init_fn=lambda key: jnp.full((), self.ent_coef_init))
@@ -38,8 +38,7 @@ class ConstantEntropyCoef(nn.Module):
 
 
 class TQC(OffPolicyAlgorithmJax):
-
-    policy_aliases: Dict[str, Optional[nn.Module]] = {
+    policy_aliases: Dict[str, Type[TQCPolicy]] = {  # type: ignore[assignment]
         "MlpPolicy": TQCPolicy,
     }
 
@@ -104,13 +103,16 @@ class TQC(OffPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if self.policy is None:
-            self.policy = self.policy_class(  # pytype:disable=not-instantiable
+        if self.policy is None:  # type: ignore[has-type]
+            # pytype: disable=not-instantiable
+            self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
-                **self.policy_kwargs,  # pytype:disable=not-instantiable
+                **self.policy_kwargs,
             )
+            # pytype: enable=not-instantiable
+            assert isinstance(self.policy, TQCPolicy)
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 
@@ -312,7 +314,6 @@ class TQC(OffPolicyAlgorithmJax):
         key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
 
         def actor_loss(params):
-
             dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
@@ -393,7 +394,11 @@ class TQC(OffPolicyAlgorithmJax):
                 batch_size = x.shape[0] // gradient_steps
                 return x[batch_size * step : batch_size * (step + 1)]
 
-            ((qf1_state, qf2_state), (qf1_loss_value, qf2_loss_value, ent_coef_value), key,) = TQC.update_critic(
+            (
+                (qf1_state, qf2_state),
+                (qf1_loss_value, qf2_loss_value, ent_coef_value),
+                key,
+            ) = TQC.update_critic(
                 gamma,
                 n_target_quantiles,
                 actor_state,

@@ -7,13 +7,13 @@ tfp = tensorflow_probability.substrates.jax
 tfd = tfp.distributions
 
 
-class TanhTransformedDistribution(tfd.TransformedDistribution):
+class TanhTransformedDistribution(tfd.TransformedDistribution):  # type: ignore[name-defined]
     """
     From https://github.com/ikostrikov/walk_in_the_park
     otherwise mode is not defined for Squashed Gaussian
     """
 
-    def __init__(self, distribution: tfd.Distribution, validate_args: bool = False):
+    def __init__(self, distribution: tfd.Distribution, validate_args: bool = False):  # type: ignore[name-defined]
         super().__init__(distribution=distribution, bijector=tfp.bijectors.Tanh(), validate_args=validate_args)
 
     def mode(self) -> jnp.ndarray:

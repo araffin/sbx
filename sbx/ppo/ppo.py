@@ -68,7 +68,7 @@ class PPO(OnPolicyAlgorithmJax):
     :param _init_setup_model: Whether or not to build the network at the creation of the instance
     """
 
-    policy_aliases: Dict[str, Type[PPOPolicy]] = {
+    policy_aliases: Dict[str, Type[PPOPolicy]] = {  # type: ignore[assignment]
         "MlpPolicy": PPOPolicy,
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
@@ -100,7 +100,6 @@ class PPO(OnPolicyAlgorithmJax):
         device: str = "auto",
         _init_setup_model: bool = True,
     ):
-
         super().__init__(
             policy,
             env,
@@ -167,13 +166,14 @@ class PPO(OnPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if self.policy is None:
+        if self.policy is None:  # type: ignore[has-type]
             self.policy = self.policy_class(  # pytype:disable=not-instantiable
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,  # pytype:disable=not-instantiable
             )
+            assert isinstance(self.policy, PPOPolicy)
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.max_grad_norm)
 
@@ -183,7 +183,7 @@ class PPO(OnPolicyAlgorithmJax):
             self.vf = self.policy.vf
 
         # Initialize schedules for policy/value clipping
-        self.clip_range = get_schedule_fn(self.clip_range)
+        self.clip_range_schedule = get_schedule_fn(self.clip_range)
         # if self.clip_range_vf is not None:
         #     if isinstance(self.clip_range_vf, (float, int)):
         #         assert self.clip_range_vf > 0, "`clip_range_vf` must be positive, " "pass `None` to deactivate vf clipping"
@@ -191,10 +191,8 @@ class PPO(OnPolicyAlgorithmJax):
         #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["actor", "vf", "normalize_advantage"])
+    @partial(jax.jit, static_argnames=["normalize_advantage"])
     def _one_update(
-        actor,
-        vf,
         actor_state: TrainState,
         vf_state: TrainState,
         observations: np.ndarray,
@@ -207,14 +205,13 @@ class PPO(OnPolicyAlgorithmJax):
         vf_coef: float,
         normalize_advantage: bool = True,
     ):
-
         # Normalize advantage
         # Normalization does not make sense if mini batchsize == 1, see GH issue #325
         if normalize_advantage and len(advantages) > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         def actor_loss(params):
-            dist = actor.apply(params, observations)
+            dist = actor_state.apply_fn(params, observations)
             log_prob = dist.log_prob(actions)
             entropy = dist.entropy()
 
@@ -239,14 +236,14 @@ class PPO(OnPolicyAlgorithmJax):
 
         def critic_loss(params):
             # Value loss using the TD(gae_lambda) target
-            vf_values = vf.apply(params, observations).flatten()
+            vf_values = vf_state.apply_fn(params, observations).flatten()
             return ((returns - vf_values) ** 2).mean()
 
         vf_loss_value, grads = jax.value_and_grad(critic_loss, has_aux=False)(vf_state.params)
         vf_state = vf_state.apply_gradients(grads=grads)
 
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
-        return (actor_state, vf_state), (vf_loss_value, pg_loss_value)
+        return (actor_state, vf_state), (pg_loss_value, vf_loss_value)
 
     def train(self) -> None:
         """
@@ -255,7 +252,7 @@ class PPO(OnPolicyAlgorithmJax):
         # Update optimizer learning rate
         # self._update_learning_rate(self.policy.optimizer)
         # Compute current clip range
-        clip_range = self.clip_range(self._current_progress_remaining)
+        clip_range = self.clip_range_schedule(self._current_progress_remaining)
 
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
@@ -267,9 +264,7 @@ class PPO(OnPolicyAlgorithmJax):
                 else:
                     actions = rollout_data.actions.numpy()
 
-                (self.policy.actor_state, self.policy.vf_state), (value_loss, pg_loss) = self._one_update(
-                    self.actor,
-                    self.vf,
+                (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss) = self._one_update(
                     actor_state=self.policy.actor_state,
                     vf_state=self.policy.vf_state,
                     observations=rollout_data.observations.numpy(),
@@ -312,7 +307,6 @@ class PPO(OnPolicyAlgorithmJax):
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
     ) -> PPOSelf:
-
         return super().learn(
             total_timesteps=total_timesteps,
             callback=callback,

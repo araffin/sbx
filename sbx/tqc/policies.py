@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import flax.linen as nn
 import gym
@@ -44,7 +44,7 @@ class Critic(nn.Module):
 
 
 class Actor(nn.Module):
-    action_dim: Sequence[int]
+    action_dim: int
     n_units: int = 256
     log_std_min: float = -20
     log_std_max: float = 2
@@ -54,7 +54,7 @@ class Actor(nn.Module):
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:
+    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
         x = nn.Dense(self.n_units)(x)
         x = nn.relu(x)
         x = nn.Dense(self.n_units)(x)
@@ -140,7 +140,10 @@ class TQCPolicy(BaseJaxPolicy):
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
-            tx=self.optimizer_class(learning_rate=lr_schedule(1), **self.optimizer_kwargs),
+            tx=self.optimizer_class(
+                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
+                **self.optimizer_kwargs,
+            ),
         )
 
         self.qf = Critic(
@@ -162,7 +165,7 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=optax.adam(learning_rate=qf_learning_rate),
+            tx=optax.adam(learning_rate=qf_learning_rate),  # type: ignore[call-arg]
         )
         self.qf2_state = RLTrainState.create(
             apply_fn=self.qf.apply,
@@ -176,10 +179,16 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=self.optimizer_class(learning_rate=qf_learning_rate, **self.optimizer_kwargs),
+            tx=self.optimizer_class(
+                learning_rate=qf_learning_rate,  # type: ignore[call-arg]
+                **self.optimizer_kwargs,
+            ),
         )
-        self.actor.apply = jax.jit(self.actor.apply)
-        self.qf.apply = jax.jit(self.qf.apply, static_argnames=("dropout_rate", "use_layer_norm"))
+        self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
+        self.qf.apply = jax.jit(  # type: ignore[method-assign]
+            self.qf.apply,
+            static_argnames=("dropout_rate", "use_layer_norm"),
+        )
 
         return key
 
@@ -192,7 +201,7 @@ class TQCPolicy(BaseJaxPolicy):
     def forward(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
 
-    def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:
+    def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:
             return BaseJaxPolicy.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key

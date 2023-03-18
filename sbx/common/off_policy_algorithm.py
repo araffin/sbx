@@ -41,7 +41,6 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         sde_support: bool = True,
         supported_action_spaces: Optional[Tuple[gym.spaces.Space, ...]] = None,
     ):
-
         super().__init__(
             policy=policy,
             env=env,

@@ -65,11 +65,14 @@ class DQNPolicy(BaseJaxPolicy):
             apply_fn=self.qf.apply,
             params=self.qf.init({"params": qf_key}, obs),
             target_params=self.qf.init({"params": qf_key}, obs),
-            tx=self.optimizer_class(learning_rate=lr_schedule(1), **self.optimizer_kwargs),
+            tx=self.optimizer_class(
+                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
+                **self.optimizer_kwargs,
+            ),
         )
 
         # TODO: jit qf.apply_fn too?
-        self.qf.apply = jax.jit(self.qf.apply)
+        self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
 
         return key
 
@@ -82,5 +85,5 @@ class DQNPolicy(BaseJaxPolicy):
         qf_values = qf_state.apply_fn(qf_state.params, observations)
         return jnp.argmax(qf_values, axis=1).reshape(-1)
 
-    def _predict(self, observation: np.ndarray, deterministic: bool = True) -> np.ndarray:
+    def _predict(self, observation: np.ndarray, deterministic: bool = True) -> np.ndarray:  # type: ignore[override]
         return DQNPolicy.select_action(self.qf_state, observation)

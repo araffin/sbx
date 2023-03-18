@@ -1,6 +1,5 @@
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Type, Union
 
-import flax.linen as nn
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 
@@ -9,8 +8,7 @@ from sbx.tqc.tqc import TQC
 
 
 class DroQ(TQC):
-
-    policy_aliases: Dict[str, Optional[nn.Module]] = {
+    policy_aliases: Dict[str, Type[TQCPolicy]] = {
         "MlpPolicy": TQCPolicy,
     }
 
