@@ -55,6 +55,7 @@ setup(
             "pytest-xdist",
             # Type check
             "pytype",
+            "mypy",
             # Lint code
             "ruff",
             # Sort imports
