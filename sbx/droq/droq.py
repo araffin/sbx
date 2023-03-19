@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, Tuple, Type, Union
 
+from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 
@@ -31,6 +32,8 @@ class DroQ(TQC):
         dropout_rate: float = 0.01,
         layer_norm: bool = True,
         action_noise: Optional[ActionNoise] = None,
+        replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
         use_sde: bool = False,
         sde_sample_freq: int = -1,
@@ -56,6 +59,8 @@ class DroQ(TQC):
             gradient_steps=gradient_steps,
             policy_delay=policy_delay,
             action_noise=action_noise,
+            replay_buffer_class=replay_buffer_class,
+            replay_buffer_kwargs=replay_buffer_kwargs,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
             use_sde_at_warmup=use_sde_at_warmup,
