@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import gym
 import jax
 import numpy as np
+from stable_baselines3 import HerReplayBuffer
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
@@ -52,6 +53,8 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
             gamma=gamma,
             train_freq=train_freq,
             gradient_steps=gradient_steps,
+            replay_buffer_class=replay_buffer_class,
+            replay_buffer_kwargs=replay_buffer_kwargs,
             action_noise=action_noise,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
@@ -89,7 +92,12 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         # By default qf_learning_rate = pi_learning_rate
         self.qf_learning_rate = self.qf_learning_rate or self.lr_schedule(1)
         self.set_random_seed(self.seed)
-
+        # Make a local copy as we should not pickle
+        # the environment when using HerReplayBuffer
+        replay_buffer_kwargs = self.replay_buffer_kwargs.copy()
+        if issubclass(self.replay_buffer_class, HerReplayBuffer):
+            assert self.env is not None, "You must pass an environment when using `HerReplayBuffer`"
+            replay_buffer_kwargs["env"] = self.env
         self.replay_buffer = self.replay_buffer_class(
             self.buffer_size,
             self.observation_space,
@@ -97,7 +105,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
             device="cpu",  # force cpu device to easy torch -> numpy conversion
             n_envs=self.n_envs,
             optimize_memory_usage=self.optimize_memory_usage,
-            **self.replay_buffer_kwargs,
+            **replay_buffer_kwargs,
         )
         # Convert train freq parameter to TrainFreq object
         self._convert_train_freq()
