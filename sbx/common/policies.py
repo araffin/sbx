@@ -1,4 +1,5 @@
 # import copy
+import copy
 from typing import Dict, Optional, Tuple, Union
 
 import jax
@@ -64,18 +65,17 @@ class BaseJaxPolicy(BasePolicy):
     def prepare_obs(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> Tuple[np.ndarray, bool]:
         vectorized_env = False
         if isinstance(observation, dict):
-            pass
-            # # need to copy the dict as the dict in VecFrameStack will become a torch tensor
-            # observation = copy.deepcopy(observation)
-            # for key, obs in observation.items():
-            #     obs_space = self.observation_space.spaces[key]
-            #     if is_image_space(obs_space):
-            #         obs_ = maybe_transpose(obs, obs_space)
-            #     else:
-            #         obs_ = np.array(obs)
-            #     vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
-            #     # Add batch dimension if needed
-            #     observation[key] = obs_.reshape((-1,) + self.observation_space[key].shape)
+            # need to copy the dict as the dict in VecFrameStack will become a torch tensor
+            observation = copy.deepcopy(observation)
+            for key, obs in observation.items():
+                obs_space = self.observation_space.spaces[key]
+                if is_image_space(obs_space):
+                    obs_ = maybe_transpose(obs, obs_space)
+                else:
+                    obs_ = np.array(obs)
+                vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
+                # Add batch dimension if needed
+                observation[key] = obs_.reshape((-1, *self.observation_space[key].shape))
 
         elif is_image_space(self.observation_space):
             # Handle the different cases for images

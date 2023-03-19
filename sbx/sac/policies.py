@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import flax.linen as nn
 import jax
@@ -19,33 +19,28 @@ tfd = tfp.distributions
 
 
 class Critic(nn.Module):
+    net_arch: Sequence[int]
     use_layer_norm: bool = False
     dropout_rate: Optional[float] = None
-    n_units: int = 256
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
         x = jnp.concatenate([x, action], -1)
-        x = nn.Dense(self.n_units)(x)
-        if self.dropout_rate is not None and self.dropout_rate > 0:
-            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
-        if self.use_layer_norm:
-            x = nn.LayerNorm()(x)
-        x = nn.relu(x)
-        x = nn.Dense(self.n_units)(x)
-        if self.dropout_rate is not None and self.dropout_rate > 0:
-            x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
-        if self.use_layer_norm:
-            x = nn.LayerNorm()(x)
-        x = nn.relu(x)
+        for n_units in self.net_arch:
+            x = nn.Dense(n_units)(x)
+            if self.dropout_rate is not None and self.dropout_rate > 0:
+                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
+            if self.use_layer_norm:
+                x = nn.LayerNorm()(x)
+            x = nn.relu(x)
         x = nn.Dense(1)(x)
         return x
 
 
 class VectorCritic(nn.Module):
+    net_arch: Sequence[int]
     use_layer_norm: bool = False
     dropout_rate: Optional[float] = None
-    n_units: int = 256
     n_critics: int = 2
 
     @nn.compact
@@ -63,14 +58,14 @@ class VectorCritic(nn.Module):
         q_values = vmap_critic(
             use_layer_norm=self.use_layer_norm,
             dropout_rate=self.dropout_rate,
-            n_units=self.n_units,
+            net_arch=self.net_arch,
         )(obs, action)
         return q_values
 
 
 class Actor(nn.Module):
+    net_arch: Sequence[int]
     action_dim: int
-    n_units: int = 256
     log_std_min: float = -20
     log_std_max: float = 2
 
@@ -80,10 +75,9 @@ class Actor(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
-        x = nn.Dense(self.n_units)(x)
-        x = nn.relu(x)
-        x = nn.Dense(self.n_units)(x)
-        x = nn.relu(x)
+        for n_units in self.net_arch:
+            x = nn.Dense(n_units)(x)
+            x = nn.relu(x)
         mean = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
         log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
@@ -129,10 +123,13 @@ class SACPolicy(BaseJaxPolicy):
         self.dropout_rate = dropout_rate
         self.layer_norm = layer_norm
         if net_arch is not None:
-            assert isinstance(net_arch, list)
-            self.n_units = net_arch[0]
+            if isinstance(net_arch, list):
+                self.net_arch_pi = self.net_arch_qf = net_arch
+            else:
+                self.net_arch_pi = net_arch["pi"]
+                self.net_arch_qf = net_arch["qf"]
         else:
-            self.n_units = 256
+            self.net_arch_pi = self.net_arch_qf = [256, 256]
         self.n_critics = n_critics
         self.use_sde = use_sde
 
@@ -153,7 +150,7 @@ class SACPolicy(BaseJaxPolicy):
 
         self.actor = Actor(
             action_dim=np.prod(self.action_space.shape),
-            n_units=self.n_units,
+            net_arch=self.net_arch_pi,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -170,7 +167,7 @@ class SACPolicy(BaseJaxPolicy):
         self.qf = VectorCritic(
             dropout_rate=self.dropout_rate,
             use_layer_norm=self.layer_norm,
-            n_units=self.n_units,
+            net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
         )
 
