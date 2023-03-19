@@ -1,5 +1,4 @@
 # import copy
-import copy
 from typing import Dict, Optional, Tuple, Union
 
 import jax
@@ -65,17 +64,26 @@ class BaseJaxPolicy(BasePolicy):
     def prepare_obs(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> Tuple[np.ndarray, bool]:
         vectorized_env = False
         if isinstance(observation, dict):
+            # Minimal dict support: flatten
+            keys = list(self.observation_space.keys())
+            vectorized_env = is_vectorized_observation(observation[keys[0]], self.observation_space[keys[0]])
+
+            # Add batch dim and concatenate
+            observation = np.concatenate(
+                [observation[key].reshape(-1, *self.observation_space[key].shape) for key in keys],
+                axis=1,
+            )
             # need to copy the dict as the dict in VecFrameStack will become a torch tensor
-            observation = copy.deepcopy(observation)
-            for key, obs in observation.items():
-                obs_space = self.observation_space.spaces[key]
-                if is_image_space(obs_space):
-                    obs_ = maybe_transpose(obs, obs_space)
-                else:
-                    obs_ = np.array(obs)
-                vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
-                # Add batch dimension if needed
-                observation[key] = obs_.reshape((-1, *self.observation_space[key].shape))
+            # observation = copy.deepcopy(observation)
+            # for key, obs in observation.items():
+            #     obs_space = self.observation_space.spaces[key]
+            #     if is_image_space(obs_space):
+            #         obs_ = maybe_transpose(obs, obs_space)
+            #     else:
+            #         obs_ = np.array(obs)
+            #     vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
+            #     # Add batch dimension if needed
+            #     observation[key] = obs_.reshape((-1, *self.observation_space[key].shape))
 
         elif is_image_space(self.observation_space):
             # Handle the different cases for images
@@ -85,16 +93,10 @@ class BaseJaxPolicy(BasePolicy):
         else:
             observation = np.array(observation)
 
-        vectorized_env = is_vectorized_observation(observation, self.observation_space)
-
-        if not isinstance(observation, dict):
+        if not isinstance(self.observation_space, spaces.Dict):
+            vectorized_env = is_vectorized_observation(observation, self.observation_space)
             # Add batch dimension if needed
             observation = observation.reshape((-1, *self.observation_space.shape))
-        else:
-            # Minimal dict support: flatten
-            observation: np.ndarray = spaces.flatten(self.observation_space, observation)
-            flattened_space = spaces.flatten_space(self.observation_space)
-            observation = observation.reshape((-1, *flattened_space.shape))
 
         assert isinstance(observation, np.ndarray)
         return observation, vectorized_env
