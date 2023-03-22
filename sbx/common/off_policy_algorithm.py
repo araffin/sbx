@@ -3,8 +3,9 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import gym
 import jax
 import numpy as np
+from gym import spaces
 from stable_baselines3 import HerReplayBuffer
-from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.buffers import DictReplayBuffer, ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
@@ -88,6 +89,12 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         self.key = jax.random.PRNGKey(seed)
 
     def _setup_model(self) -> None:
+        if self.replay_buffer_class is None:
+            if isinstance(self.observation_space, spaces.Dict):
+                self.replay_buffer_class = DictReplayBuffer
+            else:
+                self.replay_buffer_class = ReplayBuffer
+
         self._setup_lr_schedule()
         # By default qf_learning_rate = pi_learning_rate
         self.qf_learning_rate = self.qf_learning_rate or self.lr_schedule(1)
