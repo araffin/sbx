@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional, Type
 
 import numpy as np
 import pytest
@@ -61,7 +62,7 @@ def test_tqc() -> None:
 
 
 @pytest.mark.parametrize("model_class", [SAC])
-def test_sac(model_class):
+def test_sac(model_class: Type[SAC]) -> None:
     model = model_class(
         "MlpPolicy",
         "Pendulum-v1",
@@ -73,7 +74,7 @@ def test_sac(model_class):
 
 
 @pytest.mark.parametrize("env_id", ["Pendulum-v1", "CartPole-v1"])
-def test_ppo(env_id):
+def test_ppo(env_id: str) -> None:
     model = PPO(
         "MlpPolicy",
         env_id,
@@ -96,7 +97,7 @@ def test_dqn() -> None:
 
 
 @pytest.mark.parametrize("replay_buffer_class", [None, HerReplayBuffer])
-def test_dict(replay_buffer_class):
+def test_dict(replay_buffer_class: Optional[Type[HerReplayBuffer]]) -> None:
     env = BitFlippingEnv(n_bits=2, continuous=True)
     model = SAC("MultiInputPolicy", env, replay_buffer_class=replay_buffer_class)
 

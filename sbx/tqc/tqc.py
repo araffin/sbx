@@ -110,7 +110,7 @@ class TQC(OffPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if self.policy is None:  # type: ignore[has-type]
+        if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
             # pytype: disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
@@ -120,6 +120,7 @@ class TQC(OffPolicyAlgorithmJax):
             )
             # pytype: enable=not-instantiable
             assert isinstance(self.policy, TQCPolicy)
+            assert isinstance(self.qf_learning_rate, float)
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 
@@ -142,10 +143,11 @@ class TQC(OffPolicyAlgorithmJax):
                 # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
                 self.ent_coef = EntropyCoef(ent_coef_init)
             else:
-                # Force conversion to float
-                # this will throw an error if a malformed string (different from 'auto')
-                # is passed
-                self.ent_coef = ConstantEntropyCoef(self.ent_coef_init)
+                # This will throw an error if a malformed string (different from 'auto') is passed
+                assert isinstance(
+                    self.ent_coef_init, float
+                ), f"Entropy coef must be float when not equal to 'auto', actual: {self.ent_coef_init}"
+                self.ent_coef = ConstantEntropyCoef(self.ent_coef_init)  # type: ignore[assignment]
 
             self.ent_coef_state = TrainState.create(
                 apply_fn=self.ent_coef.apply,

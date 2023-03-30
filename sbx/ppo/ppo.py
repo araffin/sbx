@@ -166,7 +166,7 @@ class PPO(OnPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if self.policy is None:  # type: ignore[has-type]
+        if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
             self.policy = self.policy_class(  # pytype:disable=not-instantiable
                 self.observation_space,
                 self.action_space,

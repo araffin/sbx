@@ -109,7 +109,7 @@ class PPOPolicy(BaseJaxPolicy):
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
-    def build(self, key, lr_schedule: Schedule, max_grad_norm: float) -> None:
+    def build(self, key: jax.random.KeyArray, lr_schedule: Schedule, max_grad_norm: float) -> jax.random.KeyArray:
         key, actor_key, vf_key = jax.random.split(key, 3)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
