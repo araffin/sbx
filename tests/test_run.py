@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Optional, Type
 
 import numpy as np
@@ -11,7 +10,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from sbx import DQN, PPO, SAC, TQC, DroQ
 
 
-def test_droq(tmp_path: Path) -> None:
+def test_droq(tmp_path):
     model = DroQ(
         "MlpPolicy",
         "Pendulum-v1",

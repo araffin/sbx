@@ -120,13 +120,14 @@ class SAC(OffPolicyAlgorithmJax):
 
             assert isinstance(self.policy, SACPolicy)
             assert isinstance(self.qf_learning_rate, float)
+            assert self.lr_schedule is not None
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 
             self.key, ent_key = jax.random.split(self.key, 2)
 
-            self.actor = self.policy.actor
-            self.qf = self.policy.qf
+            self.actor = self.policy.actor  # type: ignore[assignment]
+            self.qf = self.policy.qf  # type: ignore[assignment]
 
             # The entropy coefficient or entropy can be learned automatically
             # see Automating Entropy Adjustment for Maximum Entropy RL section

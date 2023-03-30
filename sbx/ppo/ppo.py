@@ -174,6 +174,7 @@ class PPO(OnPolicyAlgorithmJax):
                 **self.policy_kwargs,  # pytype:disable=not-instantiable
             )
             assert isinstance(self.policy, PPOPolicy)
+            assert self.lr_schedule is not None
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.max_grad_norm)
 
@@ -257,7 +258,7 @@ class PPO(OnPolicyAlgorithmJax):
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # JIT only one update
-            for rollout_data in self.rollout_buffer.get(self.batch_size):
+            for rollout_data in self.rollout_buffer.get(self.batch_size):  # type: ignore[attr-defined]
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to int
                     actions = rollout_data.actions.flatten().numpy().astype(np.int32)
@@ -279,7 +280,10 @@ class PPO(OnPolicyAlgorithmJax):
                 )
 
         self._n_updates += self.n_epochs
-        explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
+        explained_var = explained_variance(
+            self.rollout_buffer.values.flatten(),  # type: ignore[attr-defined]
+            self.rollout_buffer.returns.flatten(),  # type: ignore[attr-defined]
+        )
 
         # Logs
         # self.logger.record("train/entropy_loss", np.mean(entropy_losses))

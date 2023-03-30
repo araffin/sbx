@@ -106,6 +106,8 @@ class DQN(OffPolicyAlgorithmJax):
                 **self.policy_kwargs,  # pytype:disable=not-instantiable
             )
             assert isinstance(self.policy, DQNPolicy)
+            assert self.lr_schedule is not None
+
             self.key = self.policy.build(self.key, self.lr_schedule)
             self.qf = self.policy.qf
 

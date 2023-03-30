@@ -121,12 +121,13 @@ class TQC(OffPolicyAlgorithmJax):
             # pytype: enable=not-instantiable
             assert isinstance(self.policy, TQCPolicy)
             assert isinstance(self.qf_learning_rate, float)
+            assert self.lr_schedule is not None
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 
             self.key, ent_key = jax.random.split(self.key, 2)
 
-            self.actor = self.policy.actor
+            self.actor = self.policy.actor  # type: ignore[assignment]
             self.qf = self.policy.qf
 
             # The entropy coefficient or entropy can be learned automatically
