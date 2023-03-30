@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 from stable_baselines3 import HerReplayBuffer
@@ -8,7 +10,7 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from sbx import DQN, PPO, SAC, TQC, DroQ
 
 
-def test_droq(tmp_path):
+def test_droq(tmp_path: Path) -> None:
     model = DroQ(
         "MlpPolicy",
         "Pendulum-v1",

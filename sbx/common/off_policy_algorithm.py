@@ -89,7 +89,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         self.key = jax.random.PRNGKey(seed)
 
     def _setup_model(self) -> None:
-        if self.replay_buffer_class is None:
+        if self.replay_buffer_class is None:  # type: ignore[has-type]
             if isinstance(self.observation_space, spaces.Dict):
                 self.replay_buffer_class = DictReplayBuffer
             else:
@@ -102,10 +102,11 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         # Make a local copy as we should not pickle
         # the environment when using HerReplayBuffer
         replay_buffer_kwargs = self.replay_buffer_kwargs.copy()
-        if issubclass(self.replay_buffer_class, HerReplayBuffer):
+        if issubclass(self.replay_buffer_class, HerReplayBuffer):  # type: ignore[arg-type]
             assert self.env is not None, "You must pass an environment when using `HerReplayBuffer`"
             replay_buffer_kwargs["env"] = self.env
-        self.replay_buffer = self.replay_buffer_class(
+
+        self.replay_buffer = self.replay_buffer_class(  # type: ignore[misc]
             self.buffer_size,
             self.observation_space,
             self.action_space,

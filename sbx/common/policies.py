@@ -94,6 +94,7 @@ class BaseJaxPolicy(BasePolicy):
             observation = np.array(observation)
 
         if not isinstance(self.observation_space, spaces.Dict):
+            assert isinstance(observation, np.ndarray)
             vectorized_env = is_vectorized_observation(observation, self.observation_space)
             # Add batch dimension if needed
             observation = observation.reshape((-1, *self.observation_space.shape))
