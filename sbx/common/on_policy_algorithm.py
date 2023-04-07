@@ -4,6 +4,7 @@ import gym
 import jax
 import numpy as np
 import torch as th
+from gym import spaces
 from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
@@ -35,7 +36,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         seed: Optional[int] = None,
         device: str = "auto",
         _init_setup_model: bool = True,
-        supported_action_spaces: Optional[Tuple[gym.spaces.Space, ...]] = None,
+        supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
     ):
         super().__init__(
             policy=policy,

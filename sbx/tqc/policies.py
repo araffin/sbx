@@ -63,10 +63,12 @@ class Actor(nn.Module):
 
 
 class TQCPolicy(BaseJaxPolicy):
+    action_space: spaces.Box  # type: ignore[assignment]
+
     def __init__(
         self,
         observation_space: spaces.Space,
-        action_space: spaces.Space,
+        action_space: spaces.Box,
         lr_schedule: Schedule,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
@@ -132,7 +134,7 @@ class TQCPolicy(BaseJaxPolicy):
         action = jnp.array([self.action_space.sample()])
 
         self.actor = Actor(
-            action_dim=np.prod(self.action_space.shape),
+            action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
         )
         # Hack to make gSDE work without modifying internal SB3 code

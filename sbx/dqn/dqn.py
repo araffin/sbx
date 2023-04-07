@@ -20,6 +20,7 @@ class DQN(OffPolicyAlgorithmJax):
     }
     # Linear schedule will be defined in `_setup_model()`
     exploration_schedule: Schedule
+    policy: DQNPolicy
 
     def __init__(
         self,
@@ -61,7 +62,7 @@ class DQN(OffPolicyAlgorithmJax):
             verbose=verbose,
             seed=seed,
             sde_support=False,
-            supported_action_spaces=(gym.spaces.Discrete),
+            supported_action_spaces=(gym.spaces.Discrete,),
             support_multi_env=True,
         )
 
@@ -98,15 +99,15 @@ class DQN(OffPolicyAlgorithmJax):
 
             self.target_update_interval = max(self.target_update_interval // self.n_envs, 1)
 
-        if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
-            self.policy = self.policy_class(  # pytype:disable=not-instantiable
+        if not hasattr(self, "policy") or self.policy is None:
+            # pytype:disable=not-instantiable
+            self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
-                **self.policy_kwargs,  # pytype:disable=not-instantiable
+                **self.policy_kwargs,
             )
-            assert isinstance(self.policy, DQNPolicy)
-            assert self.lr_schedule is not None
+            # pytype:enable=not-instantiable
 
             self.key = self.policy.build(self.key, self.lr_schedule)
             self.qf = self.policy.qf

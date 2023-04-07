@@ -1,11 +1,11 @@
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import flax.linen as nn
-import gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from gym import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import BaseJaxPolicy
@@ -27,10 +27,12 @@ class QNetwork(nn.Module):
 
 
 class DQNPolicy(BaseJaxPolicy):
+    action_space: spaces.Discrete  # type: ignore[assignment]
+
     def __init__(
         self,
-        observation_space: gym.spaces.Space,
-        action_space: gym.spaces.Space,
+        observation_space: spaces.Space,
+        action_space: spaces.Discrete,
         lr_schedule: Schedule,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         features_extractor_class=None,

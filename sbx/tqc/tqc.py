@@ -3,12 +3,12 @@ from typing import Any, Dict, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
-import gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 from flax.training.train_state import TrainState
+from gym import spaces
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
@@ -44,6 +44,9 @@ class TQC(OffPolicyAlgorithmJax):
         # Minimal dict support using flatten()
         "MultiInputPolicy": TQCPolicy,
     }
+
+    policy: TQCPolicy
+    action_space: spaces.Box  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -96,7 +99,7 @@ class TQC(OffPolicyAlgorithmJax):
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
-            supported_action_spaces=(gym.spaces.Box),
+            supported_action_spaces=(spaces.Box,),
             support_multi_env=True,
         )
 
@@ -110,7 +113,7 @@ class TQC(OffPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
+        if not hasattr(self, "policy") or self.policy is None:
             # pytype: disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
@@ -119,9 +122,7 @@ class TQC(OffPolicyAlgorithmJax):
                 **self.policy_kwargs,
             )
             # pytype: enable=not-instantiable
-            assert isinstance(self.policy, TQCPolicy)
             assert isinstance(self.qf_learning_rate, float)
-            assert self.lr_schedule is not None
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 

@@ -73,6 +73,7 @@ class PPO(OnPolicyAlgorithmJax):
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
+    policy: PPOPolicy  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -167,14 +168,14 @@ class PPO(OnPolicyAlgorithmJax):
         super()._setup_model()
 
         if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
-            self.policy = self.policy_class(  # pytype:disable=not-instantiable
+            # pytype:disable=not-instantiable
+            self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
-                **self.policy_kwargs,  # pytype:disable=not-instantiable
+                **self.policy_kwargs,
             )
-            assert isinstance(self.policy, PPOPolicy)
-            assert self.lr_schedule is not None
+            # pytype:enable=not-instantiable
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.max_grad_norm)
 

@@ -45,6 +45,9 @@ class SAC(OffPolicyAlgorithmJax):
         "MultiInputPolicy": SACPolicy,
     }
 
+    policy: SACPolicy
+    action_space: spaces.Box  # type: ignore[assignment]
+
     def __init__(
         self,
         policy,
@@ -95,7 +98,7 @@ class SAC(OffPolicyAlgorithmJax):
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
-            supported_action_spaces=(spaces.Box),
+            supported_action_spaces=(spaces.Box,),
             support_multi_env=True,
         )
 
@@ -108,7 +111,7 @@ class SAC(OffPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
+        if not hasattr(self, "policy") or self.policy is None:
             # pytype: disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
@@ -118,9 +121,7 @@ class SAC(OffPolicyAlgorithmJax):
             )
             # pytype: enable=not-instantiable
 
-            assert isinstance(self.policy, SACPolicy)
             assert isinstance(self.qf_learning_rate, float)
-            assert self.lr_schedule is not None
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 

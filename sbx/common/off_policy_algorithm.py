@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
-import gym
 import jax
 import numpy as np
 from gym import spaces
@@ -41,7 +40,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
         sde_support: bool = True,
-        supported_action_spaces: Optional[Tuple[gym.spaces.Space, ...]] = None,
+        supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
     ):
         super().__init__(
             policy=policy,

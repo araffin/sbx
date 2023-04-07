@@ -120,7 +120,7 @@ class PPOPolicy(BaseJaxPolicy):
 
         if isinstance(self.action_space, spaces.Box):
             actor_kwargs = {
-                "action_dim": np.prod(self.action_space.shape),
+                "action_dim": int(np.prod(self.action_space.shape)),
                 "continuous": True,
             }
         elif isinstance(self.action_space, spaces.Discrete):
@@ -135,7 +135,7 @@ class PPOPolicy(BaseJaxPolicy):
             n_units=self.n_units,
             log_std_init=self.log_std_init,
             activation_fn=self.activation_fn,
-            **actor_kwargs,
+            **actor_kwargs,  # type: ignore[arg-type]
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
