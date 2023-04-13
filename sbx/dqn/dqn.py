@@ -1,7 +1,7 @@
 import warnings
 from typing import Any, Dict, Optional, Tuple, Type, Union
 
-import gym
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np

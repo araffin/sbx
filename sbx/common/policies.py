@@ -3,7 +3,7 @@ from typing import Dict, Optional, Tuple, Union
 
 import jax
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
 from stable_baselines3.common.utils import is_vectorized_observation

@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import flax.linen as nn
-import gym
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -9,7 +9,7 @@ import optax
 import tensorflow_probability
 from flax.linen.initializers import constant
 from flax.training.train_state import TrainState
-from gym import spaces
+from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import BaseJaxPolicy
@@ -125,7 +125,7 @@ class PPOPolicy(BaseJaxPolicy):
             }
         elif isinstance(self.action_space, spaces.Discrete):
             actor_kwargs = {
-                "action_dim": self.action_space.n,
+                "action_dim": int(self.action_space.n),
                 "continuous": False,
             }
         else:

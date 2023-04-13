@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import jax
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 from stable_baselines3 import HerReplayBuffer
 from stable_baselines3.common.buffers import DictReplayBuffer, ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise

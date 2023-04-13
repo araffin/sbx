@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from gym import spaces
+from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import BaseJaxPolicy
@@ -61,7 +61,7 @@ class DQNPolicy(BaseJaxPolicy):
 
         obs = jnp.array([self.observation_space.sample()])
 
-        self.qf = QNetwork(n_actions=self.action_space.n, n_units=self.n_units)
+        self.qf = QNetwork(n_actions=int(self.action_space.n), n_units=self.n_units)
 
         self.qf_state = RLTrainState.create(
             apply_fn=self.qf.apply,

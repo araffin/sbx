@@ -7,7 +7,7 @@ import numpy as np
 import optax
 import tensorflow_probability
 from flax.training.train_state import TrainState
-from gym import spaces
+from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
