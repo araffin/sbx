@@ -3,12 +3,13 @@ from typing import Any, Dict, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
-import gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 from flax.training.train_state import TrainState
+from gymnasium import spaces
+from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
@@ -40,7 +41,12 @@ class ConstantEntropyCoef(nn.Module):
 class TQC(OffPolicyAlgorithmJax):
     policy_aliases: Dict[str, Type[TQCPolicy]] = {  # type: ignore[assignment]
         "MlpPolicy": TQCPolicy,
+        # Minimal dict support using flatten()
+        "MultiInputPolicy": TQCPolicy,
     }
+
+    policy: TQCPolicy
+    action_space: spaces.Box  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -58,6 +64,8 @@ class TQC(OffPolicyAlgorithmJax):
         policy_delay: int = 1,
         top_quantiles_to_drop_per_net: int = 2,
         action_noise: Optional[ActionNoise] = None,
+        replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
         use_sde: bool = False,
         sde_sample_freq: int = -1,
@@ -82,6 +90,8 @@ class TQC(OffPolicyAlgorithmJax):
             train_freq=train_freq,
             gradient_steps=gradient_steps,
             action_noise=action_noise,
+            replay_buffer_class=replay_buffer_class,
+            replay_buffer_kwargs=replay_buffer_kwargs,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
             use_sde_at_warmup=use_sde_at_warmup,
@@ -89,7 +99,7 @@ class TQC(OffPolicyAlgorithmJax):
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
-            supported_action_spaces=(gym.spaces.Box),
+            supported_action_spaces=(spaces.Box,),
             support_multi_env=True,
         )
 
@@ -103,7 +113,7 @@ class TQC(OffPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if self.policy is None:  # type: ignore[has-type]
+        if not hasattr(self, "policy") or self.policy is None:
             # pytype: disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
@@ -112,13 +122,13 @@ class TQC(OffPolicyAlgorithmJax):
                 **self.policy_kwargs,
             )
             # pytype: enable=not-instantiable
-            assert isinstance(self.policy, TQCPolicy)
+            assert isinstance(self.qf_learning_rate, float)
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 
             self.key, ent_key = jax.random.split(self.key, 2)
 
-            self.actor = self.policy.actor
+            self.actor = self.policy.actor  # type: ignore[assignment]
             self.qf = self.policy.qf
 
             # The entropy coefficient or entropy can be learned automatically
@@ -135,10 +145,11 @@ class TQC(OffPolicyAlgorithmJax):
                 # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
                 self.ent_coef = EntropyCoef(ent_coef_init)
             else:
-                # Force conversion to float
-                # this will throw an error if a malformed string (different from 'auto')
-                # is passed
-                self.ent_coef = ConstantEntropyCoef(self.ent_coef_init)
+                # This will throw an error if a malformed string (different from 'auto') is passed
+                assert isinstance(
+                    self.ent_coef_init, float
+                ), f"Entropy coef must be float when not equal to 'auto', actual: {self.ent_coef_init}"
+                self.ent_coef = ConstantEntropyCoef(self.ent_coef_init)  # type: ignore[assignment]
 
             self.ent_coef_state = TrainState.create(
                 apply_fn=self.ent_coef.apply,
@@ -178,15 +189,22 @@ class TQC(OffPolicyAlgorithmJax):
         policy_delay_indices = {i: True for i in range(gradient_steps) if ((self._n_updates + i + 1) % self.policy_delay) == 0}
         policy_delay_indices = flax.core.FrozenDict(policy_delay_indices)
 
+        if isinstance(data.observations, dict):
+            keys = list(self.observation_space.keys())
+            obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
+            next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
+        else:
+            obs = data.observations.numpy()
+            next_obs = data.next_observations.numpy()
+
         # Convert to numpy
         data = ReplayBufferSamplesNp(
-            data.observations.numpy(),
+            obs,
             data.actions.numpy(),
-            data.next_observations.numpy(),
+            next_obs,
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
         )
-
         (
             self.policy.qf1_state,
             self.policy.qf2_state,

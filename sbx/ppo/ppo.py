@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax.training.train_state import TrainState
-from gym import spaces
+from gymnasium import spaces
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 
@@ -73,6 +73,7 @@ class PPO(OnPolicyAlgorithmJax):
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
+    policy: PPOPolicy  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -166,14 +167,15 @@ class PPO(OnPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        if self.policy is None:  # type: ignore[has-type]
-            self.policy = self.policy_class(  # pytype:disable=not-instantiable
+        if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
+            # pytype:disable=not-instantiable
+            self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
-                **self.policy_kwargs,  # pytype:disable=not-instantiable
+                **self.policy_kwargs,
             )
-            assert isinstance(self.policy, PPOPolicy)
+            # pytype:enable=not-instantiable
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.max_grad_norm)
 
@@ -257,7 +259,7 @@ class PPO(OnPolicyAlgorithmJax):
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # JIT only one update
-            for rollout_data in self.rollout_buffer.get(self.batch_size):
+            for rollout_data in self.rollout_buffer.get(self.batch_size):  # type: ignore[attr-defined]
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to int
                     actions = rollout_data.actions.flatten().numpy().astype(np.int32)
@@ -279,7 +281,10 @@ class PPO(OnPolicyAlgorithmJax):
                 )
 
         self._n_updates += self.n_epochs
-        explained_var = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
+        explained_var = explained_variance(
+            self.rollout_buffer.values.flatten(),  # type: ignore[attr-defined]
+            self.rollout_buffer.returns.flatten(),  # type: ignore[attr-defined]
+        )
 
         # Logs
         # self.logger.record("train/entropy_loss", np.mean(entropy_losses))

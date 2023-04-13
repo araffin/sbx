@@ -1,14 +1,13 @@
 import warnings
 from typing import Any, Dict, Optional, Tuple, Type, Union
 
-import gym
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from stable_baselines3.common.preprocessing import maybe_transpose
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import get_linear_fn, is_vectorized_observation
+from stable_baselines3.common.utils import get_linear_fn
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
@@ -21,6 +20,7 @@ class DQN(OffPolicyAlgorithmJax):
     }
     # Linear schedule will be defined in `_setup_model()`
     exploration_schedule: Schedule
+    policy: DQNPolicy
 
     def __init__(
         self,
@@ -62,7 +62,7 @@ class DQN(OffPolicyAlgorithmJax):
             verbose=verbose,
             seed=seed,
             sde_support=False,
-            supported_action_spaces=(gym.spaces.Discrete),
+            supported_action_spaces=(gym.spaces.Discrete,),
             support_multi_env=True,
         )
 
@@ -99,14 +99,16 @@ class DQN(OffPolicyAlgorithmJax):
 
             self.target_update_interval = max(self.target_update_interval // self.n_envs, 1)
 
-        if self.policy is None:  # type: ignore[has-type]
-            self.policy = self.policy_class(  # pytype:disable=not-instantiable
+        if not hasattr(self, "policy") or self.policy is None:
+            # pytype:disable=not-instantiable
+            self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
-                **self.policy_kwargs,  # pytype:disable=not-instantiable
+                **self.policy_kwargs,
             )
-            assert isinstance(self.policy, DQNPolicy)
+            # pytype:enable=not-instantiable
+
             self.key = self.policy.build(self.key, self.lr_schedule)
             self.qf = self.policy.qf
 
@@ -244,7 +246,7 @@ class DQN(OffPolicyAlgorithmJax):
             (used in recurrent policies)
         """
         if not deterministic and np.random.rand() < self.exploration_rate:
-            if is_vectorized_observation(maybe_transpose(observation, self.observation_space), self.observation_space):
+            if self.policy.is_vectorized_observation(observation):
                 if isinstance(observation, dict):
                     n_batch = observation[list(observation.keys())[0]].shape[0]
                 else:

@@ -1,11 +1,11 @@
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import flax.linen as nn
-import gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import BaseJaxPolicy
@@ -27,10 +27,12 @@ class QNetwork(nn.Module):
 
 
 class DQNPolicy(BaseJaxPolicy):
+    action_space: spaces.Discrete  # type: ignore[assignment]
+
     def __init__(
         self,
-        observation_space: gym.spaces.Space,
-        action_space: gym.spaces.Space,
+        observation_space: spaces.Space,
+        action_space: spaces.Discrete,
         lr_schedule: Schedule,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         features_extractor_class=None,
@@ -54,12 +56,12 @@ class DQNPolicy(BaseJaxPolicy):
         else:
             self.n_units = 256
 
-    def build(self, key, lr_schedule: Schedule) -> None:
+    def build(self, key: jax.random.KeyArray, lr_schedule: Schedule) -> jax.random.KeyArray:
         key, qf_key = jax.random.split(key, 2)
 
         obs = jnp.array([self.observation_space.sample()])
 
-        self.qf = QNetwork(n_actions=self.action_space.n, n_units=self.n_units)
+        self.qf = QNetwork(n_actions=int(self.action_space.n), n_units=self.n_units)
 
         self.qf_state = RLTrainState.create(
             apply_fn=self.qf.apply,

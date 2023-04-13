@@ -1,9 +1,9 @@
 # import copy
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union, no_type_check
 
-import gym
 import jax
 import numpy as np
+from gymnasium import spaces
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
 from stable_baselines3.common.utils import is_vectorized_observation
@@ -28,6 +28,7 @@ class BaseJaxPolicy(BasePolicy):
     def select_action(actor_state, obervations):
         return actor_state.apply_fn(actor_state.params, obervations).mode()
 
+    @no_type_check
     def predict(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
@@ -44,7 +45,7 @@ class BaseJaxPolicy(BasePolicy):
         # Convert to numpy, and reshape to the original action shape
         actions = np.array(actions).reshape((-1, *self.action_space.shape))
 
-        if isinstance(self.action_space, gym.spaces.Box):
+        if isinstance(self.action_space, spaces.Box):
             if self.squash_output:
                 # Clip due to numerical instability
                 actions = np.clip(actions, -1, 1)
@@ -57,15 +58,24 @@ class BaseJaxPolicy(BasePolicy):
 
         # Remove batch dimension if needed
         if not vectorized_env:
-            actions = actions.squeeze(axis=0)
+            actions = actions.squeeze(axis=0)  # type: ignore[call-overload]
 
         return actions, state
 
     def prepare_obs(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> Tuple[np.ndarray, bool]:
         vectorized_env = False
         if isinstance(observation, dict):
-            raise NotImplementedError()
-            # # need to copy the dict as the dict in VecFrameStack will become a torch tensor
+            assert isinstance(self.observation_space, spaces.Dict)
+            # Minimal dict support: flatten
+            keys = list(self.observation_space.keys())
+            vectorized_env = is_vectorized_observation(observation[keys[0]], self.observation_space[keys[0]])
+
+            # Add batch dim and concatenate
+            observation = np.concatenate(
+                [observation[key].reshape(-1, *self.observation_space[key].shape) for key in keys],
+                axis=1,
+            )
+            # need to copy the dict as the dict in VecFrameStack will become a torch tensor
             # observation = copy.deepcopy(observation)
             # for key, obs in observation.items():
             #     obs_space = self.observation_space.spaces[key]
@@ -75,7 +85,7 @@ class BaseJaxPolicy(BasePolicy):
             #         obs_ = np.array(obs)
             #     vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
             #     # Add batch dimension if needed
-            #     observation[key] = obs_.reshape((-1,) + self.observation_space[key].shape)
+            #     observation[key] = obs_.reshape((-1, *self.observation_space[key].shape))
 
         elif is_image_space(self.observation_space):
             # Handle the different cases for images
@@ -85,11 +95,11 @@ class BaseJaxPolicy(BasePolicy):
         else:
             observation = np.array(observation)
 
-        if not isinstance(observation, dict):
-            # Dict obs need to be handled separately
+        if not isinstance(self.observation_space, spaces.Dict):
+            assert isinstance(observation, np.ndarray)
             vectorized_env = is_vectorized_observation(observation, self.observation_space)
             # Add batch dimension if needed
-            observation = observation.reshape((-1, *self.observation_space.shape))
+            observation = observation.reshape((-1, *self.observation_space.shape))  # type: ignore[misc]
 
         assert isinstance(observation, np.ndarray)
         return observation, vectorized_env

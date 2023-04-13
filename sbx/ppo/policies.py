@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import flax.linen as nn
-import gym
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -9,7 +9,7 @@ import optax
 import tensorflow_probability
 from flax.linen.initializers import constant
 from flax.training.train_state import TrainState
-from gym import spaces
+from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import BaseJaxPolicy
@@ -109,7 +109,7 @@ class PPOPolicy(BaseJaxPolicy):
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
-    def build(self, key, lr_schedule: Schedule, max_grad_norm: float) -> None:
+    def build(self, key: jax.random.KeyArray, lr_schedule: Schedule, max_grad_norm: float) -> jax.random.KeyArray:
         key, actor_key, vf_key = jax.random.split(key, 3)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
@@ -120,12 +120,12 @@ class PPOPolicy(BaseJaxPolicy):
 
         if isinstance(self.action_space, spaces.Box):
             actor_kwargs = {
-                "action_dim": np.prod(self.action_space.shape),
+                "action_dim": int(np.prod(self.action_space.shape)),
                 "continuous": True,
             }
         elif isinstance(self.action_space, spaces.Discrete):
             actor_kwargs = {
-                "action_dim": self.action_space.n,
+                "action_dim": int(self.action_space.n),
                 "continuous": False,
             }
         else:
@@ -135,7 +135,7 @@ class PPOPolicy(BaseJaxPolicy):
             n_units=self.n_units,
             log_std_init=self.log_std_init,
             activation_fn=self.activation_fn,
-            **actor_kwargs,
+            **actor_kwargs,  # type: ignore[arg-type]
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
