@@ -29,9 +29,9 @@ disable = []
 ignore_missing_imports = true
 follow_imports = "silent"
 show_error_codes = true
-exclude = """(?x)(
-    sbx/common/policies.py$
-  )"""
+# exclude = """(?x)(
+#     sbx/common/policies.py$
+#   )"""
 
 [tool.pytest.ini_options]
 # Deterministic ordering for tests; useful for pytest-xdist.

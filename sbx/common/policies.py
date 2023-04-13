@@ -1,5 +1,5 @@
 # import copy
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union, no_type_check
 
 import jax
 import numpy as np
@@ -28,6 +28,7 @@ class BaseJaxPolicy(BasePolicy):
     def select_action(actor_state, obervations):
         return actor_state.apply_fn(actor_state.params, obervations).mode()
 
+    @no_type_check
     def predict(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
@@ -57,13 +58,14 @@ class BaseJaxPolicy(BasePolicy):
 
         # Remove batch dimension if needed
         if not vectorized_env:
-            actions = actions.squeeze(axis=0)
+            actions = actions.squeeze(axis=0)  # type: ignore[call-overload]
 
         return actions, state
 
     def prepare_obs(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> Tuple[np.ndarray, bool]:
         vectorized_env = False
         if isinstance(observation, dict):
+            assert isinstance(self.observation_space, spaces.Dict)
             # Minimal dict support: flatten
             keys = list(self.observation_space.keys())
             vectorized_env = is_vectorized_observation(observation[keys[0]], self.observation_space[keys[0]])
@@ -97,7 +99,7 @@ class BaseJaxPolicy(BasePolicy):
             assert isinstance(observation, np.ndarray)
             vectorized_env = is_vectorized_observation(observation, self.observation_space)
             # Add batch dimension if needed
-            observation = observation.reshape((-1, *self.observation_space.shape))
+            observation = observation.reshape((-1, *self.observation_space.shape))  # type: ignore[misc]
 
         assert isinstance(observation, np.ndarray)
         return observation, vectorized_env
