@@ -30,9 +30,7 @@ ignore_missing_imports = true
 follow_imports = "silent"
 show_error_codes = true
 exclude = """(?x)(
-    sbx/common/on_policy_algorithm.py$
-    | sbx/common/off_policy_algorithm.py$
-    | sbx/common/policies.py$
+    sbx/common/policies.py$
   )"""
 
 [tool.pytest.ini_options]

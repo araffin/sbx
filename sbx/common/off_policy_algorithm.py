@@ -80,7 +80,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         excluded.remove("policy")
         return excluded
 
-    def set_random_seed(self, seed: int) -> None:
+    def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
         super().set_random_seed(seed)
         if seed is None:
             # Sample random seed

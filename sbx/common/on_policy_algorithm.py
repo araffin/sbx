@@ -12,10 +12,16 @@ from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from stable_baselines3.common.vec_env import VecEnv
 
+from sbx.ppo.policies import Actor, Critic, PPOPolicy
+
 OnPolicyAlgorithmSelf = TypeVar("OnPolicyAlgorithmSelf", bound="OnPolicyAlgorithmJax")
 
 
 class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
+    policy: PPOPolicy  # type: ignore[assignment]
+    actor: Actor
+    vf: Critic
+
     def __init__(
         self,
         policy: Union[str, Type[BasePolicy]],
@@ -39,7 +45,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
     ):
         super().__init__(
-            policy=policy,
+            policy=policy,  # type: ignore[arg-type]
             env=env,
             learning_rate=learning_rate,
             n_steps=n_steps,
@@ -69,7 +75,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         excluded.remove("policy")
         return excluded
 
-    def set_random_seed(self, seed: int) -> None:
+    def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
         super().set_random_seed(seed)
         if seed is None:
             # Sample random seed
@@ -168,22 +174,32 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                     and infos[idx].get("TimeLimit.truncated", False)
                 ):
                     terminal_obs = self.policy.prepare_obs(infos[idx]["terminal_observation"])[0]
-                    terminal_value = np.array(self.vf.apply(self.policy.vf_state.params, terminal_obs).flatten())
+                    terminal_value = np.array(
+                        self.vf.apply(  # type: ignore[union-attr]
+                            self.policy.vf_state.params,
+                            terminal_obs,
+                        ).flatten()
+                    )
 
                     rewards[idx] += self.gamma * terminal_value
 
             rollout_buffer.add(
-                self._last_obs,  # type: ignore[has-type]
+                self._last_obs,  # type: ignore
                 actions,
                 rewards,
-                self._last_episode_starts,  # type: ignore[has-type]
+                self._last_episode_starts,  # type: ignore
                 th.as_tensor(values),
                 th.as_tensor(log_probs),
             )
-            self._last_obs = new_obs
+            self._last_obs = new_obs  # type: ignore[assignment]
             self._last_episode_starts = dones
 
-        values = np.array(self.vf.apply(self.policy.vf_state.params, self.policy.prepare_obs(new_obs)[0]).flatten())
+        values = np.array(
+            self.vf.apply(  # type: ignore[union-attr]
+                self.policy.vf_state.params,
+                self.policy.prepare_obs(new_obs)[0],  # type: ignore[arg-type]
+            ).flatten()
+        )
 
         rollout_buffer.compute_returns_and_advantage(last_values=th.as_tensor(values), dones=dones)
 
