@@ -32,7 +32,7 @@ pip install sbx-rl
 
 
 ```python
-import gym
+import gymnasium as gym
 
 from sbx import TQC, DroQ, SAC, PPO, DQN
 
