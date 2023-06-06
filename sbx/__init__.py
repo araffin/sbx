@@ -4,6 +4,7 @@ from sbx.dqn import DQN
 from sbx.droq import DroQ
 from sbx.ppo import PPO
 from sbx.sac import SAC
+from sbx.sac7 import SAC7
 from sbx.tqc import TQC
 
 # Read version from file
@@ -16,5 +17,6 @@ __all__ = [
     "DroQ",
     "PPO",
     "SAC",
+    "SAC7",
     "TQC",
 ]
