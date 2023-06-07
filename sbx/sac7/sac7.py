@@ -483,8 +483,9 @@ class SAC7(OffPolicyAlgorithmJax):
             encoder_state = SAC7.soft_update(tau, encoder_state)
             action_encoder_state = SAC7.soft_update(tau, action_encoder_state)
 
-            min_qf_target += tau * (qf_min - min_qf_target)
-            max_qf_target += tau * (qf_max - max_qf_target)
+            tau_update = 0.1
+            min_qf_target += tau_update * (qf_min - min_qf_target)
+            max_qf_target += tau_update * (qf_max - max_qf_target)
 
             # hack to be able to jit (n_updates % policy_delay == 0)
             if i in policy_delay_indices:
