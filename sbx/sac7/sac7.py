@@ -262,9 +262,7 @@ class SAC7(OffPolicyAlgorithmJax):
 
         ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
 
-        z_action_next = action_encoder_state.apply_fn(
-            action_encoder_state.target_params, next_observations, next_state_actions
-        )
+        z_action_next = action_encoder_state.apply_fn(action_encoder_state.target_params, z_next, next_state_actions)
 
         qf_next_values = qf_state.apply_fn(
             qf_state.target_params,
@@ -282,7 +280,7 @@ class SAC7(OffPolicyAlgorithmJax):
         target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
 
         z_state = encoder_state.apply_fn(encoder_state.target_params, observations)
-        z_state_action = action_encoder_state.apply_fn(action_encoder_state.target_params, observations, actions)
+        z_state_action = action_encoder_state.apply_fn(action_encoder_state.target_params, z_state, actions)
 
         def mse_loss(params, dropout_key):
             # shape is (n_critics, batch_size, 1)
@@ -325,7 +323,7 @@ class SAC7(OffPolicyAlgorithmJax):
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
 
-            z_state_action = action_encoder_state.apply_fn(action_encoder_state.target_params, observations, actor_actions)
+            z_state_action = action_encoder_state.apply_fn(action_encoder_state.target_params, z_state, actor_actions)
 
             qf_pi = qf_state.apply_fn(
                 qf_state.params,
@@ -377,17 +375,18 @@ class SAC7(OffPolicyAlgorithmJax):
         z_next_state = jax.lax.stop_gradient(encoder_state.apply_fn(encoder_state.params, next_observations))
 
         def encoder_loss(encoder_params, action_encoder_params):
-            # TODO: include z_state in the action state encoder
             z_state = encoder_state.apply_fn(encoder_params, observations)
-            z_state_action = action_encoder_state.apply_fn(action_encoder_params, observations, actions)
+            z_state_action = action_encoder_state.apply_fn(action_encoder_params, z_state, actions)
             # encoder_loss =  optax.huber_loss(z_state_action, z_next_state).mean()
             return optax.l2_loss(z_state_action, z_next_state).mean()
 
-        _, grads = jax.value_and_grad(encoder_loss)(encoder_state.params, action_encoder_state.params)
+        _, (encoder_grads, action_encoder_grads) = jax.value_and_grad(encoder_loss, argnums=(0, 1))(
+            encoder_state.params,
+            action_encoder_state.params,
+        )
 
-        encoder_state = encoder_state.apply_gradients(grads=grads)
-        # TODO: enable update, update both at the same time
-        # action_encoder_state = action_encoder_state.apply_gradients(grads=grads)
+        encoder_state = encoder_state.apply_gradients(grads=encoder_grads)
+        action_encoder_state = action_encoder_state.apply_gradients(grads=action_encoder_grads)
 
         return encoder_state, action_encoder_state
 

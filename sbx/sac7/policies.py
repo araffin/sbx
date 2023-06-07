@@ -48,8 +48,8 @@ class StateActionEncoder(nn.Module):
     embedding_dim: int = 256
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
-        x = jnp.concatenate([x, action], -1)
+    def __call__(self, z_state: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
+        x = jnp.concatenate([z_state, action], -1)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
             x = nn.elu(x)
@@ -276,12 +276,12 @@ class SAC7Policy(BaseJaxPolicy):
             apply_fn=self.action_encoder.apply,
             params=self.action_encoder.init(
                 {"params": action_encoder_key},
-                obs,
+                z_state,
                 action,
             ),
             target_params=self.action_encoder.init(
                 {"params": action_encoder_key},
-                obs,
+                z_state,
                 action,
             ),
             tx=self.optimizer_class(
