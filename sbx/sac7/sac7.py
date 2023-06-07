@@ -252,6 +252,7 @@ class SAC7(OffPolicyAlgorithmJax):
         ent_coef_state: TrainState,
         encoder_state: RLTrainState,
         action_encoder_state: RLTrainState,
+        z_state: jnp.ndarray,
         observations: np.ndarray,
         actions: np.ndarray,
         next_observations: np.ndarray,
@@ -287,7 +288,7 @@ class SAC7(OffPolicyAlgorithmJax):
         # shape is (batch_size, 1)
         target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
 
-        z_state = encoder_state.apply_fn(encoder_state.target_params, observations)
+        # z_state = encoder_state.apply_fn(encoder_state.target_params, observations)
         z_state_action = action_encoder_state.apply_fn(action_encoder_state.target_params, z_state, actions)
 
         def mse_loss(params, dropout_key):
@@ -319,12 +320,13 @@ class SAC7(OffPolicyAlgorithmJax):
         ent_coef_state: TrainState,
         encoder_state: RLTrainState,
         action_encoder_state: RLTrainState,
+        z_state: jnp.ndarray,
         observations: np.ndarray,
         key: jax.random.KeyArray,
     ):
         key, dropout_key, noise_key = jax.random.split(key, 3)
 
-        z_state = encoder_state.apply_fn(encoder_state.target_params, observations)
+        # z_state = encoder_state.apply_fn(encoder_state.target_params, observations)
 
         def actor_loss(params):
             dist = actor_state.apply_fn(params, observations, z_state)
@@ -432,6 +434,9 @@ class SAC7(OffPolicyAlgorithmJax):
                 slice(data.next_observations),
             )
 
+            z_state = encoder_state.apply_fn(encoder_state.target_params, slice(data.observations))
+
+
             (
                 qf_state,
                 (qf_loss_value, ent_coef_value),
@@ -443,6 +448,7 @@ class SAC7(OffPolicyAlgorithmJax):
                 ent_coef_state,
                 encoder_state,
                 action_encoder_state,
+                z_state,
                 slice(data.observations),
                 slice(data.actions),
                 slice(data.next_observations),
@@ -462,6 +468,7 @@ class SAC7(OffPolicyAlgorithmJax):
                     ent_coef_state,
                     encoder_state,
                     action_encoder_state,
+                    z_state,
                     slice(data.observations),
                     key,
                 )
