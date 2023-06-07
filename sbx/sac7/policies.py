@@ -169,6 +169,7 @@ class SAC7Policy(BaseJaxPolicy):
         if net_arch is not None:
             if isinstance(net_arch, list):
                 self.net_arch_pi = self.net_arch_qf = net_arch
+                self.net_arch_encoder = net_arch
             else:
                 self.net_arch_pi = net_arch["pi"]
                 self.net_arch_qf = net_arch["qf"]
