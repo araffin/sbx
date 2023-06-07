@@ -254,6 +254,8 @@ class SAC7(OffPolicyAlgorithmJax):
         self.logger.record("train/actor_loss", actor_loss_value.item())
         self.logger.record("train/critic_loss", qf_loss_value.item())
         self.logger.record("train/ent_coef", ent_coef_value.item())
+        self.logger.record("train/min_qf_target", self.min_qf_target)
+        self.logger.record("train/max_qf_target", self.max_qf_target)
 
     @staticmethod
     @jax.jit
