@@ -140,10 +140,6 @@ class SAC7(OffPolicyAlgorithmJax):
             self.encoder = self.policy.encoder  # type: ignore[assignment]
             self.action_encoder = self.policy.action_encoder  # type: ignore[assignment]
 
-            # Value clipping tracked values
-            self.min_qf_target = 0
-            self.max_qf_target = 0
-
             # The entropy coefficient or entropy can be learned automatically
             # see Automating Entropy Adjustment for Maximum Entropy RL section
             # of https://arxiv.org/abs/1812.05905
@@ -210,11 +206,6 @@ class SAC7(OffPolicyAlgorithmJax):
             obs = data.observations.numpy()
             next_obs = data.next_observations.numpy()
 
-        # Initialize clipping at the first iteration
-        if self._n_updates == 0:
-            self.min_qf_target = data.rewards.min().item()
-            self.max_qf_target = data.rewards.max().item()
-
         # Convert to numpy
         data = ReplayBufferSamplesNp(
             obs,
@@ -232,7 +223,6 @@ class SAC7(OffPolicyAlgorithmJax):
             self.policy.action_encoder_state,
             self.key,
             (actor_loss_value, qf_loss_value, ent_coef_value),
-            (self.min_qf_target, self.max_qf_target),
         ) = self._train(
             self.gamma,
             self.tau,
@@ -246,16 +236,12 @@ class SAC7(OffPolicyAlgorithmJax):
             self.policy.encoder_state,
             self.policy.action_encoder_state,
             self.key,
-            self.min_qf_target,
-            self.max_qf_target,
         )
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/actor_loss", actor_loss_value.item())
         self.logger.record("train/critic_loss", qf_loss_value.item())
         self.logger.record("train/ent_coef", ent_coef_value.item())
-        self.logger.record("train/min_qf_target", self.min_qf_target)
-        self.logger.record("train/max_qf_target", self.max_qf_target)
 
     @staticmethod
     @jax.jit
@@ -272,8 +258,6 @@ class SAC7(OffPolicyAlgorithmJax):
         rewards: np.ndarray,
         dones: np.ndarray,
         key: jax.random.KeyArray,
-        min_qf_target: float,
-        max_qf_target: float,
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
 
@@ -300,17 +284,8 @@ class SAC7(OffPolicyAlgorithmJax):
         next_q_values = jnp.min(qf_next_values, axis=0)
         # td error + entropy term
         next_q_values = next_q_values - ent_coef_value * next_log_prob.reshape(-1, 1)
-
-        # Clip next q_values
-        next_q_values = jnp.clip(next_q_values, min_qf_target, max_qf_target)
-
         # shape is (batch_size, 1)
         target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
-
-        # Compute min/max to update clipping range
-        # TODO: initialize them properly
-        qf_min = jnp.minimum(target_q_values.min(), min_qf_target)
-        qf_max = jnp.maximum(target_q_values.max(), max_qf_target)
 
         z_state = encoder_state.apply_fn(encoder_state.target_params, observations)
         z_state_action = action_encoder_state.apply_fn(action_encoder_state.target_params, z_state, actions)
@@ -334,7 +309,6 @@ class SAC7(OffPolicyAlgorithmJax):
             qf_state,
             (qf_loss_value, ent_coef_value),
             key,
-            (qf_min, qf_max),
         )
 
     @staticmethod
@@ -439,9 +413,7 @@ class SAC7(OffPolicyAlgorithmJax):
         ent_coef_state: TrainState,
         encoder_state: RLTrainState,
         action_encoder_state: RLTrainState,
-        key: jax.random.KeyArray,
-        min_qf_target: float,
-        max_qf_target: float,
+        key,
     ):
         actor_loss_value = jnp.array(0)
 
@@ -464,7 +436,6 @@ class SAC7(OffPolicyAlgorithmJax):
                 qf_state,
                 (qf_loss_value, ent_coef_value),
                 key,
-                (qf_min, qf_max),
             ) = SAC7.update_critic(
                 gamma,
                 actor_state,
@@ -478,16 +449,10 @@ class SAC7(OffPolicyAlgorithmJax):
                 slice(data.rewards),
                 slice(data.dones),
                 key,
-                min_qf_target,
-                max_qf_target,
             )
             qf_state = SAC7.soft_update(tau, qf_state)
             encoder_state = SAC7.soft_update(tau, encoder_state)
             action_encoder_state = SAC7.soft_update(tau, action_encoder_state)
-
-            tau_update = 0.1
-            min_qf_target += tau_update * (qf_min - min_qf_target)
-            max_qf_target += tau_update * (qf_max - max_qf_target)
 
             # hack to be able to jit (n_updates % policy_delay == 0)
             if i in policy_delay_indices:
@@ -510,5 +475,4 @@ class SAC7(OffPolicyAlgorithmJax):
             action_encoder_state,
             key,
             (actor_loss_value, qf_loss_value, ent_coef_value),
-            (min_qf_target, max_qf_target),
         )
