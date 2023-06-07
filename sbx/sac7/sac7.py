@@ -39,6 +39,14 @@ class ConstantEntropyCoef(nn.Module):
 
 
 class SAC7(OffPolicyAlgorithmJax):
+    """
+    Including State-Action Representation learning in SAC
+    TD7: https://github.com/sfujim/TD7
+
+    Note: The rest of the tricks (LAP replay buffer, checkpoints, extrapolation error correction, huber loss)
+    are not yet implemented
+    """
+
     policy_aliases: Dict[str, Type[SAC7Policy]] = {  # type: ignore[assignment]
         "MlpPolicy": SAC7Policy,
         # Minimal dict support using flatten()

@@ -18,13 +18,6 @@ tfp = tensorflow_probability.substrates.jax
 tfd = tfp.distributions
 
 
-# class AvgL1Norm(nn.Module):
-#     eps: float = 1e-8
-#     @nn.compact
-#     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-#         return x / jnp.clip(jnp.mean(jnp.abs(x), axis=-1, keepdims=True), a_min=self.eps)
-
-
 @jax.jit
 def avg_l1_norm(x: jnp.ndarray, eps: float = 1e-8) -> jnp.ndarray:
     return x / jnp.clip(jnp.mean(jnp.abs(x), axis=-1, keepdims=True), a_min=eps)
@@ -145,6 +138,7 @@ class SAC7Policy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
+        embedding_dim: int = 256,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
@@ -171,14 +165,17 @@ class SAC7Policy(BaseJaxPolicy):
         )
         self.dropout_rate = dropout_rate
         self.layer_norm = layer_norm
+        self.embedding_dim = embedding_dim
         if net_arch is not None:
             if isinstance(net_arch, list):
                 self.net_arch_pi = self.net_arch_qf = net_arch
             else:
                 self.net_arch_pi = net_arch["pi"]
                 self.net_arch_qf = net_arch["qf"]
+                self.net_arch_encoder = net_arch["encoder"]
         else:
             self.net_arch_pi = self.net_arch_qf = [256, 256]
+            self.net_arch_encoder = [256, 256]
         self.n_critics = n_critics
         self.use_sde = use_sde
 
@@ -200,9 +197,8 @@ class SAC7Policy(BaseJaxPolicy):
             obs = jnp.array([self.observation_space.sample()])
         action = jnp.array([self.action_space.sample()])
 
-        encoding_dim = 256
-        z_state = jnp.zeros((1, encoding_dim))
-        z_state_action = jnp.zeros((1, encoding_dim))
+        z_state = jnp.zeros((1, self.embedding_dim))
+        z_state_action = jnp.zeros((1, self.embedding_dim))
 
         self.actor = Actor(
             action_dim=int(np.prod(self.action_space.shape)),
@@ -250,10 +246,12 @@ class SAC7Policy(BaseJaxPolicy):
         )
 
         self.encoder = StateEncoder(
-            net_arch=[256, 256],
+            net_arch=self.net_arch_encoder,
+            embedding_dim=self.embedding_dim,
         )
         self.action_encoder = StateActionEncoder(
-            net_arch=[256, 256],
+            net_arch=self.net_arch_encoder,
+            embedding_dim=self.embedding_dim,
         )
 
         self.encoder_state = RLTrainState.create(
