@@ -112,6 +112,7 @@ class SACPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
+        deterministic_exploration: bool = False,
     ):
         super().__init__(
             observation_space,
@@ -134,6 +135,7 @@ class SACPolicy(BaseJaxPolicy):
             self.net_arch_pi = self.net_arch_qf = [256, 256]
         self.n_critics = n_critics
         self.use_sde = use_sde
+        self.deterministic_exploration = deterministic_exploration
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -209,7 +211,7 @@ class SACPolicy(BaseJaxPolicy):
         return self._predict(obs, deterministic=deterministic)
 
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
-        if deterministic:
+        if deterministic or self.deterministic_exploration:
             return BaseJaxPolicy.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
