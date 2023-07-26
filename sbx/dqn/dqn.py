@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
 import gymnasium as gym
 import jax
@@ -15,7 +15,7 @@ from sbx.dqn.policies import DQNPolicy
 
 
 class DQN(OffPolicyAlgorithmJax):
-    policy_aliases: Dict[str, Type[DQNPolicy]] = {  # type: ignore[assignment]
+    policy_aliases: ClassVar[Dict[str, Type[DQNPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": DQNPolicy,
     }
     # Linear schedule will be defined in `_setup_model()`
@@ -248,7 +248,7 @@ class DQN(OffPolicyAlgorithmJax):
         if not deterministic and np.random.rand() < self.exploration_rate:
             if self.policy.is_vectorized_observation(observation):
                 if isinstance(observation, dict):
-                    n_batch = observation[list(observation.keys())[0]].shape[0]
+                    n_batch = observation[next(iter(observation.keys()))].shape[0]
                 else:
                     n_batch = observation.shape[0]
                 action = np.array([self.action_space.sample() for _ in range(n_batch)])

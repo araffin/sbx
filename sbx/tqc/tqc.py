@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
@@ -39,7 +39,7 @@ class ConstantEntropyCoef(nn.Module):
 
 
 class TQC(OffPolicyAlgorithmJax):
-    policy_aliases: Dict[str, Type[TQCPolicy]] = {  # type: ignore[assignment]
+    policy_aliases: ClassVar[Dict[str, Type[TQCPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": TQCPolicy,
         # Minimal dict support using flatten()
         "MultiInputPolicy": TQCPolicy,
