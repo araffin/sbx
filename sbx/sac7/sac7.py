@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
@@ -47,7 +47,7 @@ class SAC7(OffPolicyAlgorithmJax):
     are not yet implemented
     """
 
-    policy_aliases: Dict[str, Type[SAC7Policy]] = {  # type: ignore[assignment]
+    policy_aliases: ClassVar[Dict[str, Type[SAC7Policy]]] = {  # type: ignore[assignment]
         "MlpPolicy": SAC7Policy,
         # Minimal dict support using flatten()
         "MultiInputPolicy": SAC7Policy,

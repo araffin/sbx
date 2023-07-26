@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
@@ -9,7 +9,7 @@ from sbx.tqc.tqc import TQC
 
 
 class DroQ(TQC):
-    policy_aliases: Dict[str, Type[TQCPolicy]] = {
+    policy_aliases: ClassVar[Dict[str, Type[TQCPolicy]]] = {
         "MlpPolicy": TQCPolicy,
     }
 
