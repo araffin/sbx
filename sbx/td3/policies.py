@@ -60,12 +60,6 @@ class VectorCritic(nn.Module):
 class Actor(nn.Module):
     net_arch: Sequence[int]
     action_dim: int
-    log_std_min: float = -20
-    log_std_max: float = 2
-
-    def get_std(self):
-        # Make it work with gSDE
-        return jnp.array(0.0)
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:  # type: ignore[name-defined]

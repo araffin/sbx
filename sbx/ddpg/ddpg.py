@@ -60,6 +60,7 @@ class DDPG(TD3):
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
+            device=device,
             _init_setup_model=False,
         )
 

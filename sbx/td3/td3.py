@@ -100,8 +100,6 @@ class TD3(OffPolicyAlgorithmJax):
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
 
-            self.key, ent_key = jax.random.split(self.key, 2)
-
             self.actor = self.policy.actor  # type: ignore[assignment]
             self.qf = self.policy.qf  # type: ignore[assignment]
 
