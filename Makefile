@@ -4,13 +4,10 @@ LINT_PATHS=sbx/ tests/ setup.py
 pytest:
 	./scripts/run_tests.sh
 
-pytype:
-	pytype -j auto
-
 mypy:
 	mypy ${LINT_PATHS}
 
-type: pytype mypy
+type: mypy
 
 lint:
 	# stop the build if there are Python syntax errors or undefined names
@@ -44,14 +41,12 @@ commit-checks: format type lint
 
 # PyPi package release
 release:
-	python setup.py sdist
-	python setup.py bdist_wheel
+	python -m build
 	twine upload dist/*
 
 # Test PyPi package release
 test-release:
-	python setup.py sdist
-	python setup.py bdist_wheel
+	python -m build
 	twine upload --repository-url https://test.pypi.org/legacy/ dist/*
 
 .PHONY: clean spelling doc lint format check-codestyle commit-checks

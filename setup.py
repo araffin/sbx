@@ -20,11 +20,13 @@ Implemented algorithms:
 - [Dropout Q-Functions for Doubly Efficient Reinforcement Learning (DroQ)](https://openreview.net/forum?id=xCVJMsPv3RT)
 - [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 - [Deep Q Network (DQN)](https://arxiv.org/abs/1312.5602)
+- [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
+- [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
 
 ## Example
 
 ```python
-from sbx import TQC, DroQ, SAC, DQN, PPO
+from sbx import TQC, DroQ, SAC, DQN, PPO, TD3, DDPG
 
 model = TQC("MlpPolicy", "Pendulum-v1", verbose=1)
 model.learn(total_timesteps=10_000, progress_bar=True)
@@ -37,7 +39,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.0.0a4",
+        "stable_baselines3>=2.1.0",
         "jax",
         "jaxlib",
         "flax",
@@ -54,7 +56,6 @@ setup(
             "pytest-env",
             "pytest-xdist",
             # Type check
-            "pytype",
             "mypy",
             # Lint code
             "ruff",
@@ -74,14 +75,14 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     version=__version__,
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     # PyPI package information.
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
     ],
 )
 

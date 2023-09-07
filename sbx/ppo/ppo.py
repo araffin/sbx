@@ -1,6 +1,6 @@
 import warnings
 from functools import partial
-from typing import Any, Dict, Optional, Type, TypeVar, Union
+from typing import Any, ClassVar, Dict, Optional, Type, TypeVar, Union
 
 import jax
 import jax.numpy as jnp
@@ -68,7 +68,7 @@ class PPO(OnPolicyAlgorithmJax):
     :param _init_setup_model: Whether or not to build the network at the creation of the instance
     """
 
-    policy_aliases: Dict[str, Type[PPOPolicy]] = {  # type: ignore[assignment]
+    policy_aliases: ClassVar[Dict[str, Type[PPOPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": PPOPolicy,
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,

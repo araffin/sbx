@@ -4,13 +4,13 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 
-from sbx.tqc.policies import TQCPolicy
-from sbx.tqc.tqc import TQC
+from sbx.td3.policies import TD3Policy
+from sbx.td3.td3 import TD3
 
 
-class DroQ(TQC):
-    policy_aliases: ClassVar[Dict[str, Type[TQCPolicy]]] = {
-        "MlpPolicy": TQCPolicy,
+class DDPG(TD3):
+    policy_aliases: ClassVar[Dict[str, Type[TD3Policy]]] = {
+        "MlpPolicy": TD3Policy,
     }
 
     def __init__(
@@ -18,26 +18,17 @@ class DroQ(TQC):
         policy,
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
-        qf_learning_rate: Optional[float] = None,
+        qf_learning_rate: Optional[float] = 1e-3,
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
         train_freq: Union[int, Tuple[int, str]] = 1,
-        gradient_steps: int = 2,
-        # policy_delay = gradient_steps to follow original implementation
-        policy_delay: int = 2,
-        top_quantiles_to_drop_per_net: int = 2,
-        dropout_rate: float = 0.01,
-        layer_norm: bool = True,
+        gradient_steps: int = 1,
         action_noise: Optional[ActionNoise] = None,
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
-        ent_coef: Union[str, float] = "auto",
-        use_sde: bool = False,
-        sde_sample_freq: int = -1,
-        use_sde_at_warmup: bool = False,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
@@ -57,24 +48,25 @@ class DroQ(TQC):
             gamma=gamma,
             train_freq=train_freq,
             gradient_steps=gradient_steps,
-            policy_delay=policy_delay,
             action_noise=action_noise,
+            # Remove all tricks from TD3 to obtain DDPG:
+            # we still need to specify target_policy_noise > 0 to avoid errors
+            policy_delay=1,
+            target_policy_noise=0.1,
+            target_noise_clip=0.0,
             replay_buffer_class=replay_buffer_class,
             replay_buffer_kwargs=replay_buffer_kwargs,
-            use_sde=use_sde,
-            sde_sample_freq=sde_sample_freq,
-            use_sde_at_warmup=use_sde_at_warmup,
-            top_quantiles_to_drop_per_net=top_quantiles_to_drop_per_net,
-            ent_coef=ent_coef,
             policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
+            device=device,
             _init_setup_model=False,
         )
 
-        self.policy_kwargs["dropout_rate"] = dropout_rate
-        self.policy_kwargs["layer_norm"] = layer_norm
+        # Use only one critic
+        if "n_critics" not in self.policy_kwargs:
+            self.policy_kwargs["n_critics"] = 1
 
         if _init_setup_model:
             self._setup_model()

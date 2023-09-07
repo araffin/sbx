@@ -15,6 +15,8 @@ Implemented algorithms:
 - [Dropout Q-Functions for Doubly Efficient Reinforcement Learning (DroQ)](https://openreview.net/forum?id=xCVJMsPv3RT)
 - [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 - [Deep Q Network (DQN)](https://arxiv.org/abs/1312.5602)
+- [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
+- [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
 
 
 ### Install using pip
@@ -34,7 +36,7 @@ pip install sbx-rl
 ```python
 import gymnasium as gym
 
-from sbx import TQC, DroQ, SAC, PPO, DQN
+from sbx import TQC, DroQ, SAC, PPO, DQN, TD3, DDPG
 
 env = gym.make("Pendulum-v1")
 
