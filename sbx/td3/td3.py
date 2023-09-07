@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
@@ -41,6 +40,8 @@ class TD3(OffPolicyAlgorithmJax):
         train_freq: Union[int, Tuple[int, str]] = 1,
         gradient_steps: int = 1,
         policy_delay: int = 2,
+        target_policy_noise: float = 0.2,
+        target_noise_clip: float = 0.5,
         action_noise: Optional[ActionNoise] = None,
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
@@ -76,6 +77,8 @@ class TD3(OffPolicyAlgorithmJax):
         )
 
         self.policy_delay = policy_delay
+        self.target_policy_noise = target_policy_noise
+        self.target_noise_clip = target_noise_clip
 
         if _init_setup_model:
             self._setup_model()
@@ -157,6 +160,8 @@ class TD3(OffPolicyAlgorithmJax):
             gradient_steps,
             data,
             policy_delay_indices,
+            self.target_policy_noise,
+            self.target_noise_clip,
             self.policy.qf_state,
             self.policy.actor_state,
             self.key,
@@ -177,9 +182,9 @@ class TD3(OffPolicyAlgorithmJax):
         next_observations: np.ndarray,
         rewards: np.ndarray,
         dones: np.ndarray,
+        target_policy_noise: float,
+        target_noise_clip: float,
         key: jax.random.KeyArray,
-        target_policy_noise: float = 0.1,
-        target_noise_clip: float = 0.5,
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # Select action according to target net and add clipped noise
@@ -261,6 +266,8 @@ class TD3(OffPolicyAlgorithmJax):
         gradient_steps: int,
         data: ReplayBufferSamplesNp,
         policy_delay_indices: flax.core.FrozenDict,
+        target_policy_noise: float,
+        target_noise_clip: float,
         qf_state: RLTrainState,
         actor_state: RLTrainState,
         key,
@@ -287,6 +294,8 @@ class TD3(OffPolicyAlgorithmJax):
                 slice(data.next_observations),
                 slice(data.rewards),
                 slice(data.dones),
+                target_policy_noise,
+                target_noise_clip,
                 key,
             )
             qf_state, actor_state = TD3.soft_update(tau, qf_state, actor_state)
