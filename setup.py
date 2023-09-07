@@ -54,7 +54,6 @@ setup(
             "pytest-env",
             "pytest-xdist",
             # Type check
-            "pytype",
             "mypy",
             # Lint code
             "ruff",

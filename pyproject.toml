@@ -21,10 +21,6 @@ profile = "black"
 line_length = 127
 src_paths = ["sbx"]
 
-[tool.pytype]
-inputs = ["sbx"]
-disable = []
-
 [tool.mypy]
 ignore_missing_imports = true
 follow_imports = "silent"
