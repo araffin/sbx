@@ -15,6 +15,7 @@ class Flatten(nn.Module):
     """
     Equivalent to PyTorch nn.Flatten() layer.
     """
+
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         return x.reshape((x.shape[0], -1))
