@@ -8,7 +8,7 @@ import optax
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.policies import BaseJaxPolicy
+from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import RLTrainState
 
 
@@ -18,6 +18,7 @@ class QNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = Flatten()(x)
         x = nn.Dense(self.n_units)(x)
         x = nn.relu(x)
         x = nn.Dense(self.n_units)(x)

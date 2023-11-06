@@ -11,7 +11,7 @@ from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
-from sbx.common.policies import BaseJaxPolicy
+from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import RLTrainState
 
 tfp = tensorflow_probability.substrates.jax
@@ -25,6 +25,7 @@ class Critic(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
+        x = Flatten()(x)
         x = jnp.concatenate([x, action], -1)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
@@ -75,6 +76,7 @@ class Actor(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+        x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
             x = nn.relu(x)

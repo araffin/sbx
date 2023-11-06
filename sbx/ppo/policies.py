@@ -12,7 +12,7 @@ from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.policies import BaseJaxPolicy
+from sbx.common.policies import BaseJaxPolicy, Flatten
 
 tfp = tensorflow_probability.substrates.jax
 tfd = tfp.distributions
@@ -24,6 +24,7 @@ class Critic(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = Flatten()(x)
         x = nn.Dense(self.n_units)(x)
         x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
@@ -45,6 +46,7 @@ class Actor(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+        x = Flatten()(x)
         x = nn.Dense(self.n_units)(x)
         x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
