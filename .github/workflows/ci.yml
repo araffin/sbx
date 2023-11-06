@@ -32,13 +32,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         # cpu version of pytorch
-        pip install torch==1.13+cpu -f https://download.pytorch.org/whl/torch_stable.html
-
-        # # Install Atari Roms
-        # pip install autorom
-        # wget https://gist.githubusercontent.com/jjshoots/61b22aefce4456920ba99f2c36906eda/raw/00046ac3403768bfe45857610a3d333b8e35e026/Roms.tar.gz.b64
-        # base64 Roms.tar.gz.b64 --decode &> Roms.tar.gz
-        # AutoROM --accept-license --source-file Roms.tar.gz
+        pip install torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 
         pip install .[tests]
         # Use headless version

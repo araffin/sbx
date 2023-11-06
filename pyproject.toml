@@ -16,11 +16,6 @@ max-complexity = 15
 [tool.black]
 line-length = 127
 
-[tool.isort]
-profile = "black"
-line_length = 127
-src_paths = ["sbx"]
-
 [tool.mypy]
 ignore_missing_imports = true
 follow_imports = "silent"

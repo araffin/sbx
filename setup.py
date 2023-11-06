@@ -39,7 +39,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.1.0",
+        "stable_baselines3>=2.2.0a9",
         "jax",
         "jaxlib",
         "flax",
@@ -59,8 +59,6 @@ setup(
             "mypy",
             # Lint code
             "ruff",
-            # Sort imports
-            "isort>=5.0",
             # Reformat
             "black",
         ],

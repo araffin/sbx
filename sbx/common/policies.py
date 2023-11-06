@@ -1,12 +1,23 @@
 # import copy
 from typing import Dict, Optional, Tuple, Union, no_type_check
 
+import flax.linen as nn
 import jax
+import jax.numpy as jnp
 import numpy as np
 from gymnasium import spaces
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
 from stable_baselines3.common.utils import is_vectorized_observation
+
+
+class Flatten(nn.Module):
+    """
+    Equivalent to PyTorch nn.Flatten() layer.
+    """
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        return x.reshape((x.shape[0], -1))
 
 
 class BaseJaxPolicy(BasePolicy):
