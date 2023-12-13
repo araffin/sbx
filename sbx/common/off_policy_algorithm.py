@@ -119,7 +119,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         )
         # Convert train freq parameter to TrainFreq object
         self._convert_train_freq()
-    
+
     def load_replay_buffer(
         self,
         path: Union[str, pathlib.Path, io.BufferedIOBase],
@@ -128,4 +128,3 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         super().load_replay_buffer(path, truncate_last_traj)
         # Override replay buffer device to be always cpu for conversion to numpy
         self.replay_buffer.device = get_device("cpu")
-
