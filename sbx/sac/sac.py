@@ -179,7 +179,7 @@ class SAC(OffPolicyAlgorithmJax):
             progress_bar=progress_bar,
         )
 
-    def train(self, batch_size, gradient_steps):
+    def train(self, batch_size: int, gradient_steps: int):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
 
@@ -408,7 +408,9 @@ class SAC(OffPolicyAlgorithmJax):
 
             (actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key) = jax.lax.cond(
                 (policy_delay_offset + i) % policy_delay_interval == 0,
+                # If True:
                 cls.update_actor_and_temperature,
+                # If False:
                 lambda *_: (actor_state, qf_state, ent_coef_state, info["actor_loss"], info["ent_coef_loss"], key),
                 actor_state,
                 qf_state,
