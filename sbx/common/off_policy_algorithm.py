@@ -127,4 +127,5 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
     ) -> None:
         super().load_replay_buffer(path, truncate_last_traj)
         # Override replay buffer device to be always cpu for conversion to numpy
+        assert self.replay_buffer is not None
         self.replay_buffer.device = get_device("cpu")
