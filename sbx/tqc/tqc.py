@@ -451,11 +451,11 @@ class TQC(OffPolicyAlgorithmJax):
             ent_coef_state = carry["ent_coef_state"]
             key = carry["key"]
             info = carry["info"]
-            batch_obs = jax.lax.dynamic_slice_in_dim(data.observations, i, batch_size)
-            batch_act = jax.lax.dynamic_slice_in_dim(data.actions, i, batch_size)
-            batch_next_obs = jax.lax.dynamic_slice_in_dim(data.next_observations, i, batch_size)
-            batch_rew = jax.lax.dynamic_slice_in_dim(data.rewards, i, batch_size)
-            batch_done = jax.lax.dynamic_slice_in_dim(data.dones, i, batch_size)
+            batch_obs = jax.lax.dynamic_slice_in_dim(data.observations, i * batch_size, batch_size)
+            batch_act = jax.lax.dynamic_slice_in_dim(data.actions, i * batch_size, batch_size)
+            batch_next_obs = jax.lax.dynamic_slice_in_dim(data.next_observations, i * batch_size, batch_size)
+            batch_rew = jax.lax.dynamic_slice_in_dim(data.rewards, i * batch_size, batch_size)
+            batch_done = jax.lax.dynamic_slice_in_dim(data.dones, i * batch_size, batch_size)
             (
                 (qf1_state, qf2_state),
                 (qf1_loss_value, qf2_loss_value, ent_coef_value),
