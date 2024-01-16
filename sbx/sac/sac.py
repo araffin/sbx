@@ -242,7 +242,7 @@ class SAC(OffPolicyAlgorithmJax):
         next_observations: np.ndarray,
         rewards: np.ndarray,
         dones: np.ndarray,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # sample action from the actor
@@ -286,7 +286,7 @@ class SAC(OffPolicyAlgorithmJax):
         qf_state: RLTrainState,
         ent_coef_state: TrainState,
         observations: np.ndarray,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         key, dropout_key, noise_key = jax.random.split(key, 3)
 

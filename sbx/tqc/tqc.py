@@ -247,7 +247,7 @@ class TQC(OffPolicyAlgorithmJax):
         next_observations: np.ndarray,
         rewards: np.ndarray,
         dones: np.ndarray,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
         key, dropout_key_3, dropout_key_4 = jax.random.split(key, 3)
@@ -328,7 +328,7 @@ class TQC(OffPolicyAlgorithmJax):
         qf2_state: RLTrainState,
         ent_coef_state: TrainState,
         observations: np.ndarray,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
 

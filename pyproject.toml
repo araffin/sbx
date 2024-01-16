@@ -33,6 +33,10 @@ env = [
 filterwarnings = [
     # Tensorboard warnings
     "ignore::DeprecationWarning:tensorboard",
+    # Numpy warnings from jax
+    "ignore:Conversion of an array with ndim:DeprecationWarning:jax",
+    # TQDM experimental
+    "ignore:rich is experimental",
 ]
 markers = [
     "expensive: marks tests as expensive (deselect with '-m \"not expensive\"')"
