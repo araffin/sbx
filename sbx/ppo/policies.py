@@ -111,7 +111,7 @@ class PPOPolicy(BaseJaxPolicy):
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
-    def build(self, key: jax.random.KeyArray, lr_schedule: Schedule, max_grad_norm: float) -> jax.random.KeyArray:
+    def build(self, key: jax.Array, lr_schedule: Schedule, max_grad_norm: float) -> jax.Array:
         key, actor_key, vf_key = jax.random.split(key, 3)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
@@ -190,7 +190,7 @@ class PPOPolicy(BaseJaxPolicy):
             self.reset_noise()
         return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
 
-    def predict_all(self, observation: np.ndarray, key: jax.random.KeyArray) -> np.ndarray:
+    def predict_all(self, observation: np.ndarray, key: jax.Array) -> np.ndarray:
         return self._predict_all(self.actor_state, self.vf_state, observation, key)
 
     @staticmethod

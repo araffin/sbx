@@ -180,17 +180,18 @@ class TQC(OffPolicyAlgorithmJax):
             progress_bar=progress_bar,
         )
 
-    def train(self, batch_size, gradient_steps):
+    def train(self, gradient_steps: int, batch_size: int) -> None:
+        assert self.replay_buffer is not None
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
         # Pre-compute the indices where we need to update the actor
         # This is a hack in order to jit the train loop
         # It will compile once per value of policy_delay_indices
         policy_delay_indices = {i: True for i in range(gradient_steps) if ((self._n_updates + i + 1) % self.policy_delay) == 0}
-        policy_delay_indices = flax.core.FrozenDict(policy_delay_indices)
+        policy_delay_indices = flax.core.FrozenDict(policy_delay_indices)  # type: ignore[assignment]
 
         if isinstance(data.observations, dict):
-            keys = list(self.observation_space.keys())
+            keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
             obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
             next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
         else:
@@ -198,7 +199,7 @@ class TQC(OffPolicyAlgorithmJax):
             next_obs = data.next_observations.numpy()
 
         # Convert to numpy
-        data = ReplayBufferSamplesNp(
+        data = ReplayBufferSamplesNp(  # type: ignore[assignment]
             obs,
             data.actions.numpy(),
             next_obs,
@@ -246,7 +247,7 @@ class TQC(OffPolicyAlgorithmJax):
         next_observations: np.ndarray,
         rewards: np.ndarray,
         dones: np.ndarray,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
         key, dropout_key_3, dropout_key_4 = jax.random.split(key, 3)
@@ -327,7 +328,7 @@ class TQC(OffPolicyAlgorithmJax):
         qf2_state: RLTrainState,
         ent_coef_state: TrainState,
         observations: np.ndarray,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
 

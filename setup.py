@@ -39,11 +39,13 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.2.0a9",
+        "stable_baselines3>=2.3.0a1",
         "jax",
         "jaxlib",
         "flax",
-        "optax",
+        'optax; python_version >= "3.9.0"',
+        # See https://github.com/google-deepmind/optax/issues/711
+        'optax<0.1.8; python_version < "3.9.0"',
         "tqdm",
         "rich",
         "tensorflow_probability",
