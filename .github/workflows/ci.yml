@@ -49,6 +49,8 @@ jobs:
     - name: Type check
       run: |
         make type
+      # skip mypy, jax doesn't have its latest version for python 3.8
+      if: "!(matrix.python-version == '3.8')"
     - name: Test with pytest
       run: |
         make pytest

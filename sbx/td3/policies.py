@@ -115,7 +115,7 @@ class TD3Policy(BaseJaxPolicy):
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
-    def build(self, key: jax.random.KeyArray, lr_schedule: Schedule, qf_learning_rate: float) -> jax.random.KeyArray:
+    def build(self, key: jax.Array, lr_schedule: Schedule, qf_learning_rate: float) -> jax.Array:
         key, actor_key, qf_key, dropout_key = jax.random.split(key, 4)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)

@@ -178,7 +178,7 @@ class TD3(OffPolicyAlgorithmJax):
         dones: jax.Array,
         target_policy_noise: float,
         target_noise_clip: float,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # Select action according to target net and add clipped noise
@@ -219,7 +219,7 @@ class TD3(OffPolicyAlgorithmJax):
         actor_state: RLTrainState,
         qf_state: RLTrainState,
         observations: jax.Array,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         key, dropout_key = jax.random.split(key, 2)
 

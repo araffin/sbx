@@ -57,7 +57,7 @@ class DQNPolicy(BaseJaxPolicy):
         else:
             self.n_units = 256
 
-    def build(self, key: jax.random.KeyArray, lr_schedule: Schedule) -> jax.random.KeyArray:
+    def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key = jax.random.split(key, 2)
 
         obs = jnp.array([self.observation_space.sample()])
