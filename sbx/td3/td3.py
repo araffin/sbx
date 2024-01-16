@@ -129,7 +129,7 @@ class TD3(OffPolicyAlgorithmJax):
         # This is a hack in order to jit the train loop
         # It will compile once per value of policy_delay_indices
         policy_delay_indices = {i: True for i in range(gradient_steps) if ((self._n_updates + i + 1) % self.policy_delay) == 0}
-        policy_delay_indices = flax.core.FrozenDict(policy_delay_indices)
+        policy_delay_indices = flax.core.FrozenDict(policy_delay_indices)  # type: ignore[assignment]
 
         if isinstance(data.observations, dict):
             keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
