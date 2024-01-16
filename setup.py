@@ -43,7 +43,9 @@ setup(
         "jax",
         "jaxlib",
         "flax",
-        "optax",
+        'optax; python_version >= "3.9.0"',
+        # See https://github.com/google-deepmind/optax/issues/711
+        'optax<0.1.8; python_version < "3.9.0"',
         "tqdm",
         "rich",
         "tensorflow_probability",
