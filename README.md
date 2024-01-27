@@ -55,7 +55,7 @@ vec_env.close()
 
 ## Using SBX with the RL Zoo
 
-Because SBX shares SB3 API, it compatible with the [RL Zoo](https://github.com/DLR-RM/rl-baselines3-zoo), you just need to override the algorithms mapping:
+Since SBX shares the SB3 API, it is compatible with the [RL Zoo](https://github.com/DLR-RM/rl-baselines3-zoo), you just need to override the algorithm mapping:
 
 ```python
 import rl_zoo3
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     train()
 ```
 
-Then you can call that script as you would do with the RL Zoo:
+Then you can run this script as you would with the RL Zoo:
 
 ```
 python train.py --algo sac --env HalfCheetah-v4 -params train_freq:4 gradient_steps:4 -P
