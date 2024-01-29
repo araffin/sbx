@@ -252,14 +252,14 @@ class TD3(OffPolicyAlgorithmJax):
         return qf_state, actor_state
 
     @classmethod
-    @partial(jax.jit, static_argnames=["cls", "gradient_steps", "policy_delay_interval", "policy_delay_offset"])
+    @partial(jax.jit, static_argnames=["cls", "gradient_steps", "policy_delay", "policy_delay_offset"])
     def _train(
         cls,
         gamma: float,
         tau: float,
         gradient_steps: int,
         data: ReplayBufferSamplesNp,
-        policy_delay_interval: int,
+        policy_delay: int,
         policy_delay_offset: int,
         target_policy_noise: float,
         target_noise_clip: float,
@@ -310,7 +310,7 @@ class TD3(OffPolicyAlgorithmJax):
             qf_state, actor_state = cls.soft_update(tau, qf_state, actor_state)
 
             (actor_state, qf_state, actor_loss_value, key) = jax.lax.cond(
-                (policy_delay_offset + i) % policy_delay_interval == 0,
+                (policy_delay_offset + i) % policy_delay == 0,
                 cls.update_actor,
                 lambda *_: (actor_state, qf_state, info["actor_loss"], key),
                 actor_state,

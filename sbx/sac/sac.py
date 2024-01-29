@@ -348,7 +348,7 @@ class SAC(OffPolicyAlgorithmJax):
         return actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key
 
     @classmethod
-    @partial(jax.jit, static_argnames=["cls", "gradient_steps", "policy_delay_interval", "policy_delay_offset"])
+    @partial(jax.jit, static_argnames=["cls", "gradient_steps", "policy_delay", "policy_delay_offset"])
     def _train(
         cls,
         gamma: float,
@@ -356,7 +356,7 @@ class SAC(OffPolicyAlgorithmJax):
         target_entropy: ArrayLike,
         gradient_steps: int,
         data: ReplayBufferSamplesNp,
-        policy_delay_interval: int,
+        policy_delay: int,
         policy_delay_offset: int,
         qf_state: RLTrainState,
         actor_state: TrainState,
@@ -379,6 +379,8 @@ class SAC(OffPolicyAlgorithmJax):
         }
 
         def one_update(i: int, carry: Dict[str, Any]) -> Dict[str, Any]:
+            # Note: this method must be defined inline because
+            # `fori_loop` expect a signature fn(index, carry) -> carry
             actor_state = carry["actor_state"]
             qf_state = carry["qf_state"]
             ent_coef_state = carry["ent_coef_state"]
@@ -408,7 +410,7 @@ class SAC(OffPolicyAlgorithmJax):
             qf_state = cls.soft_update(tau, qf_state)
 
             (actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key) = jax.lax.cond(
-                (policy_delay_offset + i) % policy_delay_interval == 0,
+                (policy_delay_offset + i) % policy_delay == 0,
                 # If True:
                 cls.update_actor_and_temperature,
                 # If False:

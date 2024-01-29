@@ -409,7 +409,7 @@ class TQC(OffPolicyAlgorithmJax):
     @classmethod
     @partial(
         jax.jit,
-        static_argnames=["cls", "gradient_steps", "n_target_quantiles", "policy_delay_interval", "policy_delay_offset"],
+        static_argnames=["cls", "gradient_steps", "n_target_quantiles", "policy_delay", "policy_delay_offset"],
     )
     def _train(
         cls,
@@ -419,7 +419,7 @@ class TQC(OffPolicyAlgorithmJax):
         gradient_steps: int,
         n_target_quantiles: int,
         data: ReplayBufferSamplesNp,
-        policy_delay_interval: int,
+        policy_delay: int,
         policy_delay_offset: int,
         qf1_state: RLTrainState,
         qf2_state: RLTrainState,
@@ -477,7 +477,7 @@ class TQC(OffPolicyAlgorithmJax):
             qf1_state, qf2_state = cls.soft_update(tau, qf1_state, qf2_state)
 
             (actor_state, (qf1_state, qf2_state), ent_coef_state, actor_loss_value, ent_coef_loss_value, key) = jax.lax.cond(
-                (policy_delay_offset + i) % policy_delay_interval == 0,
+                (policy_delay_offset + i) % policy_delay == 0,
                 cls.update_actor_and_temperature,
                 lambda *_: (
                     actor_state,
