@@ -265,7 +265,7 @@ class TD3(OffPolicyAlgorithmJax):
         target_noise_clip: float,
         qf_state: RLTrainState,
         actor_state: RLTrainState,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         assert data.observations.shape[0] % gradient_steps == 0
         batch_size = data.observations.shape[0] // gradient_steps

@@ -335,7 +335,7 @@ class SAC(OffPolicyAlgorithmJax):
         ent_coef_state: TrainState,
         observations: jax.Array,
         target_entropy: ArrayLike,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         (actor_state, qf_state, actor_loss_value, key, entropy) = cls.update_actor(
             actor_state,
@@ -361,7 +361,7 @@ class SAC(OffPolicyAlgorithmJax):
         qf_state: RLTrainState,
         actor_state: TrainState,
         ent_coef_state: TrainState,
-        key: jax.random.KeyArray,
+        key: jax.Array,
     ):
         assert data.observations.shape[0] % gradient_steps == 0
         batch_size = data.observations.shape[0] // gradient_steps
