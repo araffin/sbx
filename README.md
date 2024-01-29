@@ -53,6 +53,59 @@ for i in range(1000):
 vec_env.close()
 ```
 
+## Using SBX with the RL Zoo
+
+Since SBX shares the SB3 API, it is compatible with the [RL Zoo](https://github.com/DLR-RM/rl-baselines3-zoo), you just need to override the algorithm mapping:
+
+```python
+import rl_zoo3
+import rl_zoo3.train
+from rl_zoo3.train import train
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+
+rl_zoo3.ALGOS["ddpg"] = DDPG
+rl_zoo3.ALGOS["dqn"] = DQN
+rl_zoo3.ALGOS["droq"] = DroQ
+rl_zoo3.ALGOS["sac"] = SAC
+rl_zoo3.ALGOS["ppo"] = PPO
+rl_zoo3.ALGOS["td3"] = TD3
+rl_zoo3.ALGOS["tqc"] = TQC
+rl_zoo3.train.ALGOS = rl_zoo3.ALGOS
+rl_zoo3.exp_manager.ALGOS = rl_zoo3.ALGOS
+
+if __name__ == "__main__":
+    train()
+```
+
+Then you can run this script as you would with the RL Zoo:
+
+```
+python train.py --algo sac --env HalfCheetah-v4 -params train_freq:4 gradient_steps:4 -P
+```
+
+The same goes for the enjoy script:
+
+```python
+import rl_zoo3
+import rl_zoo3.enjoy
+from rl_zoo3.enjoy import enjoy
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+
+rl_zoo3.ALGOS["ddpg"] = DDPG
+rl_zoo3.ALGOS["dqn"] = DQN
+rl_zoo3.ALGOS["droq"] = DroQ
+rl_zoo3.ALGOS["sac"] = SAC
+rl_zoo3.ALGOS["ppo"] = PPO
+rl_zoo3.ALGOS["td3"] = TD3
+rl_zoo3.ALGOS["tqc"] = TQC
+rl_zoo3.enjoy.ALGOS = rl_zoo3.ALGOS
+rl_zoo3.exp_manager.ALGOS = rl_zoo3.ALGOS
+
+if __name__ == "__main__":
+    enjoy()
+```
+
+
 ## Citing the Project
 
 To cite this repository in publications:
