@@ -9,6 +9,10 @@ class RLTrainState(TrainState):  # type: ignore[misc]
     target_params: flax.core.FrozenDict  # type: ignore[misc]
 
 
+class BatchNormTrainState(TrainState):  # type: ignore[misc]
+    batch_stats: flax.core.FrozenDict  # type: ignore[misc]
+
+
 class ReplayBufferSamplesNp(NamedTuple):
     observations: np.ndarray
     actions: np.ndarray
