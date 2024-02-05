@@ -255,32 +255,38 @@ class CrossQ(OffPolicyAlgorithmJax):
 
         ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
 
-        qf_next_values = qf_state.apply_fn(
-            {"params": qf_state.params, "batch_stats": qf_state.batch_stats},
-            next_observations,
-            next_state_actions,
-            rngs={"dropout": dropout_key_target},
-            train=False,  # todo: concatenate with obs, use train=True in that case
-        )
-
-        next_q_values = jnp.min(qf_next_values, axis=0)
-        # td error + entropy term
-        next_q_values = next_q_values - ent_coef_value * next_log_prob.reshape(-1, 1)
-        # shape is (batch_size, 1)
-        target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
+        # qf_next_values = qf_state.apply_fn(
+        #     {"params": qf_state.params, "batch_stats": qf_state.batch_stats},
+        #     next_observations,
+        #     next_state_actions,
+        #     rngs={"dropout": dropout_key_target},
+        #     train=False,  # todo: concatenate with obs, use train=True in that case
+        # )
 
         # TODO: concatenate obs/next obs
         def mse_loss(params, batch_stats, dropout_key):
-            # shape is (n_critics, batch_size, 1)
-            current_q_values, state_updates = qf_state.apply_fn(
+            # Concatenate obs/next_obs to have only one forward pass
+            # shape is (n_critics, 2 * batch_size, 1)
+            q_values, state_updates = qf_state.apply_fn(
                 {"params": params, "batch_stats": batch_stats},
-                observations,
-                actions,
+                jnp.concatenate([observations, next_observations], axis=0),
+                jnp.concatenate([actions, next_state_actions], axis=0),
                 rngs={"dropout": dropout_key},
                 mutable=["batch_stats"],
                 train=True,
             )
-            return 0.5 * ((target_q_values - current_q_values) ** 2).mean(axis=1).sum(), state_updates
+
+            # Recover current and next_q_values, split into two
+            current_q_values, qf_next_values = jnp.split(q_values, 2, axis=1)
+
+            # Compute target q_values
+            next_q_values = jnp.min(qf_next_values, axis=0)
+            # td error + entropy term
+            next_q_values = next_q_values - ent_coef_value * next_log_prob.reshape(-1, 1)
+            # shape is (batch_size, 1)
+            target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
+
+            return 0.5 * ((jax.lax.stop_gradient(target_q_values) - current_q_values) ** 2).mean(axis=1).sum(), state_updates
 
         (qf_loss_value, state_updates), grads = jax.value_and_grad(mse_loss, has_aux=True)(
             qf_state.params, qf_state.batch_stats, dropout_key_current
