@@ -6,13 +6,12 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tensorflow_probability
-from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
 from sbx.common.policies import BaseJaxPolicy, Flatten
-from sbx.common.type_aliases import BatchNormTrainState, RLTrainState
+from sbx.common.type_aliases import BatchNormTrainState
 
 tfp = tensorflow_probability.substrates.jax
 tfd = tfp.distributions
@@ -79,17 +78,25 @@ class Actor(nn.Module):
     action_dim: int
     log_std_min: float = -20
     log_std_max: float = 2
+    use_batch_norm: bool = False
+    batch_norm_momentum: float = 0.9
 
     def get_std(self):
         # Make it work with gSDE
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, x: jnp.ndarray, train: bool = False) -> tfd.Distribution:  # type: ignore[name-defined]
         x = Flatten()(x)
+        if self.use_batch_norm:
+            x = nn.BatchNorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
             x = nn.relu(x)
+            if self.use_batch_norm:
+                x = nn.BatchNorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+
         mean = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
         log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
@@ -169,13 +176,22 @@ class CrossQPolicy(BaseJaxPolicy):
         self.actor = Actor(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
+            use_batch_norm=self.batch_norm,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
 
-        self.actor_state = TrainState.create(
+        # Note: re-use same bn_key as for the critic?
+        actor_params = self.actor.init(
+            {"params": actor_key, "batch_stats": bn_key},
+            obs,
+            train=False,
+        )
+
+        self.actor_state = BatchNormTrainState.create(
             apply_fn=self.actor.apply,
-            params=self.actor.init(actor_key, obs),
+            params=actor_params["params"],
+            batch_stats=actor_params["batch_stats"],
             tx=self.optimizer_class(
                 learning_rate=lr_schedule(1),  # type: ignore[call-arg]
                 **self.optimizer_kwargs,
@@ -213,7 +229,10 @@ class CrossQPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
+        self.actor.apply = jax.jit(  # type: ignore[method-assign]
+            self.actor.apply,
+            static_argnames=("use_batch_norm"),
+        )
         self.qf.apply = jax.jit(  # type: ignore[method-assign]
             self.qf.apply,
             static_argnames=("dropout_rate", "use_layer_norm", "use_batch_norm"),
@@ -230,10 +249,30 @@ class CrossQPolicy(BaseJaxPolicy):
     def forward(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
 
+    @staticmethod
+    @jax.jit
+    def sample_action(actor_state, obervations, key):
+        dist = actor_state.apply_fn(
+            {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
+            obervations,
+            train=False,
+        )
+        action = dist.sample(seed=key)
+        return action
+
+    @staticmethod
+    @jax.jit
+    def select_action(actor_state, obervations):
+        return actor_state.apply_fn(
+            {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
+            obervations,
+            train=False,
+        ).mode()
+
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:
-            return BaseJaxPolicy.select_action(self.actor_state, observation)
+            return self.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
             self.reset_noise()
-        return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
+        return self.sample_action(self.actor_state, observation, self.noise_key)

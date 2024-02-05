@@ -14,7 +14,7 @@ from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
-from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
+from sbx.common.type_aliases import BatchNormTrainState, ReplayBufferSamplesNp
 from sbx.crossq.policies import CrossQPolicy
 
 
@@ -61,7 +61,7 @@ class CrossQ(OffPolicyAlgorithmJax):
         gamma: float = 0.99,
         train_freq: Union[int, Tuple[int, str]] = 1,
         gradient_steps: int = 1,
-        policy_delay: int = 3,
+        policy_delay: int = 1,
         action_noise: Optional[ActionNoise] = None,
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
@@ -105,8 +105,8 @@ class CrossQ(OffPolicyAlgorithmJax):
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
 
-        if "optimizer_kwargs" not in self.policy_kwargs:
-            self.policy_kwargs["optimizer_kwargs"] = {"b1": 0.5}
+        # if "optimizer_kwargs" not in self.policy_kwargs:
+        #     self.policy_kwargs["optimizer_kwargs"] = {"b1": 0.5}
 
         if _init_setup_model:
             self._setup_model()
@@ -233,8 +233,8 @@ class CrossQ(OffPolicyAlgorithmJax):
     @jax.jit
     def update_critic(
         gamma: float,
-        actor_state: TrainState,
-        qf_state: RLTrainState,
+        actor_state: BatchNormTrainState,
+        qf_state: BatchNormTrainState,
         ent_coef_state: TrainState,
         observations: jax.Array,
         actions: jax.Array,
@@ -245,7 +245,11 @@ class CrossQ(OffPolicyAlgorithmJax):
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # sample action from the actor
-        dist = actor_state.apply_fn(actor_state.params, next_observations)
+        dist = actor_state.apply_fn(
+            {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
+            next_observations,
+            train=False,
+        )
         next_state_actions = dist.sample(seed=noise_key)
         next_log_prob = dist.log_prob(next_state_actions)
 
@@ -293,16 +297,21 @@ class CrossQ(OffPolicyAlgorithmJax):
     @staticmethod
     @jax.jit
     def update_actor(
-        actor_state: RLTrainState,
-        qf_state: RLTrainState,
+        actor_state: BatchNormTrainState,
+        qf_state: BatchNormTrainState,
         ent_coef_state: TrainState,
         observations: jax.Array,
         key: jax.Array,
     ):
         key, dropout_key, noise_key = jax.random.split(key, 3)
 
-        def actor_loss(params):
-            dist = actor_state.apply_fn(params, observations)
+        def actor_loss(params, batch_stats):
+            dist, state_updates = actor_state.apply_fn(
+                {"params": params, "batch_stats": batch_stats},
+                observations,
+                mutable=["batch_stats"],
+                train=True,
+            )
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
 
@@ -317,18 +326,21 @@ class CrossQ(OffPolicyAlgorithmJax):
             min_qf_pi = jnp.min(qf_pi, axis=0)
             ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
             actor_loss = (ent_coef_value * log_prob - min_qf_pi).mean()
-            return actor_loss, -log_prob.mean()
+            return actor_loss, (-log_prob.mean(), state_updates)
 
-        (actor_loss_value, entropy), grads = jax.value_and_grad(actor_loss, has_aux=True)(actor_state.params)
+        (actor_loss_value, (entropy, state_updates)), grads = jax.value_and_grad(actor_loss, has_aux=True)(
+            actor_state.params, actor_state.batch_stats
+        )
         actor_state = actor_state.apply_gradients(grads=grads)
+        actor_state = actor_state.replace(batch_stats=state_updates["batch_stats"])
 
         return actor_state, qf_state, actor_loss_value, key, entropy
 
-    @staticmethod
-    @jax.jit
-    def soft_update(tau: float, qf_state: RLTrainState):
-        qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
-        return qf_state
+    # @staticmethod
+    # @jax.jit
+    # def soft_update(tau: float, qf_state: BatchNormTrainState):
+    #     qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
+    #     return qf_state
 
     @staticmethod
     @jax.jit
@@ -346,8 +358,8 @@ class CrossQ(OffPolicyAlgorithmJax):
     @classmethod
     def update_actor_and_temperature(
         cls,
-        actor_state: RLTrainState,
-        qf_state: RLTrainState,
+        actor_state: BatchNormTrainState,
+        qf_state: BatchNormTrainState,
         ent_coef_state: TrainState,
         observations: jax.Array,
         target_entropy: ArrayLike,
@@ -374,8 +386,8 @@ class CrossQ(OffPolicyAlgorithmJax):
         data: ReplayBufferSamplesNp,
         policy_delay: int,
         policy_delay_offset: int,
-        qf_state: RLTrainState,
-        actor_state: TrainState,
+        qf_state: BatchNormTrainState,
+        actor_state: BatchNormTrainState,
         ent_coef_state: TrainState,
         key: jax.Array,
     ):
