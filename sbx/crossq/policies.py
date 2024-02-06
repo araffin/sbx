@@ -49,6 +49,7 @@ class VectorCritic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
     use_batch_norm: bool = False
+    batch_norm_momentum: float = 0.9
     dropout_rate: Optional[float] = None
     n_critics: int = 2
 
@@ -67,6 +68,7 @@ class VectorCritic(nn.Module):
         q_values = vmap_critic(
             use_layer_norm=self.use_layer_norm,
             use_batch_norm=self.use_batch_norm,
+            batch_norm_momentum=self.batch_norm_momentum,
             dropout_rate=self.dropout_rate,
             net_arch=self.net_arch,
         )(obs, action, train)
@@ -90,6 +92,9 @@ class Actor(nn.Module):
         x = Flatten()(x)
         if self.use_batch_norm:
             x = nn.BatchNorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+        else:
+            # Create dummy batchstats
+            nn.BatchNorm(use_running_average=not train)(x)
 
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
@@ -117,7 +122,9 @@ class CrossQPolicy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
-        batch_norm: bool = True,
+        batch_norm: bool = True,  # for critic
+        batch_norm_actor: bool = False,
+        batch_norm_momentum: float = 0.9,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
@@ -145,6 +152,8 @@ class CrossQPolicy(BaseJaxPolicy):
         self.dropout_rate = dropout_rate
         self.layer_norm = layer_norm
         self.batch_norm = batch_norm
+        self.batch_norm_momentum = batch_norm_momentum
+        self.batch_norm_actor = batch_norm_actor
         if net_arch is not None:
             if isinstance(net_arch, list):
                 self.net_arch_pi = self.net_arch_qf = net_arch
@@ -176,7 +185,8 @@ class CrossQPolicy(BaseJaxPolicy):
         self.actor = Actor(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
-            use_batch_norm=self.batch_norm,
+            use_batch_norm=self.batch_norm_actor,
+            batch_norm_momentum=self.batch_norm_momentum,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -202,6 +212,7 @@ class CrossQPolicy(BaseJaxPolicy):
             dropout_rate=self.dropout_rate,
             use_layer_norm=self.layer_norm,
             use_batch_norm=self.batch_norm,
+            batch_norm_momentum=self.batch_norm_momentum,
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
         )
