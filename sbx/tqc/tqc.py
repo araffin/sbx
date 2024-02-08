@@ -1,6 +1,7 @@
 from functools import partial
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
+import flax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -114,14 +115,13 @@ class TQC(OffPolicyAlgorithmJax):
         super()._setup_model()
 
         if not hasattr(self, "policy") or self.policy is None:
-            # pytype: disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,
             )
-            # pytype: enable=not-instantiable
+
             assert isinstance(self.qf_learning_rate, float)
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
@@ -216,7 +216,7 @@ class TQC(OffPolicyAlgorithmJax):
             self.policy.n_target_quantiles,
             data,
             self.policy_delay,
-            self._n_updates % self.policy_delay,
+            (self._n_updates + 1) % self.policy_delay,
             self.policy.qf1_state,
             self.policy.qf2_state,
             self.policy.actor_state,
@@ -285,9 +285,9 @@ class TQC(OffPolicyAlgorithmJax):
         # Make target_quantiles broadcastable to (batch_size, n_quantiles, n_target_quantiles).
         target_quantiles = jnp.expand_dims(target_quantiles, axis=1)
 
-        def huber_quantile_loss(params, noise_key):
+        def huber_quantile_loss(params: flax.core.FrozenDict, dropout_key: jax.Array) -> jax.Array:
             # Compute huber quantile loss
-            current_quantiles = qf1_state.apply_fn(params, observations, actions, True, rngs={"dropout": noise_key})
+            current_quantiles = qf1_state.apply_fn(params, observations, actions, True, rngs={"dropout": dropout_key})
             # convert to shape: (batch_size, n_quantiles, 1) for broadcast
             current_quantiles = jnp.expand_dims(current_quantiles, axis=-1)
 
@@ -328,7 +328,7 @@ class TQC(OffPolicyAlgorithmJax):
     ):
         key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
 
-        def actor_loss(params):
+        def actor_loss(params: flax.core.FrozenDict) -> Tuple[jax.Array, jax.Array]:
             dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
@@ -365,7 +365,7 @@ class TQC(OffPolicyAlgorithmJax):
 
     @staticmethod
     @jax.jit
-    def soft_update(tau: float, qf1_state: RLTrainState, qf2_state: RLTrainState):
+    def soft_update(tau: float, qf1_state: RLTrainState, qf2_state: RLTrainState) -> Tuple[RLTrainState, RLTrainState]:
         qf1_state = qf1_state.replace(target_params=optax.incremental_update(qf1_state.params, qf1_state.target_params, tau))
         qf2_state = qf2_state.replace(target_params=optax.incremental_update(qf2_state.params, qf2_state.target_params, tau))
         return qf1_state, qf2_state
@@ -373,10 +373,10 @@ class TQC(OffPolicyAlgorithmJax):
     @staticmethod
     @jax.jit
     def update_temperature(target_entropy: ArrayLike, ent_coef_state: TrainState, entropy: float):
-        def temperature_loss(temp_params):
+        def temperature_loss(temp_params: flax.core.FrozenDict) -> jax.Array:
             ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
             # ent_coef_loss = (jnp.log(ent_coef_value) * (entropy - target_entropy)).mean()
-            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()
+            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()  # type: ignore[union-attr]
             return ent_coef_loss
 
         ent_coef_loss, grads = jax.value_and_grad(temperature_loss)(ent_coef_state.params)
@@ -445,6 +445,8 @@ class TQC(OffPolicyAlgorithmJax):
         }
 
         def one_update(i: int, carry: Dict[str, Any]) -> Dict[str, Any]:
+            # Note: this method must be defined inline because
+            # `fori_loop` expect a signature fn(index, carry) -> carry
             actor_state = carry["actor_state"]
             qf1_state = carry["qf1_state"]
             qf2_state = carry["qf2_state"]
@@ -478,7 +480,9 @@ class TQC(OffPolicyAlgorithmJax):
 
             (actor_state, (qf1_state, qf2_state), ent_coef_state, actor_loss_value, ent_coef_loss_value, key) = jax.lax.cond(
                 (policy_delay_offset + i) % policy_delay == 0,
+                # If True:
                 cls.update_actor_and_temperature,
+                # If False:
                 lambda *_: (
                     actor_state,
                     (qf1_state, qf2_state),

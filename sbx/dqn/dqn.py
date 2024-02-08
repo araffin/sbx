@@ -100,14 +100,12 @@ class DQN(OffPolicyAlgorithmJax):
             self.target_update_interval = max(self.target_update_interval // self.n_envs, 1)
 
         if not hasattr(self, "policy") or self.policy is None:
-            # pytype:disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,
             )
-            # pytype:enable=not-instantiable
 
             self.key = self.policy.build(self.key, self.lr_schedule)
             self.qf = self.policy.qf

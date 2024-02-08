@@ -1,6 +1,7 @@
 from functools import partial
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
+import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -86,14 +87,12 @@ class TD3(OffPolicyAlgorithmJax):
         super()._setup_model()
 
         if not hasattr(self, "policy") or self.policy is None:
-            # pytype: disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,
             )
-            # pytype: enable=not-instantiable
 
             assert isinstance(self.qf_learning_rate, float)
 
@@ -153,7 +152,7 @@ class TD3(OffPolicyAlgorithmJax):
             gradient_steps,
             data,
             self.policy_delay,
-            self._n_updates % self.policy_delay,
+            (self._n_updates + 1) % self.policy_delay,
             self.target_policy_noise,
             self.target_noise_clip,
             self.policy.qf_state,
@@ -199,7 +198,7 @@ class TD3(OffPolicyAlgorithmJax):
         # shape is (batch_size, 1)
         target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
 
-        def mse_loss(params, dropout_key):
+        def mse_loss(params: flax.core.FrozenDict, dropout_key: jax.Array) -> jax.Array:
             # shape is (n_critics, batch_size, 1)
             current_q_values = qf_state.apply_fn(params, observations, actions, rngs={"dropout": dropout_key})
             return 0.5 * ((target_q_values - current_q_values) ** 2).mean(axis=1).sum()
@@ -223,7 +222,7 @@ class TD3(OffPolicyAlgorithmJax):
     ):
         key, dropout_key = jax.random.split(key, 2)
 
-        def actor_loss(params):
+        def actor_loss(params: flax.core.FrozenDict) -> jax.Array:
             actor_actions = actor_state.apply_fn(params, observations)
 
             qf_pi = qf_state.apply_fn(
@@ -244,7 +243,7 @@ class TD3(OffPolicyAlgorithmJax):
 
     @staticmethod
     @jax.jit
-    def soft_update(tau: float, qf_state: RLTrainState, actor_state: RLTrainState):
+    def soft_update(tau: float, qf_state: RLTrainState, actor_state: RLTrainState) -> Tuple[RLTrainState, RLTrainState]:
         qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
         actor_state = actor_state.replace(
             target_params=optax.incremental_update(actor_state.params, actor_state.target_params, tau)
@@ -281,6 +280,8 @@ class TD3(OffPolicyAlgorithmJax):
         }
 
         def one_update(i: int, carry: Dict[str, Any]) -> Dict[str, Any]:
+            # Note: this method must be defined inline because
+            # `fori_loop` expect a signature fn(index, carry) -> carry
             actor_state = carry["actor_state"]
             qf_state = carry["qf_state"]
             key = carry["key"]
@@ -311,7 +312,9 @@ class TD3(OffPolicyAlgorithmJax):
 
             (actor_state, qf_state, actor_loss_value, key) = jax.lax.cond(
                 (policy_delay_offset + i) % policy_delay == 0,
+                # If True:
                 cls.update_actor,
+                # If False:
                 lambda *_: (actor_state, qf_state, info["actor_loss"], key),
                 actor_state,
                 qf_state,

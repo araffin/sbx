@@ -1,6 +1,7 @@
 from functools import partial
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
+import flax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -112,14 +113,12 @@ class SAC(OffPolicyAlgorithmJax):
         super()._setup_model()
 
         if not hasattr(self, "policy") or self.policy is None:
-            # pytype: disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,
             )
-            # pytype: enable=not-instantiable
 
             assert isinstance(self.qf_learning_rate, float)
 
@@ -214,7 +213,7 @@ class SAC(OffPolicyAlgorithmJax):
             gradient_steps,
             data,
             self.policy_delay,
-            self._n_updates % self.policy_delay,
+            (self._n_updates + 1) % self.policy_delay,
             self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,
@@ -261,7 +260,7 @@ class SAC(OffPolicyAlgorithmJax):
         # shape is (batch_size, 1)
         target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
 
-        def mse_loss(params, dropout_key):
+        def mse_loss(params: flax.core.FrozenDict, dropout_key: jax.Array) -> jax.Array:
             # shape is (n_critics, batch_size, 1)
             current_q_values = qf_state.apply_fn(params, observations, actions, rngs={"dropout": dropout_key})
             return 0.5 * ((target_q_values - current_q_values) ** 2).mean(axis=1).sum()
@@ -286,7 +285,7 @@ class SAC(OffPolicyAlgorithmJax):
     ):
         key, dropout_key, noise_key = jax.random.split(key, 3)
 
-        def actor_loss(params):
+        def actor_loss(params: flax.core.FrozenDict) -> Tuple[jax.Array, jax.Array]:
             dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
@@ -310,16 +309,16 @@ class SAC(OffPolicyAlgorithmJax):
 
     @staticmethod
     @jax.jit
-    def soft_update(tau: float, qf_state: RLTrainState):
+    def soft_update(tau: float, qf_state: RLTrainState) -> RLTrainState:
         qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
         return qf_state
 
     @staticmethod
     @jax.jit
     def update_temperature(target_entropy: ArrayLike, ent_coef_state: TrainState, entropy: float):
-        def temperature_loss(temp_params):
+        def temperature_loss(temp_params: flax.core.FrozenDict) -> jax.Array:
             ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
-            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()
+            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()  # type: ignore[union-attr]
             return ent_coef_loss
 
         ent_coef_loss, grads = jax.value_and_grad(temperature_loss)(ent_coef_state.params)
