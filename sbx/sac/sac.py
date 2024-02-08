@@ -213,7 +213,7 @@ class SAC(OffPolicyAlgorithmJax):
             gradient_steps,
             data,
             self.policy_delay,
-            (self.n_updates + 1) % self.policy_delay,
+            (self._n_updates + 1) % self.policy_delay,
             self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,

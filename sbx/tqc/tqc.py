@@ -216,7 +216,7 @@ class TQC(OffPolicyAlgorithmJax):
             self.policy.n_target_quantiles,
             data,
             self.policy_delay,
-            (self.n_updates + 1) % self.policy_delay,
+            (self._n_updates + 1) % self.policy_delay,
             self.policy.qf1_state,
             self.policy.qf2_state,
             self.policy.actor_state,

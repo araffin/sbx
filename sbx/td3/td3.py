@@ -152,7 +152,7 @@ class TD3(OffPolicyAlgorithmJax):
             gradient_steps,
             data,
             self.policy_delay,
-            (self.n_updates + 1) % self.policy_delay,
+            (self._n_updates + 1) % self.policy_delay,
             self.target_policy_noise,
             self.target_noise_clip,
             self.policy.qf_state,
