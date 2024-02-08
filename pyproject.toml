@@ -1,8 +1,8 @@
 [tool.ruff]
 # Same as Black.
 line-length = 127
-# Assume Python 3.7
-target-version = "py37"
+# Assume Python 3.8
+target-version = "py38"
 # See https://beta.ruff.rs/docs/rules/
 select = ["E", "F", "B", "UP", "C90", "RUF"]
 # Ignore explicit stacklevel`
@@ -15,15 +15,6 @@ max-complexity = 15
 
 [tool.black]
 line-length = 127
-
-[tool.isort]
-profile = "black"
-line_length = 127
-src_paths = ["sbx"]
-
-[tool.pytype]
-inputs = ["sbx"]
-disable = []
 
 [tool.mypy]
 ignore_missing_imports = true
@@ -42,6 +33,10 @@ env = [
 filterwarnings = [
     # Tensorboard warnings
     "ignore::DeprecationWarning:tensorboard",
+    # Numpy warnings from jax
+    "ignore:Conversion of an array with ndim:DeprecationWarning:jax",
+    # TQDM experimental
+    "ignore:rich is experimental",
 ]
 markers = [
     "expensive: marks tests as expensive (deselect with '-m \"not expensive\"')"

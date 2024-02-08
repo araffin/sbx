@@ -1,3 +1,5 @@
+import io
+import pathlib
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import jax
@@ -9,6 +11,7 @@ from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
+from stable_baselines3.common.utils import get_device
 
 
 class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
@@ -116,3 +119,13 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         )
         # Convert train freq parameter to TrainFreq object
         self._convert_train_freq()
+
+    def load_replay_buffer(
+        self,
+        path: Union[str, pathlib.Path, io.BufferedIOBase],
+        truncate_last_traj: bool = True,
+    ) -> None:
+        super().load_replay_buffer(path, truncate_last_traj)
+        # Override replay buffer device to be always cpu for conversion to numpy
+        assert self.replay_buffer is not None
+        self.replay_buffer.device = get_device("cpu")

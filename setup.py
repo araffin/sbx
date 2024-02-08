@@ -20,11 +20,13 @@ Implemented algorithms:
 - [Dropout Q-Functions for Doubly Efficient Reinforcement Learning (DroQ)](https://openreview.net/forum?id=xCVJMsPv3RT)
 - [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 - [Deep Q Network (DQN)](https://arxiv.org/abs/1312.5602)
+- [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
+- [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
 
 ## Example
 
 ```python
-from sbx import TQC, DroQ, SAC, DQN, PPO
+from sbx import TQC, DroQ, SAC, DQN, PPO, TD3, DDPG
 
 model = TQC("MlpPolicy", "Pendulum-v1", verbose=1)
 model.learn(total_timesteps=10_000, progress_bar=True)
@@ -37,11 +39,13 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.0.0",
+        "stable_baselines3>=2.3.0a1",
         "jax",
         "jaxlib",
         "flax",
-        "optax",
+        'optax; python_version >= "3.9.0"',
+        # See https://github.com/google-deepmind/optax/issues/711
+        'optax<0.1.8; python_version < "3.9.0"',
         "tqdm",
         "rich",
         "tensorflow_probability",
@@ -54,12 +58,9 @@ setup(
             "pytest-env",
             "pytest-xdist",
             # Type check
-            "pytype",
             "mypy",
             # Lint code
             "ruff",
-            # Sort imports
-            "isort>=5.0",
             # Reformat
             "black",
         ],

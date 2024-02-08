@@ -5,17 +5,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import tensorflow_probability
-from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.distributions import TanhTransformedDistribution
 from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import RLTrainState
-
-tfp = tensorflow_probability.substrates.jax
-tfd = tfp.distributions
 
 
 class Critic(nn.Module):
@@ -67,29 +61,17 @@ class VectorCritic(nn.Module):
 class Actor(nn.Module):
     net_arch: Sequence[int]
     action_dim: int
-    log_std_min: float = -20
-    log_std_max: float = 2
-
-    def get_std(self):
-        # Make it work with gSDE
-        return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:  # type: ignore[name-defined]
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
             x = nn.relu(x)
-        mean = nn.Dense(self.action_dim)(x)
-        log_std = nn.Dense(self.action_dim)(x)
-        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        dist = TanhTransformedDistribution(
-            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-        )
-        return dist
+        return nn.tanh(nn.Dense(self.action_dim)(x))
 
 
-class SACPolicy(BaseJaxPolicy):
+class TD3Policy(BaseJaxPolicy):
     action_space: spaces.Box  # type: ignore[assignment]
 
     def __init__(
@@ -102,11 +84,6 @@ class SACPolicy(BaseJaxPolicy):
         layer_norm: bool = False,
         # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
-        # Note: most gSDE parameters are not used
-        # this is to keep API consistent with SB3
-        log_std_init: float = -3,
-        use_expln: bool = False,
-        clip_mean: float = 2.0,
         features_extractor_class=None,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
@@ -114,7 +91,6 @@ class SACPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        deterministic_exploration: bool = False,
     ):
         super().__init__(
             observation_space,
@@ -136,8 +112,6 @@ class SACPolicy(BaseJaxPolicy):
         else:
             self.net_arch_pi = self.net_arch_qf = [256, 256]
         self.n_critics = n_critics
-        self.use_sde = use_sde
-        self.deterministic_exploration = deterministic_exploration
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -145,8 +119,6 @@ class SACPolicy(BaseJaxPolicy):
         key, actor_key, qf_key, dropout_key = jax.random.split(key, 4)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
-        # Initialize noise
-        self.reset_noise()
 
         if isinstance(self.observation_space, spaces.Dict):
             obs = jnp.array([spaces.flatten(self.observation_space, self.observation_space.sample())])
@@ -158,12 +130,11 @@ class SACPolicy(BaseJaxPolicy):
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
         )
-        # Hack to make gSDE work without modifying internal SB3 code
-        self.actor.reset_noise = self.reset_noise
 
-        self.actor_state = TrainState.create(
+        self.actor_state = RLTrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
+            target_params=self.actor.init(actor_key, obs),
             tx=self.optimizer_class(
                 learning_rate=lr_schedule(1),  # type: ignore[call-arg]
                 **self.optimizer_kwargs,
@@ -203,19 +174,14 @@ class SACPolicy(BaseJaxPolicy):
 
         return key
 
-    def reset_noise(self, batch_size: int = 1) -> None:
-        """
-        Sample new weights for the exploration matrix, when using gSDE.
-        """
-        self.key, self.noise_key = jax.random.split(self.key, 2)
-
-    def forward(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
+    def forward(self, obs: np.ndarray, deterministic: bool = True) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
 
-    def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
-        if deterministic or self.deterministic_exploration:
-            return BaseJaxPolicy.select_action(self.actor_state, observation)
-        # Trick to use gSDE: repeat sampled noise by using the same noise key
-        if not self.use_sde:
-            self.reset_noise()
-        return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
+    @staticmethod
+    @jax.jit
+    def select_action(actor_state, obervations) -> np.ndarray:
+        return actor_state.apply_fn(actor_state.params, obervations)
+
+    def _predict(self, observation: np.ndarray, deterministic: bool = True) -> np.ndarray:  # type: ignore[override]
+        # TD3 is always deterministic
+        return TD3Policy.select_action(self.actor_state, observation)

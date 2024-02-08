@@ -7,7 +7,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.envs import BitFlippingEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import DQN, PPO, SAC, SAC7, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, SAC7, TD3, TQC, DroQ
 
 
 def test_droq(tmp_path):
@@ -60,8 +60,8 @@ def test_tqc() -> None:
     model.learn(200)
 
 
-@pytest.mark.parametrize("model_class", [SAC, SAC7])
-def test_sac(model_class: Type[SAC]) -> None:
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, SAC7])
+def test_sac_td3(model_class) -> None:
     model = model_class(
         "MlpPolicy",
         "Pendulum-v1",
@@ -100,4 +100,4 @@ def test_dict(replay_buffer_class: Optional[Type[HerReplayBuffer]]) -> None:
     env = BitFlippingEnv(n_bits=2, continuous=True)
     model = SAC("MultiInputPolicy", env, replay_buffer_class=replay_buffer_class)
 
-    model.learn(int(200), progress_bar=True)
+    model.learn(200, progress_bar=True)

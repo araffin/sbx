@@ -15,6 +15,8 @@ Implemented algorithms:
 - [Dropout Q-Functions for Doubly Efficient Reinforcement Learning (DroQ)](https://openreview.net/forum?id=xCVJMsPv3RT)
 - [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 - [Deep Q Network (DQN)](https://arxiv.org/abs/1312.5602)
+- [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
+- [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
 
 
 ### Install using pip
@@ -34,7 +36,7 @@ pip install sbx-rl
 ```python
 import gymnasium as gym
 
-from sbx import TQC, DroQ, SAC, PPO, DQN
+from sbx import TQC, DroQ, SAC, PPO, DQN, TD3, DDPG
 
 env = gym.make("Pendulum-v1")
 
@@ -50,6 +52,80 @@ for i in range(1000):
 
 vec_env.close()
 ```
+
+## Using SBX with the RL Zoo
+
+Since SBX shares the SB3 API, it is compatible with the [RL Zoo](https://github.com/DLR-RM/rl-baselines3-zoo), you just need to override the algorithm mapping:
+
+```python
+import rl_zoo3
+import rl_zoo3.train
+from rl_zoo3.train import train
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+
+rl_zoo3.ALGOS["ddpg"] = DDPG
+rl_zoo3.ALGOS["dqn"] = DQN
+rl_zoo3.ALGOS["droq"] = DroQ
+rl_zoo3.ALGOS["sac"] = SAC
+rl_zoo3.ALGOS["ppo"] = PPO
+rl_zoo3.ALGOS["td3"] = TD3
+rl_zoo3.ALGOS["tqc"] = TQC
+rl_zoo3.train.ALGOS = rl_zoo3.ALGOS
+rl_zoo3.exp_manager.ALGOS = rl_zoo3.ALGOS
+
+if __name__ == "__main__":
+    train()
+```
+
+Then you can run this script as you would with the RL Zoo:
+
+```
+python train.py --algo sac --env HalfCheetah-v4 -params train_freq:4 gradient_steps:4 -P
+```
+
+The same goes for the enjoy script:
+
+```python
+import rl_zoo3
+import rl_zoo3.enjoy
+from rl_zoo3.enjoy import enjoy
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+
+rl_zoo3.ALGOS["ddpg"] = DDPG
+rl_zoo3.ALGOS["dqn"] = DQN
+rl_zoo3.ALGOS["droq"] = DroQ
+rl_zoo3.ALGOS["sac"] = SAC
+rl_zoo3.ALGOS["ppo"] = PPO
+rl_zoo3.ALGOS["td3"] = TD3
+rl_zoo3.ALGOS["tqc"] = TQC
+rl_zoo3.enjoy.ALGOS = rl_zoo3.ALGOS
+rl_zoo3.exp_manager.ALGOS = rl_zoo3.ALGOS
+
+if __name__ == "__main__":
+    enjoy()
+```
+
+## Note about DroQ
+
+[(DroQ)](https://openreview.net/forum?id=xCVJMsPv3RT) is a special configuration of SAC.
+
+To have the algorithm with the hyperparameters from the paper, you should use (using RL Zoo config format):
+```yaml
+HalfCheetah-v4:
+  n_timesteps: !!float 1e6
+  policy: 'MlpPolicy'
+  learning_starts: 10000
+  gradient_steps: 20
+  policy_delay: 20
+  policy_kwargs: "dict(dropout_rate=0.01, layer_norm=True)"
+```
+
+and then `python train.py --algo sac --env HalfCheetah-v4 -P`
+
+We recommend playing with the `policy_delay` and `gradient_steps` parameters for better speed/efficiency.
+Having a higher learning rate for the q-value function is also helpful: `qf_learning_rate: !!float 1e-3`.
+
+
 
 ## Citing the Project
 
