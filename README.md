@@ -105,6 +105,27 @@ if __name__ == "__main__":
     enjoy()
 ```
 
+## Note about DroQ
+
+[DroQ](https://openreview.net/forum?id=xCVJMsPv3RT) is a special configuration of SAC.
+
+To have the algorithm with the hyperparameters from the paper, you should use (using RL Zoo config format):
+```yaml
+HalfCheetah-v4:
+  n_timesteps: !!float 1e6
+  policy: 'MlpPolicy'
+  learning_starts: 10000
+  gradient_steps: 20
+  policy_delay: 20
+  policy_kwargs: "dict(dropout_rate=0.01, layer_norm=True)"
+```
+
+and then using the RL Zoo script defined above: `python train.py --algo sac --env HalfCheetah-v4 -c droq.yml -P`.
+
+We recommend playing with the `policy_delay` and `gradient_steps` parameters for better speed/efficiency.
+Having a higher learning rate for the q-value function is also helpful: `qf_learning_rate: !!float 1e-3`.
+
+
 
 ## Citing the Project
 
