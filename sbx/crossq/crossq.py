@@ -1,6 +1,7 @@
 from functools import partial
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
+import flax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -264,7 +265,9 @@ class CrossQ(OffPolicyAlgorithmJax):
         # )
 
         # TODO: concatenate obs/next obs
-        def mse_loss(params, batch_stats, dropout_key):
+        def mse_loss(
+            params: flax.core.FrozenDict, batch_stats: flax.core.FrozenDict, dropout_key: flax.core.FrozenDict
+        ) -> Tuple[jax.Array, jax.Array]:
             # Concatenate obs/next_obs to have only one forward pass
             # shape is (n_critics, 2 * batch_size, 1)
             q_values, state_updates = qf_state.apply_fn(
@@ -311,7 +314,9 @@ class CrossQ(OffPolicyAlgorithmJax):
     ):
         key, dropout_key, noise_key = jax.random.split(key, 3)
 
-        def actor_loss(params, batch_stats):
+        def actor_loss(
+            params: flax.core.FrozenDict, batch_stats: flax.core.FrozenDict
+        ) -> Tuple[jax.Array, Tuple[jax.Array, jax.Array]]:
             dist, state_updates = actor_state.apply_fn(
                 {"params": params, "batch_stats": batch_stats},
                 observations,
@@ -351,9 +356,9 @@ class CrossQ(OffPolicyAlgorithmJax):
     @staticmethod
     @jax.jit
     def update_temperature(target_entropy: ArrayLike, ent_coef_state: TrainState, entropy: float):
-        def temperature_loss(temp_params):
+        def temperature_loss(temp_params: flax.core.FrozenDict) -> jax.Array:
             ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
-            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()
+            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()  # type: ignore[union-attr]
             return ent_coef_loss
 
         ent_coef_loss, grads = jax.value_and_grad(temperature_loss)(ent_coef_state.params)
