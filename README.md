@@ -36,7 +36,7 @@ pip install sbx-rl
 ```python
 import gymnasium as gym
 
-from sbx import TQC, DroQ, SAC, PPO, DQN, TD3, DDPG
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
 
 env = gym.make("Pendulum-v1")
 
@@ -156,3 +156,7 @@ Please post your question on the [RL Discord](https://discord.com/invite/xhfNqQv
 
 To any interested in making the baselines better, there is still some documentation that needs to be done.
 If you want to contribute, please read [**CONTRIBUTING.md**](./CONTRIBUTING.md) guide first.
+
+## Contributors
+
+We would like to thank our contributors: [@jan1854](https://github.com/jan1854).
