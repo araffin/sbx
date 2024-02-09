@@ -9,6 +9,7 @@ import numpy as np
 import optax
 from flax.training.train_state import TrainState
 from gymnasium import spaces
+from jax.typing import ArrayLike
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
@@ -114,14 +115,13 @@ class TQC(OffPolicyAlgorithmJax):
         super()._setup_model()
 
         if not hasattr(self, "policy") or self.policy is None:
-            # pytype: disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,
             )
-            # pytype: enable=not-instantiable
+
             assert isinstance(self.qf_learning_rate, float)
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
@@ -184,11 +184,6 @@ class TQC(OffPolicyAlgorithmJax):
         assert self.replay_buffer is not None
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
-        # Pre-compute the indices where we need to update the actor
-        # This is a hack in order to jit the train loop
-        # It will compile once per value of policy_delay_indices
-        policy_delay_indices = {i: True for i in range(gradient_steps) if ((self._n_updates + i + 1) % self.policy_delay) == 0}
-        policy_delay_indices = flax.core.FrozenDict(policy_delay_indices)  # type: ignore[assignment]
 
         if isinstance(data.observations, dict):
             keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
@@ -220,7 +215,8 @@ class TQC(OffPolicyAlgorithmJax):
             gradient_steps,
             self.policy.n_target_quantiles,
             data,
-            policy_delay_indices,
+            self.policy_delay,
+            (self._n_updates + 1) % self.policy_delay,
             self.policy.qf1_state,
             self.policy.qf2_state,
             self.policy.actor_state,
@@ -242,11 +238,11 @@ class TQC(OffPolicyAlgorithmJax):
         qf1_state: RLTrainState,
         qf2_state: RLTrainState,
         ent_coef_state: TrainState,
-        observations: np.ndarray,
-        actions: np.ndarray,
-        next_observations: np.ndarray,
-        rewards: np.ndarray,
-        dones: np.ndarray,
+        observations: jax.Array,
+        actions: jax.Array,
+        next_observations: jax.Array,
+        rewards: jax.Array,
+        dones: jax.Array,
         key: jax.Array,
     ):
         key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
@@ -289,9 +285,9 @@ class TQC(OffPolicyAlgorithmJax):
         # Make target_quantiles broadcastable to (batch_size, n_quantiles, n_target_quantiles).
         target_quantiles = jnp.expand_dims(target_quantiles, axis=1)
 
-        def huber_quantile_loss(params, noise_key):
+        def huber_quantile_loss(params: flax.core.FrozenDict, dropout_key: jax.Array) -> jax.Array:
             # Compute huber quantile loss
-            current_quantiles = qf1_state.apply_fn(params, observations, actions, True, rngs={"dropout": noise_key})
+            current_quantiles = qf1_state.apply_fn(params, observations, actions, True, rngs={"dropout": dropout_key})
             # convert to shape: (batch_size, n_quantiles, 1) for broadcast
             current_quantiles = jnp.expand_dims(current_quantiles, axis=-1)
 
@@ -327,12 +323,12 @@ class TQC(OffPolicyAlgorithmJax):
         qf1_state: RLTrainState,
         qf2_state: RLTrainState,
         ent_coef_state: TrainState,
-        observations: np.ndarray,
+        observations: jax.Array,
         key: jax.Array,
     ):
         key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
 
-        def actor_loss(params):
+        def actor_loss(params: flax.core.FrozenDict) -> Tuple[jax.Array, jax.Array]:
             dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
@@ -369,18 +365,18 @@ class TQC(OffPolicyAlgorithmJax):
 
     @staticmethod
     @jax.jit
-    def soft_update(tau: float, qf1_state: RLTrainState, qf2_state: RLTrainState):
+    def soft_update(tau: float, qf1_state: RLTrainState, qf2_state: RLTrainState) -> Tuple[RLTrainState, RLTrainState]:
         qf1_state = qf1_state.replace(target_params=optax.incremental_update(qf1_state.params, qf1_state.target_params, tau))
         qf2_state = qf2_state.replace(target_params=optax.incremental_update(qf2_state.params, qf2_state.target_params, tau))
         return qf1_state, qf2_state
 
     @staticmethod
     @jax.jit
-    def update_temperature(target_entropy: np.ndarray, ent_coef_state: TrainState, entropy: float):
-        def temperature_loss(temp_params):
+    def update_temperature(target_entropy: ArrayLike, ent_coef_state: TrainState, entropy: float):
+        def temperature_loss(temp_params: flax.core.FrozenDict) -> jax.Array:
             ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
             # ent_coef_loss = (jnp.log(ent_coef_value) * (entropy - target_entropy)).mean()
-            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()
+            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()  # type: ignore[union-attr]
             return ent_coef_loss
 
         ent_coef_loss, grads = jax.value_and_grad(temperature_loss)(ent_coef_state.params)
@@ -388,68 +384,149 @@ class TQC(OffPolicyAlgorithmJax):
 
         return ent_coef_state, ent_coef_loss
 
-    @staticmethod
-    @partial(jax.jit, static_argnames=["gradient_steps", "n_target_quantiles"])
+    @classmethod
+    def update_actor_and_temperature(
+        cls,
+        actor_state: RLTrainState,
+        qf1_state: RLTrainState,
+        qf2_state: RLTrainState,
+        ent_coef_state: TrainState,
+        observations: jax.Array,
+        target_entropy: ArrayLike,
+        key: jax.Array,
+    ):
+        (actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy) = cls.update_actor(
+            actor_state,
+            qf1_state,
+            qf2_state,
+            ent_coef_state,
+            observations,
+            key,
+        )
+        ent_coef_state, ent_coef_loss_value = cls.update_temperature(target_entropy, ent_coef_state, entropy)
+        return actor_state, (qf1_state, qf2_state), ent_coef_state, actor_loss_value, ent_coef_loss_value, key
+
+    @classmethod
+    @partial(
+        jax.jit,
+        static_argnames=["cls", "gradient_steps", "n_target_quantiles", "policy_delay", "policy_delay_offset"],
+    )
     def _train(
+        cls,
         gamma: float,
         tau: float,
-        target_entropy: np.ndarray,
+        target_entropy: ArrayLike,
         gradient_steps: int,
         n_target_quantiles: int,
         data: ReplayBufferSamplesNp,
-        policy_delay_indices: flax.core.FrozenDict,
+        policy_delay: int,
+        policy_delay_offset: int,
         qf1_state: RLTrainState,
         qf2_state: RLTrainState,
         actor_state: TrainState,
         ent_coef_state: TrainState,
-        key,
+        key: jax.Array,
     ):
-        actor_loss_value = jnp.array(0)
+        assert data.observations.shape[0] % gradient_steps == 0
+        batch_size = data.observations.shape[0] // gradient_steps
 
-        for i in range(gradient_steps):
+        carry = {
+            "actor_state": actor_state,
+            "qf1_state": qf1_state,
+            "qf2_state": qf2_state,
+            "ent_coef_state": ent_coef_state,
+            "key": key,
+            "info": {
+                "actor_loss": jnp.array(0.0),
+                "qf1_loss": jnp.array(0.0),
+                "qf2_loss": jnp.array(0.0),
+                "ent_coef_loss": jnp.array(0.0),
+            },
+        }
 
-            def slice(x, step=i):
-                assert x.shape[0] % gradient_steps == 0
-                batch_size = x.shape[0] // gradient_steps
-                return x[batch_size * step : batch_size * (step + 1)]
-
+        def one_update(i: int, carry: Dict[str, Any]) -> Dict[str, Any]:
+            # Note: this method must be defined inline because
+            # `fori_loop` expect a signature fn(index, carry) -> carry
+            actor_state = carry["actor_state"]
+            qf1_state = carry["qf1_state"]
+            qf2_state = carry["qf2_state"]
+            ent_coef_state = carry["ent_coef_state"]
+            key = carry["key"]
+            info = carry["info"]
+            batch_obs = jax.lax.dynamic_slice_in_dim(data.observations, i * batch_size, batch_size)
+            batch_act = jax.lax.dynamic_slice_in_dim(data.actions, i * batch_size, batch_size)
+            batch_next_obs = jax.lax.dynamic_slice_in_dim(data.next_observations, i * batch_size, batch_size)
+            batch_rew = jax.lax.dynamic_slice_in_dim(data.rewards, i * batch_size, batch_size)
+            batch_done = jax.lax.dynamic_slice_in_dim(data.dones, i * batch_size, batch_size)
             (
                 (qf1_state, qf2_state),
                 (qf1_loss_value, qf2_loss_value, ent_coef_value),
                 key,
-            ) = TQC.update_critic(
+            ) = cls.update_critic(
                 gamma,
                 n_target_quantiles,
                 actor_state,
                 qf1_state,
                 qf2_state,
                 ent_coef_state,
-                slice(data.observations),
-                slice(data.actions),
-                slice(data.next_observations),
-                slice(data.rewards),
-                slice(data.dones),
+                batch_obs,
+                batch_act,
+                batch_next_obs,
+                batch_rew,
+                batch_done,
                 key,
             )
-            qf1_state, qf2_state = TQC.soft_update(tau, qf1_state, qf2_state)
+            qf1_state, qf2_state = cls.soft_update(tau, qf1_state, qf2_state)
 
-            # hack to be able to jit (n_updates % policy_delay == 0)
-            if i in policy_delay_indices:
-                (actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy) = TQC.update_actor(
+            (actor_state, (qf1_state, qf2_state), ent_coef_state, actor_loss_value, ent_coef_loss_value, key) = jax.lax.cond(
+                (policy_delay_offset + i) % policy_delay == 0,
+                # If True:
+                cls.update_actor_and_temperature,
+                # If False:
+                lambda *_: (
                     actor_state,
-                    qf1_state,
-                    qf2_state,
+                    (qf1_state, qf2_state),
                     ent_coef_state,
-                    slice(data.observations),
+                    info["actor_loss"],
+                    info["ent_coef_loss"],
                     key,
-                )
-                ent_coef_state, _ = TQC.update_temperature(target_entropy, ent_coef_state, entropy)
+                ),
+                actor_state,
+                qf1_state,
+                qf2_state,
+                ent_coef_state,
+                batch_obs,
+                target_entropy,
+                key,
+            )
+            info = {
+                "actor_loss": actor_loss_value,
+                "qf1_loss": qf1_loss_value,
+                "qf2_loss": qf2_loss_value,
+                "ent_coef_loss": ent_coef_loss_value,
+            }
+
+            return {
+                "actor_state": actor_state,
+                "qf1_state": qf1_state,
+                "qf2_state": qf2_state,
+                "ent_coef_state": ent_coef_state,
+                "key": key,
+                "info": info,
+            }
+
+        update_carry = jax.lax.fori_loop(0, gradient_steps, one_update, carry)
 
         return (
-            qf1_state,
-            qf2_state,
-            actor_state,
-            ent_coef_state,
+            update_carry["qf1_state"],
+            update_carry["qf2_state"],
+            update_carry["actor_state"],
+            update_carry["ent_coef_state"],
             key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_value),
+            (
+                update_carry["info"]["qf1_loss"],
+                update_carry["info"]["qf2_loss"],
+                update_carry["info"]["actor_loss"],
+                update_carry["info"]["ent_coef_loss"],
+            ),
         )
