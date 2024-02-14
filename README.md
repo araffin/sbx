@@ -36,7 +36,7 @@ pip install sbx-rl
 ```python
 import gymnasium as gym
 
-from sbx import TQC, DroQ, SAC, PPO, DQN, TD3, DDPG
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
 
 env = gym.make("Pendulum-v1")
 
@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
 ## Note about DroQ
 
-[(DroQ)](https://openreview.net/forum?id=xCVJMsPv3RT) is a special configuration of SAC.
+[DroQ](https://openreview.net/forum?id=xCVJMsPv3RT) is a special configuration of SAC.
 
 To have the algorithm with the hyperparameters from the paper, you should use (using RL Zoo config format):
 ```yaml
@@ -120,7 +120,7 @@ HalfCheetah-v4:
   policy_kwargs: "dict(dropout_rate=0.01, layer_norm=True)"
 ```
 
-and then `python train.py --algo sac --env HalfCheetah-v4 -P`
+and then using the RL Zoo script defined above: `python train.py --algo sac --env HalfCheetah-v4 -c droq.yml -P`.
 
 We recommend playing with the `policy_delay` and `gradient_steps` parameters for better speed/efficiency.
 Having a higher learning rate for the q-value function is also helpful: `qf_learning_rate: !!float 1e-3`.
@@ -156,3 +156,7 @@ Please post your question on the [RL Discord](https://discord.com/invite/xhfNqQv
 
 To any interested in making the baselines better, there is still some documentation that needs to be done.
 If you want to contribute, please read [**CONTRIBUTING.md**](./CONTRIBUTING.md) guide first.
+
+## Contributors
+
+We would like to thank our contributors: [@jan1854](https://github.com/jan1854).

@@ -26,7 +26,7 @@ Implemented algorithms:
 ## Example
 
 ```python
-from sbx import TQC, DroQ, SAC, DQN, PPO, TD3, DDPG
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
 
 model = TQC("MlpPolicy", "Pendulum-v1", verbose=1)
 model.learn(total_timesteps=10_000, progress_bar=True)

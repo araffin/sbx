@@ -168,14 +168,12 @@ class PPO(OnPolicyAlgorithmJax):
         super()._setup_model()
 
         if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
-            # pytype:disable=not-instantiable
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
                 **self.policy_kwargs,
             )
-            # pytype:enable=not-instantiable
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.max_grad_norm)
 
