@@ -124,7 +124,7 @@ class PPO(OnPolicyAlgorithmJax):
                 spaces.Box,
                 spaces.Discrete,
                 spaces.MultiDiscrete,
-                # spaces.MultiBinary,
+                spaces.MultiBinary,
             ),
         )
 

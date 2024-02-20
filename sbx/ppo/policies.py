@@ -154,6 +154,17 @@ class PPOPolicy(BaseJaxPolicy):
                 "num_discrete_choices": self.action_space.nvec,  # type: ignore[dict-item]
                 "continuous": False,
             }
+        elif isinstance(self.action_space, spaces.MultiBinary):
+            assert np.isscalar(self.action_space.n), (
+                f"Multi-dimensional MultiBinary({self.action_space.n}) action space is not supported. "
+                f"You can flatten it instead."
+            )
+            # Handle binary action spaces as discrete action spaces with two choices.
+            actor_kwargs = {
+                "action_dim": 2 * self.action_space.n,
+                "num_discrete_choices": 2 * np.ones(self.action_space.n, dtype=int),
+                "continuous": False,
+            }
         else:
             raise NotImplementedError(f"{self.action_space}")
 
