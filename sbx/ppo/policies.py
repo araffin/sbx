@@ -39,7 +39,7 @@ class Actor(nn.Module):
     log_std_init: float = 0.0
     continuous: bool = True
     activation_fn: Callable = nn.tanh
-    num_discrete_choices: Optional[int | Sequence[int]] = None
+    num_discrete_choices: Optional[Union[int, Sequence[int]]] = None
 
     def get_std(self):
         # Make it work with gSDE
