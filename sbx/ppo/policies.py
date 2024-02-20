@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import flax.linen as nn
 import gymnasium as gym
@@ -39,6 +39,7 @@ class Actor(nn.Module):
     log_std_init: float = 0.0
     continuous: bool = True
     activation_fn: Callable = nn.tanh
+    num_discrete_choices: Optional[int | Sequence[int]] = None
 
     def get_std(self):
         # Make it work with gSDE
@@ -55,8 +56,20 @@ class Actor(nn.Module):
         if self.continuous:
             log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
             dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
-        else:
+        elif isinstance(self.num_discrete_choices, int):
             dist = tfd.Categorical(logits=mean)
+        else:
+            assert isinstance(self.num_discrete_choices, np.ndarray)
+            # Pad to the maximum number of choices (required by tfp.distributions.Categorical).
+            # Pad by -inf, so that the probability of these invalid actions is 0.
+            means = jnp.split(mean, np.cumsum(self.num_discrete_choices[:-1]), axis=1)
+            max_num_choices = max(self.num_discrete_choices)
+            means_padded = jnp.stack(
+                [jnp.pad(m, ((0, 0), (0, max_num_choices - m.shape[1])), constant_values=-np.inf) for m in means], axis=1
+            )
+            dist = tfp.distributions.Independent(
+                tfp.distributions.Categorical(logits=means_padded), reinterpreted_batch_ndims=1
+            )
         return dist
 
 
@@ -128,6 +141,17 @@ class PPOPolicy(BaseJaxPolicy):
         elif isinstance(self.action_space, spaces.Discrete):
             actor_kwargs = {
                 "action_dim": int(self.action_space.n),
+                "num_discrete_choices": int(self.action_space.n),
+                "continuous": False,
+            }
+        elif isinstance(self.action_space, spaces.MultiDiscrete):
+            assert self.action_space.nvec.ndim == 1, (
+                f"Only one-dimensional MultiDiscrete action spaces are supported, "
+                f"but found MultiDiscrete({(self.action_space.nvec).tolist()})."
+            )
+            actor_kwargs = {
+                "action_dim": int(np.sum(self.action_space.nvec)),
+                "num_discrete_choices": self.action_space.nvec,  # type: ignore[dict-item]
                 "continuous": False,
             }
         else:
