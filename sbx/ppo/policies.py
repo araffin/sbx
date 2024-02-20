@@ -155,7 +155,7 @@ class PPOPolicy(BaseJaxPolicy):
                 "continuous": False,
             }
         elif isinstance(self.action_space, spaces.MultiBinary):
-            assert np.isscalar(self.action_space.n), (
+            assert isinstance(self.action_space.n, int), (
                 f"Multi-dimensional MultiBinary({self.action_space.n}) action space is not supported. "
                 f"You can flatten it instead."
             )
