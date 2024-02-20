@@ -60,9 +60,9 @@ class Actor(nn.Module):
             dist = tfd.Categorical(logits=mean)
         else:
             assert isinstance(self.num_discrete_choices, np.ndarray)
+            means = jnp.split(mean, np.cumsum(self.num_discrete_choices[:-1]), axis=1)
             # Pad to the maximum number of choices (required by tfp.distributions.Categorical).
             # Pad by -inf, so that the probability of these invalid actions is 0.
-            means = jnp.split(mean, np.cumsum(self.num_discrete_choices[:-1]), axis=1)
             max_num_choices = max(self.num_discrete_choices)
             means_padded = jnp.stack(
                 [jnp.pad(m, ((0, 0), (0, max_num_choices - m.shape[1])), constant_values=-np.inf) for m in means], axis=1
