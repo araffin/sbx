@@ -1,3 +1,4 @@
+from dataclasses import field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import flax.linen as nn
@@ -38,11 +39,23 @@ class Actor(nn.Module):
     n_units: int = 256
     log_std_init: float = 0.0
     activation_fn: Callable = nn.tanh
+    # For Discrete, MultiDiscrete and MultiBinary actions
     num_discrete_choices: Optional[Union[int, Sequence[int]]] = None
+    # For MultiDiscrete
+    max_num_choices: int = 0
+    split_indices: np.ndarray = field(default_factory=lambda: np.array([]))
 
-    def get_std(self):
+    def get_std(self) -> jnp.ndarray:
         # Make it work with gSDE
         return jnp.array(0.0)
+
+    def __post_init__(self) -> None:
+        # For MultiDiscrete
+        if isinstance(self.num_discrete_choices, np.ndarray):
+            self.max_num_choices = max(self.num_discrete_choices)
+            # np.cumsum(...) gives the correct indices at which to split the flatten logits
+            self.split_indices = np.cumsum(self.num_discrete_choices[:-1])
+        super().__post_init__()
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
@@ -59,14 +72,20 @@ class Actor(nn.Module):
         elif isinstance(self.num_discrete_choices, int):
             dist = tfd.Categorical(logits=action_logits)
         else:
-            assert isinstance(self.num_discrete_choices, np.ndarray)
-            action_logits = jnp.split(action_logits, np.cumsum(self.num_discrete_choices[:-1]), axis=1)
+            # Split action_logits = (batch_size, total_choices=sum(self.num_discrete_choices))
+            action_logits = jnp.split(action_logits, self.split_indices, axis=1)
             # Pad to the maximum number of choices (required by tfp.distributions.Categorical).
             # Pad by -inf, so that the probability of these invalid actions is 0.
-            max_num_choices = max(self.num_discrete_choices)
             logits_padded = jnp.stack(
                 [
-                    jnp.pad(logit, ((0, 0), (0, max_num_choices - logit.shape[1])), constant_values=-np.inf)
+                    jnp.pad(
+                        logit,
+                        # logit is of shape (batch_size, n)
+                        # only pad after dim=1, to max_num_choices - n
+                        # pad_width=((before_dim_0, after_0), (before_dim_1, after_1))
+                        pad_width=((0, 0), (0, self.max_num_choices - logit.shape[1])),
+                        constant_values=-np.inf,
+                    )
                     for logit in action_logits
                 ],
                 axis=1,
