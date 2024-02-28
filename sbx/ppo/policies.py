@@ -37,7 +37,6 @@ class Actor(nn.Module):
     action_dim: int
     n_units: int = 256
     log_std_init: float = 0.0
-    continuous: bool = True
     activation_fn: Callable = nn.tanh
     num_discrete_choices: Optional[Union[int, Sequence[int]]] = None
 
@@ -52,23 +51,28 @@ class Actor(nn.Module):
         x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
         x = self.activation_fn(x)
-        mean = nn.Dense(self.action_dim)(x)
-        if self.continuous:
+        action_logits = nn.Dense(self.action_dim)(x)
+        if self.num_discrete_choices is None:
+            # Continuous actions
             log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
-            dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
+            dist = tfd.MultivariateNormalDiag(loc=action_logits, scale_diag=jnp.exp(log_std))
         elif isinstance(self.num_discrete_choices, int):
-            dist = tfd.Categorical(logits=mean)
+            dist = tfd.Categorical(logits=action_logits)
         else:
             assert isinstance(self.num_discrete_choices, np.ndarray)
-            means = jnp.split(mean, np.cumsum(self.num_discrete_choices[:-1]), axis=1)
+            action_logits = jnp.split(action_logits, np.cumsum(self.num_discrete_choices[:-1]), axis=1)
             # Pad to the maximum number of choices (required by tfp.distributions.Categorical).
             # Pad by -inf, so that the probability of these invalid actions is 0.
             max_num_choices = max(self.num_discrete_choices)
-            means_padded = jnp.stack(
-                [jnp.pad(m, ((0, 0), (0, max_num_choices - m.shape[1])), constant_values=-np.inf) for m in means], axis=1
+            logits_padded = jnp.stack(
+                [
+                    jnp.pad(logit, ((0, 0), (0, max_num_choices - logit.shape[1])), constant_values=-np.inf)
+                    for logit in action_logits
+                ],
+                axis=1,
             )
             dist = tfp.distributions.Independent(
-                tfp.distributions.Categorical(logits=means_padded), reinterpreted_batch_ndims=1
+                tfp.distributions.Categorical(logits=logits_padded), reinterpreted_batch_ndims=1
             )
         return dist
 
@@ -136,13 +140,11 @@ class PPOPolicy(BaseJaxPolicy):
         if isinstance(self.action_space, spaces.Box):
             actor_kwargs = {
                 "action_dim": int(np.prod(self.action_space.shape)),
-                "continuous": True,
             }
         elif isinstance(self.action_space, spaces.Discrete):
             actor_kwargs = {
                 "action_dim": int(self.action_space.n),
                 "num_discrete_choices": int(self.action_space.n),
-                "continuous": False,
             }
         elif isinstance(self.action_space, spaces.MultiDiscrete):
             assert self.action_space.nvec.ndim == 1, (
@@ -152,18 +154,16 @@ class PPOPolicy(BaseJaxPolicy):
             actor_kwargs = {
                 "action_dim": int(np.sum(self.action_space.nvec)),
                 "num_discrete_choices": self.action_space.nvec,  # type: ignore[dict-item]
-                "continuous": False,
             }
         elif isinstance(self.action_space, spaces.MultiBinary):
             assert isinstance(self.action_space.n, int), (
                 f"Multi-dimensional MultiBinary({self.action_space.n}) action space is not supported. "
-                f"You can flatten it instead."
+                "You can flatten it instead."
             )
             # Handle binary action spaces as discrete action spaces with two choices.
             actor_kwargs = {
                 "action_dim": 2 * self.action_space.n,
                 "num_discrete_choices": 2 * np.ones(self.action_space.n, dtype=int),
-                "continuous": False,
             }
         else:
             raise NotImplementedError(f"{self.action_space}")
