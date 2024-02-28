@@ -123,8 +123,8 @@ class PPO(OnPolicyAlgorithmJax):
             supported_action_spaces=(
                 spaces.Box,
                 spaces.Discrete,
-                # spaces.MultiDiscrete,
-                # spaces.MultiBinary,
+                spaces.MultiDiscrete,
+                spaces.MultiBinary,
             ),
         )
 
