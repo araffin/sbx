@@ -16,6 +16,7 @@ class DummyEnv(gym.Env):
     action_space: gym.spaces.Space
 
     def step(self, action):
+        assert action in self.action_space
         return self.observation_space.sample(), 0.0, False, False, {}
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict] = None):
