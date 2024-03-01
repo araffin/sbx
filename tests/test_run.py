@@ -7,7 +7,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.envs import BitFlippingEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, SAC7, TD3, TQC, DroQ
 
 
 def test_droq(tmp_path):
@@ -60,7 +60,7 @@ def test_tqc() -> None:
     model.learn(200)
 
 
-@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG])
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, SAC7])
 def test_sac_td3(model_class) -> None:
     model = model_class(
         "MlpPolicy",
