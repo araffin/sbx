@@ -53,16 +53,15 @@ class CrossQ(OffPolicyAlgorithmJax):
         self,
         policy,
         env: Union[GymEnv, str],
-        learning_rate: Union[float, Schedule] = 3e-4,
+        learning_rate: Union[float, Schedule] = 1e-3,
         qf_learning_rate: Optional[float] = None,
         buffer_size: int = 1_000_000,  # 1e6
-        learning_starts: int = 100,
+        learning_starts: int = 5_000,
         batch_size: int = 256,
-        tau: float = 0.005,
         gamma: float = 0.99,
         train_freq: Union[int, Tuple[int, str]] = 1,
         gradient_steps: int = 1,
-        policy_delay: int = 1,
+        policy_delay: int = 3,
         action_noise: Optional[ActionNoise] = None,
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
@@ -85,7 +84,6 @@ class CrossQ(OffPolicyAlgorithmJax):
             buffer_size=buffer_size,
             learning_starts=learning_starts,
             batch_size=batch_size,
-            tau=tau,
             gamma=gamma,
             train_freq=train_freq,
             gradient_steps=gradient_steps,
@@ -106,8 +104,11 @@ class CrossQ(OffPolicyAlgorithmJax):
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
 
-        # if "optimizer_kwargs" not in self.policy_kwargs:
-        #     self.policy_kwargs["optimizer_kwargs"] = {"b1": 0.5}
+        if "net_arch" not in self.policy_kwargs:
+            self.policy_kwargs["net_arch"] = {"pi": [256, 256], "qf": [2048, 2048]}
+
+        if "optimizer_kwargs" not in self.policy_kwargs:
+            self.policy_kwargs["optimizer_kwargs"] = {"b1": 0.5}
 
         if _init_setup_model:
             self._setup_model()
@@ -256,15 +257,6 @@ class CrossQ(OffPolicyAlgorithmJax):
 
         ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
 
-        # qf_next_values = qf_state.apply_fn(
-        #     {"params": qf_state.params, "batch_stats": qf_state.batch_stats},
-        #     next_observations,
-        #     next_state_actions,
-        #     rngs={"dropout": dropout_key_target},
-        #     train=False,  # todo: concatenate with obs, use train=True in that case
-        # )
-
-        # TODO: concatenate obs/next obs
         def mse_loss(
             params: flax.core.FrozenDict, batch_stats: flax.core.FrozenDict, dropout_key: flax.core.FrozenDict
         ) -> Tuple[jax.Array, jax.Array]:
