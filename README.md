@@ -17,6 +17,7 @@ Implemented algorithms:
 - [Deep Q Network (DQN)](https://arxiv.org/abs/1312.5602)
 - [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
+- [CrossQ](https://arxiv.org/pdf/1902.05605.pdf)
 
 
 ### Install using pip
@@ -36,7 +37,7 @@ pip install sbx-rl
 ```python
 import gymnasium as gym
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ, CrossQ
 
 env = gym.make("Pendulum-v1", render_mode="human")
 
@@ -61,7 +62,7 @@ Since SBX shares the SB3 API, it is compatible with the [RL Zoo](https://github.
 import rl_zoo3
 import rl_zoo3.train
 from rl_zoo3.train import train
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ, CrossQ
 
 rl_zoo3.ALGOS["ddpg"] = DDPG
 rl_zoo3.ALGOS["dqn"] = DQN
@@ -70,6 +71,7 @@ rl_zoo3.ALGOS["sac"] = SAC
 rl_zoo3.ALGOS["ppo"] = PPO
 rl_zoo3.ALGOS["td3"] = TD3
 rl_zoo3.ALGOS["tqc"] = TQC
+rl_zoo3.ALGOS["crossq"] = CrossQ
 rl_zoo3.train.ALGOS = rl_zoo3.ALGOS
 rl_zoo3.exp_manager.ALGOS = rl_zoo3.ALGOS
 
@@ -89,7 +91,7 @@ The same goes for the enjoy script:
 import rl_zoo3
 import rl_zoo3.enjoy
 from rl_zoo3.enjoy import enjoy
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ, CrossQ
 
 rl_zoo3.ALGOS["ddpg"] = DDPG
 rl_zoo3.ALGOS["dqn"] = DQN
@@ -98,6 +100,7 @@ rl_zoo3.ALGOS["sac"] = SAC
 rl_zoo3.ALGOS["ppo"] = PPO
 rl_zoo3.ALGOS["td3"] = TD3
 rl_zoo3.ALGOS["tqc"] = TQC
+rl_zoo3.ALGOS["crossq"] = CrossQ
 rl_zoo3.enjoy.ALGOS = rl_zoo3.ALGOS
 rl_zoo3.exp_manager.ALGOS = rl_zoo3.ALGOS
 
