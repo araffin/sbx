@@ -21,7 +21,7 @@ tfd = tfp.distributions
 class Critic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
-    use_batch_norm: bool = False
+    use_batch_norm: bool = True
     dropout_rate: Optional[float] = None
     batch_norm_momentum: float = 0.99
 
@@ -49,7 +49,7 @@ class Critic(nn.Module):
 class VectorCritic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
-    use_batch_norm: bool = False
+    use_batch_norm: bool = True
     batch_norm_momentum: float = 0.99
     dropout_rate: Optional[float] = None
     n_critics: int = 2
@@ -81,7 +81,7 @@ class Actor(nn.Module):
     action_dim: int
     log_std_min: float = -20
     log_std_max: float = 2
-    use_batch_norm: bool = False
+    use_batch_norm: bool = True
     batch_norm_momentum: float = 0.99
 
     def get_std(self):
@@ -126,7 +126,6 @@ class CrossQPolicy(BaseJaxPolicy):
         batch_norm: bool = True,  # for critic
         batch_norm_actor: bool = True,
         batch_norm_momentum: float = 0.99,
-        # activation_fn: Type[nn.Module] = nn.ReLU,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
@@ -229,12 +228,6 @@ class CrossQPolicy(BaseJaxPolicy):
             apply_fn=self.qf.apply,
             params=qf_params["params"],
             batch_stats=qf_params["batch_stats"],
-            # target_params=self.qf.init(
-            #     {"params": qf_key, "dropout": dropout_key, "batch_stats": bn_key},
-            #     obs,
-            #     action,
-            #     train=False,
-            # ),
             tx=self.optimizer_class(
                 learning_rate=qf_learning_rate,  # type: ignore[call-arg]
                 **self.optimizer_kwargs,

@@ -260,8 +260,9 @@ class CrossQ(OffPolicyAlgorithmJax):
         def mse_loss(
             params: flax.core.FrozenDict, batch_stats: flax.core.FrozenDict, dropout_key: flax.core.FrozenDict
         ) -> Tuple[jax.Array, jax.Array]:
-            # Concatenate obs/next_obs to have only one forward pass
-            # shape is (n_critics, 2 * batch_size, 1)
+            # Concatenate obs/next_obs to have only one forward pass shape is (n_critics, 2 * batch_size, 1)
+            # This directly calculates the batch statistics for the mixture distribution of 
+            # state and next_state and actions and next_state_actions
             q_values, state_updates = qf_state.apply_fn(
                 {"params": params, "batch_stats": batch_stats},
                 jnp.concatenate([observations, next_observations], axis=0),
@@ -338,12 +339,6 @@ class CrossQ(OffPolicyAlgorithmJax):
         actor_state = actor_state.replace(batch_stats=state_updates["batch_stats"])
 
         return actor_state, qf_state, actor_loss_value, key, entropy
-
-    # @staticmethod
-    # @jax.jit
-    # def soft_update(tau: float, qf_state: BatchNormTrainState):
-    #     qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
-    #     return qf_state
 
     @staticmethod
     @jax.jit
@@ -439,7 +434,6 @@ class CrossQ(OffPolicyAlgorithmJax):
                 key,
             )
             # No target q values with CrossQ
-            # qf_state = cls.soft_update(tau, qf_state)
 
             (actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key) = jax.lax.cond(
                 (policy_delay_offset + i) % policy_delay == 0,
