@@ -12,7 +12,7 @@ from stable_baselines3.common.type_aliases import Schedule
 from sbx.common.distributions import TanhTransformedDistribution
 from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import BatchNormTrainState
-from sbx.crossq.batch_renorm import BatchRenorm
+from sbx.common.jax_layers import BatchRenorm
 
 tfp = tensorflow_probability.substrates.jax
 tfd = tfp.distributions
@@ -136,7 +136,10 @@ class CrossQPolicy(BaseJaxPolicy):
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        # Note: the default value for b1 is 0.9 in Adam. 
+        # b1=0.5 is used in the original CrossQ implementation and is found
+        # but shows only little overall improvement.
+        optimizer_kwargs: Dict[str, Any] = {"b1": 0.5},
         n_critics: int = 2,
         share_features_extractor: bool = False,
     ):
@@ -154,6 +157,7 @@ class CrossQPolicy(BaseJaxPolicy):
         self.batch_norm = batch_norm
         self.batch_norm_momentum = batch_norm_momentum
         self.batch_norm_actor = batch_norm_actor
+        
         if net_arch is not None:
             if isinstance(net_arch, list):
                 self.net_arch_pi = self.net_arch_qf = net_arch
@@ -162,8 +166,10 @@ class CrossQPolicy(BaseJaxPolicy):
                 self.net_arch_qf = net_arch["qf"]
         else:
             self.net_arch_pi = [256, 256]
+            # While CrossQ already works well with a [256,256] critic network,
+            # the authors found that a much wider network significantly improves performance.
             self.net_arch_qf = [2048, 2048]
-            # self.net_arch_qf = [256, 256]
+
         self.n_critics = n_critics
         self.use_sde = use_sde
 

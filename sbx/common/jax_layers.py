@@ -17,6 +17,11 @@ class BatchRenorm(Module):
     """BatchRenorm Module (https://arxiv.org/pdf/1702.03275.pdf).
     Adapted from flax.linen.normalization.BatchNorm
 
+    BatchRenorm is an improved version of vanilla BatchNorm. Contrary to BatchNorm,
+    BatchRenorm always uses the running statistics for normalizing the batches.
+    This makes it less prone to suffer from "outlier" batches that can happen
+    during very long training runs and, therefore, is more robust during long training runs.
+
     Usage Note:
     If we define a model with BatchRenorm, for example::
 

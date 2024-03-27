@@ -56,7 +56,7 @@ class CrossQ(OffPolicyAlgorithmJax):
         learning_rate: Union[float, Schedule] = 1e-3,
         qf_learning_rate: Optional[float] = None,
         buffer_size: int = 1_000_000,  # 1e6
-        learning_starts: int = 5_000,
+        learning_starts: int = 100,
         batch_size: int = 256,
         gamma: float = 0.99,
         train_freq: Union[int, Tuple[int, str]] = 1,
@@ -103,12 +103,6 @@ class CrossQ(OffPolicyAlgorithmJax):
 
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
-
-        if "net_arch" not in self.policy_kwargs:
-            self.policy_kwargs["net_arch"] = {"pi": [256, 256], "qf": [2048, 2048]}
-
-        if "optimizer_kwargs" not in self.policy_kwargs:
-            self.policy_kwargs["optimizer_kwargs"] = {"b1": 0.5}
 
         if _init_setup_model:
             self._setup_model()
@@ -260,9 +254,22 @@ class CrossQ(OffPolicyAlgorithmJax):
         def mse_loss(
             params: flax.core.FrozenDict, batch_stats: flax.core.FrozenDict, dropout_key: flax.core.FrozenDict
         ) -> Tuple[jax.Array, jax.Array]:
-            # Concatenate obs/next_obs to have only one forward pass shape is (n_critics, 2 * batch_size, 1)
-            # This directly calculates the batch statistics for the mixture distribution of 
-            # state and next_state and actions and next_state_actions
+            
+            # Joint foward pass of obs/next_obs and actions/next_state_actions to have only
+            # one forward pass with shape (n_critics, 2 * batch_size, 1).
+            #
+            # This has two reasons:
+            # 1. According to the paper obs/actions and next_obs/next_state_actions are differently
+            #    distributed which is the reason why "naively" appling Batch Normalization in SAC fails.
+            #    The batch statistics have to instead be calculated for the mixture distribution of obs/next_obs 
+            #    and actions/next_state_actions. Otherwise, next_obs/next_state_actions are perceived as
+            #    out-of-distribution to the Batch Normalization layer, since running statistics are only polyak averaged
+            #    over from the live network and have never seen the next batch which is known to be unstable.
+            #    Without target networks, the joint forward pass is a simple solution to caluclate 
+            #    the joint batch statistics directly with a single forward pass.
+            #
+            # 2. From a computational perspective a single forward pass is simply more efficient than
+            #    two sequential forward passes.
             q_values, state_updates = qf_state.apply_fn(
                 {"params": params, "batch_stats": batch_stats},
                 jnp.concatenate([observations, next_observations], axis=0),
