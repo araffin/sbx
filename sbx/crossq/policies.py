@@ -24,13 +24,21 @@ class Critic(nn.Module):
     use_batch_norm: bool = True
     dropout_rate: Optional[float] = None
     batch_norm_momentum: float = 0.99
+    renorm_warm_up_steps: int = 100_000
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray, train: bool = False) -> jnp.ndarray:
         x = Flatten()(x)
         x = jnp.concatenate([x, action], -1)
         if self.use_batch_norm:
-            x = BatchRenorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+            x = BatchRenorm(
+                use_running_average=not train,
+                momentum=self.batch_norm_momentum,
+                warm_up_steps=self.renorm_warm_up_steps,
+            )(x)
+        else:
+            # Create dummy batchstats
+            BatchRenorm(use_running_average=not train)(x)
 
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
@@ -83,6 +91,7 @@ class Actor(nn.Module):
     log_std_max: float = 2
     use_batch_norm: bool = True
     batch_norm_momentum: float = 0.99
+    renorm_warm_up_steps: int = 100_000
 
     def get_std(self):
         # Make it work with gSDE
@@ -92,7 +101,11 @@ class Actor(nn.Module):
     def __call__(self, x: jnp.ndarray, train: bool = False) -> tfd.Distribution:  # type: ignore[name-defined]
         x = Flatten()(x)
         if self.use_batch_norm:
-            x = BatchRenorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+            x = BatchRenorm(
+                use_running_average=not train,
+                momentum=self.batch_norm_momentum,
+                warm_up_steps=self.renorm_warm_up_steps,
+            )(x)
         else:
             # Create dummy batchstats
             BatchRenorm(use_running_average=not train)(x)
