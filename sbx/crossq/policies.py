@@ -10,9 +10,9 @@ from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
+from sbx.common.jax_layers import BatchRenorm
 from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import BatchNormTrainState
-from sbx.common.jax_layers import BatchRenorm
 
 tfp = tensorflow_probability.substrates.jax
 tfd = tfp.distributions
@@ -136,13 +136,18 @@ class CrossQPolicy(BaseJaxPolicy):
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        # Note: the default value for b1 is 0.9 in Adam. 
-        # b1=0.5 is used in the original CrossQ implementation and is found
-        # but shows only little overall improvement.
-        optimizer_kwargs: Dict[str, Any] = {"b1": 0.5},
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
     ):
+        if optimizer_kwargs is None:
+            # Note: the default value for b1 is 0.9 in Adam.
+            # b1=0.5 is used in the original CrossQ implementation and is found
+            # but shows only little overall improvement.
+            optimizer_kwargs = {}
+            if optimizer_class in [optax.adam, optax.adamw]:
+                optimizer_kwargs["b1"] = 0.5
+
         super().__init__(
             observation_space,
             action_space,
@@ -157,7 +162,7 @@ class CrossQPolicy(BaseJaxPolicy):
         self.batch_norm = batch_norm
         self.batch_norm_momentum = batch_norm_momentum
         self.batch_norm_actor = batch_norm_actor
-        
+
         if net_arch is not None:
             if isinstance(net_arch, list):
                 self.net_arch_pi = self.net_arch_qf = net_arch
@@ -166,9 +171,10 @@ class CrossQPolicy(BaseJaxPolicy):
                 self.net_arch_qf = net_arch["qf"]
         else:
             self.net_arch_pi = [256, 256]
-            # While CrossQ already works well with a [256,256] critic network,
-            # the authors found that a much wider network significantly improves performance.
-            self.net_arch_qf = [2048, 2048]
+            # While CrossQ already works with a [256,256] critic network,
+            # the authors found that a wider network significantly improves performance.
+            # We use a slightly smaller net for faster computation, [1024, 1024] instead of [2048, 2048] in the paper
+            self.net_arch_qf = [1024, 1024]
 
         self.n_critics = n_critics
         self.use_sde = use_sde

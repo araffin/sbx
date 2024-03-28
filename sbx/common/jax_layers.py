@@ -2,7 +2,7 @@ from typing import Any, Callable, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
-from flax.linen.module import Module, compact, merge_param  # pylint: disable=g-multiple-import
+from flax.linen.module import Module, compact, merge_param
 from flax.linen.normalization import _canonicalize_axes, _compute_stats, _normalize
 from jax.nn import initializers
 
@@ -14,13 +14,15 @@ Axes = Union[int, Sequence[int]]
 
 
 class BatchRenorm(Module):
-    """BatchRenorm Module (https://arxiv.org/pdf/1702.03275.pdf).
+    """BatchRenorm Module (https://arxiv.org/abs/1702.03275).
     Adapted from flax.linen.normalization.BatchNorm
 
     BatchRenorm is an improved version of vanilla BatchNorm. Contrary to BatchNorm,
-    BatchRenorm always uses the running statistics for normalizing the batches.
+    BatchRenorm uses the running statistics for normalizing the batches after a warmup phase.
     This makes it less prone to suffer from "outlier" batches that can happen
     during very long training runs and, therefore, is more robust during long training runs.
+
+    During the warmup phase, it behaves exactly like a BatchNorm layer.
 
     Usage Note:
     If we define a model with BatchRenorm, for example::
@@ -87,7 +89,10 @@ class BatchRenorm(Module):
     scale_init: Callable[[PRNGKey, Shape, Dtype], Array] = initializers.ones
     axis_name: Optional[str] = None
     axis_index_groups: Any = None
-    use_fast_variance: bool = True
+    # This parameter was added in flax.linen 0.7.2 (08/2023)
+    # commented out to be compatible with a wider range of jax versions
+    # TODO: re-activate in some months (04/2024)
+    # use_fast_variance: bool = True
 
     @compact
     def __call__(self, x, use_running_average: Optional[bool] = None):
@@ -152,28 +157,38 @@ class BatchRenorm(Module):
                 dtype=self.dtype,
                 axis_name=self.axis_name if not self.is_initializing() else None,
                 axis_index_groups=self.axis_index_groups,
-                use_fast_variance=self.use_fast_variance,
+                # use_fast_variance=self.use_fast_variance,
             )
             custom_mean = mean
             custom_var = var
             if not self.is_initializing():
-                r = 1
-                d = 0
+                r = jnp.array(1.0)
+                d = jnp.array(0.0)
                 std = jnp.sqrt(var + self.epsilon)
                 ra_std = jnp.sqrt(ra_var.value + self.epsilon)
+                # scale
                 r = jax.lax.stop_gradient(std / ra_std)
                 r = jnp.clip(r, 1 / r_max.value, r_max.value)
+                # bias
                 d = jax.lax.stop_gradient((mean - ra_mean.value) / ra_std)
                 d = jnp.clip(d, -d_max.value, d_max.value)
-                tmp_var = var / (r**2)
-                tmp_mean = mean - d * jnp.sqrt(custom_var) / r
 
+                # BatchNorm normalization, using minibatch stats and running average stats
+                # Because we use _normalize, this is equivalent to
+                # ((x - x_mean) / sigma) * r + d = ((x - x_mean) * r + d * sigma) / sigma
+                # where sigma = sqrt(var)
+                affine_mean = mean - d * jnp.sqrt(var) / r
+                affine_var = var / (r**2)
+
+                # Note: in the original paper, after some warmup phase (batch norm phase of 5k steps)
+                # the constraints are linearly relaxed to r_max/d_max over 40k steps
+                # Here we only have a warmup phase
                 is_warmed_up = jnp.greater_equal(steps.value, self.warm_up_steps).astype(jnp.float32)
-                custom_var = is_warmed_up * tmp_var + (1.0 - is_warmed_up) * custom_var
-                custom_mean = is_warmed_up * tmp_mean + (1.0 - is_warmed_up) * custom_mean
+                custom_var = is_warmed_up * affine_var + (1.0 - is_warmed_up) * custom_var
+                custom_mean = is_warmed_up * affine_mean + (1.0 - is_warmed_up) * custom_mean
 
-                ra_mean.value = self.momentum * ra_mean.value + (1 - self.momentum) * mean
-                ra_var.value = self.momentum * ra_var.value + (1 - self.momentum) * var
+                ra_mean.value = self.momentum * ra_mean.value + (1.0 - self.momentum) * mean
+                ra_var.value = self.momentum * ra_var.value + (1.0 - self.momentum) * var
                 steps.value += 1
 
         return _normalize(

@@ -254,18 +254,18 @@ class CrossQ(OffPolicyAlgorithmJax):
         def mse_loss(
             params: flax.core.FrozenDict, batch_stats: flax.core.FrozenDict, dropout_key: flax.core.FrozenDict
         ) -> Tuple[jax.Array, jax.Array]:
-            
-            # Joint foward pass of obs/next_obs and actions/next_state_actions to have only
+
+            # Joint forward pass of obs/next_obs and actions/next_state_actions to have only
             # one forward pass with shape (n_critics, 2 * batch_size, 1).
             #
             # This has two reasons:
             # 1. According to the paper obs/actions and next_obs/next_state_actions are differently
             #    distributed which is the reason why "naively" appling Batch Normalization in SAC fails.
-            #    The batch statistics have to instead be calculated for the mixture distribution of obs/next_obs 
+            #    The batch statistics have to instead be calculated for the mixture distribution of obs/next_obs
             #    and actions/next_state_actions. Otherwise, next_obs/next_state_actions are perceived as
             #    out-of-distribution to the Batch Normalization layer, since running statistics are only polyak averaged
             #    over from the live network and have never seen the next batch which is known to be unstable.
-            #    Without target networks, the joint forward pass is a simple solution to caluclate 
+            #    Without target networks, the joint forward pass is a simple solution to calculate
             #    the joint batch statistics directly with a single forward pass.
             #
             # 2. From a computational perspective a single forward pass is simply more efficient than
