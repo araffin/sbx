@@ -17,7 +17,7 @@ Implemented algorithms:
 - [Deep Q Network (DQN)](https://arxiv.org/abs/1312.5602)
 - [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
-- [CrossQ](https://arxiv.org/pdf/1902.05605.pdf)
+- [Batch Normalization in Deep Reinforcement Learning (CrossQ)](https://openreview.net/forum?id=PczQtTsTIX)
 
 
 ### Install using pip
