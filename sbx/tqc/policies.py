@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import tensorflow_probability
+import tensorflow_probability.substrates.jax as tfp
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
@@ -14,7 +14,6 @@ from sbx.common.distributions import TanhTransformedDistribution
 from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import RLTrainState
 
-tfp = tensorflow_probability.substrates.jax
 tfd = tfp.distributions
 
 
