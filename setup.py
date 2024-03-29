@@ -22,11 +22,12 @@ Implemented algorithms:
 - [Deep Q Network (DQN)](https://arxiv.org/abs/1312.5602)
 - [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
+- [Batch Normalization in Deep Reinforcement Learning (CrossQ)](https://openreview.net/forum?id=PczQtTsTIX)
 
 ## Example
 
 ```python
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ, CrossQ
 
 model = TQC("MlpPolicy", "Pendulum-v1", verbose=1)
 model.learn(total_timesteps=10_000, progress_bar=True)
@@ -60,9 +61,9 @@ setup(
             # Type check
             "mypy",
             # Lint code
-            "ruff",
+            "ruff>=0.3.1",
             # Reformat
-            "black",
+            "black>=24.2.0,<25",
         ],
     },
     description="Jax version of Stable Baselines, implementations of reinforcement learning algorithms.",
@@ -85,8 +86,3 @@ setup(
         "Programming Language :: Python :: 3.11",
     ],
 )
-
-# python setup.py sdist
-# python setup.py bdist_wheel
-# twine upload --repository-url https://test.pypi.org/legacy/ dist/*
-# twine upload dist/*

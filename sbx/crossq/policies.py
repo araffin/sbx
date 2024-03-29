@@ -10,6 +10,7 @@ from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
+from sbx.common.jax_layers import BatchRenorm
 from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import BatchNormTrainState
 
@@ -20,16 +21,24 @@ tfd = tfp.distributions
 class Critic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
-    use_batch_norm: bool = False
+    use_batch_norm: bool = True
     dropout_rate: Optional[float] = None
-    batch_norm_momentum: float = 0.9
+    batch_norm_momentum: float = 0.99
+    renorm_warm_up_steps: int = 100_000
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray, train: bool = False) -> jnp.ndarray:
         x = Flatten()(x)
         x = jnp.concatenate([x, action], -1)
         if self.use_batch_norm:
-            x = nn.BatchNorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+            x = BatchRenorm(
+                use_running_average=not train,
+                momentum=self.batch_norm_momentum,
+                warm_up_steps=self.renorm_warm_up_steps,
+            )(x)
+        else:
+            # Create dummy batchstats
+            BatchRenorm(use_running_average=not train)(x)
 
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
@@ -39,7 +48,7 @@ class Critic(nn.Module):
                 x = nn.LayerNorm()(x)
             x = nn.relu(x)
             if self.use_batch_norm:
-                x = nn.BatchNorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+                x = BatchRenorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
 
         x = nn.Dense(1)(x)
         return x
@@ -48,8 +57,8 @@ class Critic(nn.Module):
 class VectorCritic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
-    use_batch_norm: bool = False
-    batch_norm_momentum: float = 0.9
+    use_batch_norm: bool = True
+    batch_norm_momentum: float = 0.99
     dropout_rate: Optional[float] = None
     n_critics: int = 2
 
@@ -80,8 +89,9 @@ class Actor(nn.Module):
     action_dim: int
     log_std_min: float = -20
     log_std_max: float = 2
-    use_batch_norm: bool = False
-    batch_norm_momentum: float = 0.9
+    use_batch_norm: bool = True
+    batch_norm_momentum: float = 0.99
+    renorm_warm_up_steps: int = 100_000
 
     def get_std(self):
         # Make it work with gSDE
@@ -91,16 +101,20 @@ class Actor(nn.Module):
     def __call__(self, x: jnp.ndarray, train: bool = False) -> tfd.Distribution:  # type: ignore[name-defined]
         x = Flatten()(x)
         if self.use_batch_norm:
-            x = nn.BatchNorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+            x = BatchRenorm(
+                use_running_average=not train,
+                momentum=self.batch_norm_momentum,
+                warm_up_steps=self.renorm_warm_up_steps,
+            )(x)
         else:
             # Create dummy batchstats
-            nn.BatchNorm(use_running_average=not train)(x)
+            BatchRenorm(use_running_average=not train)(x)
 
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
             x = nn.relu(x)
             if self.use_batch_norm:
-                x = nn.BatchNorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+                x = BatchRenorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
 
         mean = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
@@ -123,9 +137,8 @@ class CrossQPolicy(BaseJaxPolicy):
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         batch_norm: bool = True,  # for critic
-        batch_norm_actor: bool = False,
-        batch_norm_momentum: float = 0.9,
-        # activation_fn: Type[nn.Module] = nn.ReLU,
+        batch_norm_actor: bool = True,
+        batch_norm_momentum: float = 0.99,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
@@ -140,6 +153,14 @@ class CrossQPolicy(BaseJaxPolicy):
         n_critics: int = 2,
         share_features_extractor: bool = False,
     ):
+        if optimizer_kwargs is None:
+            # Note: the default value for b1 is 0.9 in Adam.
+            # b1=0.5 is used in the original CrossQ implementation and is found
+            # but shows only little overall improvement.
+            optimizer_kwargs = {}
+            if optimizer_class in [optax.adam, optax.adamw]:
+                optimizer_kwargs["b1"] = 0.5
+
         super().__init__(
             observation_space,
             action_space,
@@ -154,6 +175,7 @@ class CrossQPolicy(BaseJaxPolicy):
         self.batch_norm = batch_norm
         self.batch_norm_momentum = batch_norm_momentum
         self.batch_norm_actor = batch_norm_actor
+
         if net_arch is not None:
             if isinstance(net_arch, list):
                 self.net_arch_pi = self.net_arch_qf = net_arch
@@ -162,8 +184,11 @@ class CrossQPolicy(BaseJaxPolicy):
                 self.net_arch_qf = net_arch["qf"]
         else:
             self.net_arch_pi = [256, 256]
-            # self.net_arch_qf = [2048, 2048]
-            self.net_arch_qf = [256, 256]
+            # While CrossQ already works with a [256,256] critic network,
+            # the authors found that a wider network significantly improves performance.
+            # We use a slightly smaller net for faster computation, [1024, 1024] instead of [2048, 2048] in the paper
+            self.net_arch_qf = [1024, 1024]
+
         self.n_critics = n_critics
         self.use_sde = use_sde
 
@@ -228,12 +253,6 @@ class CrossQPolicy(BaseJaxPolicy):
             apply_fn=self.qf.apply,
             params=qf_params["params"],
             batch_stats=qf_params["batch_stats"],
-            # target_params=self.qf.init(
-            #     {"params": qf_key, "dropout": dropout_key, "batch_stats": bn_key},
-            #     obs,
-            #     action,
-            #     train=False,
-            # ),
             tx=self.optimizer_class(
                 learning_rate=qf_learning_rate,  # type: ignore[call-arg]
                 **self.optimizer_kwargs,
