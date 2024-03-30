@@ -162,8 +162,6 @@ class BatchRenorm(Module):
             custom_mean = mean
             custom_var = var
             if not self.is_initializing():
-                r = jnp.array(1.0)
-                d = jnp.array(0.0)
                 std = jnp.sqrt(var + self.epsilon)
                 ra_std = jnp.sqrt(ra_var.value + self.epsilon)
                 # scale

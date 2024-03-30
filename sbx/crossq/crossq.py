@@ -208,7 +208,6 @@ class CrossQ(OffPolicyAlgorithmJax):
             (actor_loss_value, qf_loss_value, ent_coef_value),
         ) = self._train(
             self.gamma,
-            self.tau,
             self.target_entropy,
             gradient_steps,
             data,
@@ -260,7 +259,7 @@ class CrossQ(OffPolicyAlgorithmJax):
             #
             # This has two reasons:
             # 1. According to the paper obs/actions and next_obs/next_state_actions are differently
-            #    distributed which is the reason why "naively" appling Batch Normalization in SAC fails.
+            #    distributed which is the reason why "naively" applying Batch Normalization in SAC fails.
             #    The batch statistics have to instead be calculated for the mixture distribution of obs/next_obs
             #    and actions/next_state_actions. Otherwise, next_obs/next_state_actions are perceived as
             #    out-of-distribution to the Batch Normalization layer, since running statistics are only polyak averaged
@@ -385,7 +384,6 @@ class CrossQ(OffPolicyAlgorithmJax):
     def _train(
         cls,
         gamma: float,
-        tau: float,
         target_entropy: ArrayLike,
         gradient_steps: int,
         data: ReplayBufferSamplesNp,
