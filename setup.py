@@ -48,7 +48,7 @@ setup(
         'optax<0.1.8; python_version < "3.9.0"',
         "tqdm",
         "rich",
-        "tensorflow_probability",
+        'tensorflow_probability <= "0.23.0"',
     ],
     extras_require={
         "tests": [
