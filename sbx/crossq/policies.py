@@ -23,7 +23,7 @@ class Critic(nn.Module):
     use_batch_norm: bool = True
     dropout_rate: Optional[float] = None
     batch_norm_momentum: float = 0.99
-    renorm_warm_up_steps: int = 100_000
+    renorm_warmup_steps: int = 100_000
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray, train: bool = False) -> jnp.ndarray:
@@ -33,7 +33,7 @@ class Critic(nn.Module):
             x = BatchRenorm(
                 use_running_average=not train,
                 momentum=self.batch_norm_momentum,
-                warm_up_steps=self.renorm_warm_up_steps,
+                warmup_steps=self.renorm_warmup_steps,
             )(x)
         else:
             # Create dummy batchstats
@@ -58,6 +58,7 @@ class VectorCritic(nn.Module):
     use_layer_norm: bool = False
     use_batch_norm: bool = True
     batch_norm_momentum: float = 0.99
+    renorm_warmup_steps: int = 100_000
     dropout_rate: Optional[float] = None
     n_critics: int = 2
 
@@ -77,6 +78,7 @@ class VectorCritic(nn.Module):
             use_layer_norm=self.use_layer_norm,
             use_batch_norm=self.use_batch_norm,
             batch_norm_momentum=self.batch_norm_momentum,
+            renorm_warmup_steps=self.renorm_warmup_steps,
             dropout_rate=self.dropout_rate,
             net_arch=self.net_arch,
         )(obs, action, train)
@@ -90,7 +92,7 @@ class Actor(nn.Module):
     log_std_max: float = 2
     use_batch_norm: bool = True
     batch_norm_momentum: float = 0.99
-    renorm_warm_up_steps: int = 100_000
+    renorm_warmup_steps: int = 100_000
 
     def get_std(self):
         # Make it work with gSDE
@@ -103,7 +105,7 @@ class Actor(nn.Module):
             x = BatchRenorm(
                 use_running_average=not train,
                 momentum=self.batch_norm_momentum,
-                warm_up_steps=self.renorm_warm_up_steps,
+                warmup_steps=self.renorm_warmup_steps,
             )(x)
         else:
             # Create dummy batchstats
@@ -138,6 +140,7 @@ class CrossQPolicy(BaseJaxPolicy):
         batch_norm: bool = True,  # for critic
         batch_norm_actor: bool = True,
         batch_norm_momentum: float = 0.99,
+        renorm_warmup_steps: int = 100_000,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
@@ -174,6 +177,7 @@ class CrossQPolicy(BaseJaxPolicy):
         self.batch_norm = batch_norm
         self.batch_norm_momentum = batch_norm_momentum
         self.batch_norm_actor = batch_norm_actor
+        self.renorm_warmup_steps = renorm_warmup_steps
 
         if net_arch is not None:
             if isinstance(net_arch, list):
@@ -211,6 +215,7 @@ class CrossQPolicy(BaseJaxPolicy):
             net_arch=self.net_arch_pi,
             use_batch_norm=self.batch_norm_actor,
             batch_norm_momentum=self.batch_norm_momentum,
+            renorm_warmup_steps=self.renorm_warmup_steps,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -237,6 +242,7 @@ class CrossQPolicy(BaseJaxPolicy):
             use_layer_norm=self.layer_norm,
             use_batch_norm=self.batch_norm,
             batch_norm_momentum=self.batch_norm_momentum,
+            renorm_warmup_steps=self.renorm_warmup_steps,
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
         )

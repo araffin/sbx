@@ -80,7 +80,7 @@ class BatchRenorm(Module):
     axis: int = -1
     momentum: float = 0.99
     epsilon: float = 0.001
-    warm_up_steps: int = 100_000
+    warmup_steps: int = 100_000
     dtype: Optional[Dtype] = None
     param_dtype: Dtype = jnp.float32
     use_bias: bool = True
@@ -181,7 +181,7 @@ class BatchRenorm(Module):
                 # Note: in the original paper, after some warmup phase (batch norm phase of 5k steps)
                 # the constraints are linearly relaxed to r_max/d_max over 40k steps
                 # Here we only have a warmup phase
-                is_warmed_up = jnp.greater_equal(steps.value, self.warm_up_steps).astype(jnp.float32)
+                is_warmed_up = jnp.greater_equal(steps.value, self.warmup_steps).astype(jnp.float32)
                 custom_mean = is_warmed_up * affine_mean + (1.0 - is_warmed_up) * batch_mean
                 custom_var = is_warmed_up * affine_var + (1.0 - is_warmed_up) * batch_var
 
