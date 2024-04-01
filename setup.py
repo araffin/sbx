@@ -40,7 +40,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.3.0a1",
+        "stable_baselines3>=2.3.0",
         "jax",
         "jaxlib",
         "flax",
