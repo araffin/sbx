@@ -23,6 +23,7 @@ class Actor(nn.Module):
     action_dim: int
     log_std_min: float = -20
     log_std_max: float = 2
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     def get_std(self):
         # Make it work with gSDE
@@ -33,7 +34,7 @@ class Actor(nn.Module):
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
-            x = nn.relu(x)
+            x = self.activation_fn(x)
         mean = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
         log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
@@ -54,7 +55,7 @@ class SACPolicy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
-        # activation_fn: Type[nn.Module] = nn.ReLU,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
@@ -90,6 +91,7 @@ class SACPolicy(BaseJaxPolicy):
             self.net_arch_pi = self.net_arch_qf = [256, 256]
         self.n_critics = n_critics
         self.use_sde = use_sde
+        self.activation_fn = activation_fn
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -109,6 +111,7 @@ class SACPolicy(BaseJaxPolicy):
         self.actor = Actor(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
+            activation_fn=self.activation_fn,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -127,6 +130,7 @@ class SACPolicy(BaseJaxPolicy):
             use_layer_norm=self.layer_norm,
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
+            activation_fn=self.activation_fn,
         )
 
         self.qf_state = RLTrainState.create(
