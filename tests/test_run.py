@@ -106,6 +106,20 @@ def test_dqn() -> None:
     model.learn(128)
 
 
+def test_dqn_policy_kwargs() -> None:
+    policy_kwargs = dict(activation_fn=nn.leaky_relu, net_arch=[128, 128])
+
+    model = DQN(
+        "MlpPolicy",
+        "CartPole-v1",
+        verbose=1,
+        gradient_steps=-1,
+        target_update_interval=10,
+        policy_kwargs=policy_kwargs,
+    )
+    model.learn(128)
+
+
 @pytest.mark.parametrize("replay_buffer_class", [None, HerReplayBuffer])
 def test_dict(replay_buffer_class: Optional[Type[HerReplayBuffer]]) -> None:
     env = BitFlippingEnv(n_bits=2, continuous=True)

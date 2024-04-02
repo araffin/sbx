@@ -15,14 +15,15 @@ from sbx.common.type_aliases import RLTrainState
 class QNetwork(nn.Module):
     n_actions: int
     n_units: int = 256
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = Flatten()(x)
         x = nn.Dense(self.n_units)(x)
-        x = nn.relu(x)
+        x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
-        x = nn.relu(x)
+        x = self.activation_fn(x)
         x = nn.Dense(self.n_actions)(x)
         return x
 
@@ -36,6 +37,7 @@ class DQNPolicy(BaseJaxPolicy):
         action_space: spaces.Discrete,
         lr_schedule: Schedule,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         features_extractor_class=None,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
@@ -56,13 +58,18 @@ class DQNPolicy(BaseJaxPolicy):
             self.n_units = net_arch[0]
         else:
             self.n_units = 256
+        self.activation_fn = activation_fn
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key = jax.random.split(key, 2)
 
         obs = jnp.array([self.observation_space.sample()])
 
-        self.qf = QNetwork(n_actions=int(self.action_space.n), n_units=self.n_units)
+        self.qf = QNetwork(
+            n_actions=int(self.action_space.n), 
+            n_units=self.n_units,
+            activation_fn=self.activation_fn,
+            )
 
         self.qf_state = RLTrainState.create(
             apply_fn=self.qf.apply,
