@@ -1,5 +1,6 @@
 from typing import Optional, Type
 
+import flax.linen as nn
 import numpy as np
 import pytest
 from stable_baselines3 import HerReplayBuffer
@@ -68,6 +69,16 @@ def test_sac_td3(model_class) -> None:
         verbose=1,
         gradient_steps=1,
         learning_rate=1e-3,
+    )
+    model.learn(110)
+
+
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG])
+def test_sac_td3_policy_kwargs(model_class) -> None:
+    policy_kwargs = dict(activation_fn=nn.leaky_relu, net_arch=dict(pi=[64, 64], qf=[64, 64]))
+
+    model = model_class(
+        "MlpPolicy", "Pendulum-v1", verbose=1, gradient_steps=1, learning_rate=1e-3, policy_kwargs=policy_kwargs
     )
     model.learn(110)
 
