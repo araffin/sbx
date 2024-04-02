@@ -10,8 +10,6 @@
 .coverage
 .coverage.*
 __pycache__/
-**/.mypy_cache/
-**/.ruff_cache/
 _build/
 *.npz
 *.pth

@@ -75,7 +75,7 @@ def test_sac_td3(model_class) -> None:
 
 @pytest.mark.parametrize("model_class", [SAC, TD3, DDPG])
 def test_sac_td3_policy_kwargs(model_class) -> None:
-    policy_kwargs = dict(activation_fn=nn.leaky_relu, net_arch=dict(pi=[64, 64], qf=[64, 64]))
+    policy_kwargs = dict(activation_fn=nn.leaky_relu, net_arch=dict(pi=[8], qf=[8]))
 
     model = model_class(
         "MlpPolicy", "Pendulum-v1", verbose=1, gradient_steps=1, learning_rate=1e-3, policy_kwargs=policy_kwargs
@@ -107,7 +107,7 @@ def test_dqn() -> None:
 
 
 def test_dqn_policy_kwargs() -> None:
-    policy_kwargs = dict(activation_fn=nn.leaky_relu, net_arch=[128, 128])
+    policy_kwargs = dict(activation_fn=nn.leaky_relu, net_arch=[8])
 
     model = DQN(
         "MlpPolicy",
