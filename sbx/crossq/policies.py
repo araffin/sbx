@@ -162,7 +162,7 @@ class CrossQPolicy(BaseJaxPolicy):
     ):
         if optimizer_kwargs is None:
             # Note: the default value for b1 is 0.9 in Adam.
-            # b1=0.5 is used in the original CrossQ implementation and is found
+            # b1=0.5 is used in the original CrossQ implementation
             # but shows only little overall improvement.
             optimizer_kwargs = {}
             if optimizer_class in [optax.adam, optax.adamw]:

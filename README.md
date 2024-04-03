@@ -132,6 +132,11 @@ Having a higher learning rate for the q-value function is also helpful: `qf_lear
 
 Note: when using the DroQ configuration with CrossQ, you should set `layer_norm=False` as there is already batch normalization.
 
+## Benchmark
+
+A partial benchmark can be found on [OpenRL Benchmark](https://wandb.ai/openrlbenchmark/sbx) where you can also find several [reports](https://wandb.ai/openrlbenchmark/sbx/reportlist).
+
+
 ## Citing the Project
 
 To cite this repository in publications:
