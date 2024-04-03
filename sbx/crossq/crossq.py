@@ -236,7 +236,7 @@ class CrossQ(OffPolicyAlgorithmJax):
         dones: jax.Array,
         key: jax.Array,
     ):
-        key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
+        key, noise_key, dropout_key = jax.random.split(key, 3)
         # sample action from the actor
         dist = actor_state.apply_fn(
             {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
@@ -289,7 +289,7 @@ class CrossQ(OffPolicyAlgorithmJax):
             return 0.5 * ((jax.lax.stop_gradient(target_q_values) - current_q_values) ** 2).mean(axis=1).sum(), state_updates
 
         (qf_loss_value, state_updates), grads = jax.value_and_grad(mse_loss, has_aux=True)(
-            qf_state.params, qf_state.batch_stats, dropout_key_current
+            qf_state.params, qf_state.batch_stats, dropout_key
         )
         qf_state = qf_state.apply_gradients(grads=grads)
         qf_state = qf_state.replace(batch_stats=state_updates["batch_stats"])
