@@ -73,12 +73,17 @@ def test_sac_td3(model_class) -> None:
     model.learn(110)
 
 
-@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG])
-def test_sac_td3_policy_kwargs(model_class) -> None:
-    policy_kwargs = dict(activation_fn=nn.leaky_relu, net_arch=dict(pi=[8], qf=[8]))
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, DQN])
+def test_policy_kwargs(model_class) -> None:
+    env_id = "CartPole-v1" if model_class == DQN else "Pendulum-v1"
 
     model = model_class(
-        "MlpPolicy", "Pendulum-v1", verbose=1, gradient_steps=1, learning_rate=1e-3, policy_kwargs=policy_kwargs
+        "MlpPolicy",
+        env_id,
+        verbose=1,
+        gradient_steps=1,
+        learning_rate=1e-3,
+        policy_kwargs=dict(activation_fn=nn.leaky_relu, net_arch=[8]),
     )
     model.learn(110)
 
@@ -89,10 +94,12 @@ def test_ppo(env_id: str) -> None:
         "MlpPolicy",
         env_id,
         verbose=1,
-        n_steps=64,
+        n_steps=32,
+        batch_size=32,
         n_epochs=2,
+        policy_kwargs=dict(activation_fn=nn.leaky_relu),
     )
-    model.learn(128, progress_bar=True)
+    model.learn(64, progress_bar=True)
 
 
 def test_dqn() -> None:
@@ -102,20 +109,6 @@ def test_dqn() -> None:
         verbose=1,
         gradient_steps=-1,
         target_update_interval=10,
-    )
-    model.learn(128)
-
-
-def test_dqn_policy_kwargs() -> None:
-    policy_kwargs = dict(activation_fn=nn.leaky_relu, net_arch=[8])
-
-    model = DQN(
-        "MlpPolicy",
-        "CartPole-v1",
-        verbose=1,
-        gradient_steps=-1,
-        target_update_interval=10,
-        policy_kwargs=policy_kwargs,
     )
     model.learn(128)
 
