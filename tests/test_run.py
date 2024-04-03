@@ -8,7 +8,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.envs import BitFlippingEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ, TQCrossQ
 
 
 def check_save_load(model, model_class, tmp_path):
@@ -87,8 +87,8 @@ def test_sac_td3(tmp_path, model_class) -> None:
     check_save_load(model, model_class, tmp_path)
 
 
-@pytest.mark.parametrize("model_class", [SAC, CrossQ])
-def test_dropout(model_class):
+@pytest.mark.parametrize("model_class", [SAC, CrossQ, TQCrossQ])
+def test_dropout(tmp_path, model_class):
     kwargs = {}
     # Try activating layer norm and dropout
     policy_kwargs = dict(dropout_rate=0.01, net_arch=[64], layer_norm=True)
@@ -109,6 +109,7 @@ def test_dropout(model_class):
         policy_kwargs=policy_kwargs,
     )
     model.learn(110)
+    check_save_load(model, model_class, tmp_path)
 
 
 @pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, DQN, CrossQ])
