@@ -11,56 +11,10 @@ from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
-from sbx.common.policies import BaseJaxPolicy, Flatten
+from sbx.common.policies import BaseJaxPolicy, Flatten, VectorCritic
 from sbx.common.type_aliases import RLTrainState
 
 tfd = tfp.distributions
-
-
-class Critic(nn.Module):
-    net_arch: Sequence[int]
-    use_layer_norm: bool = False
-    dropout_rate: Optional[float] = None
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
-        x = Flatten()(x)
-        x = jnp.concatenate([x, action], -1)
-        for n_units in self.net_arch:
-            x = nn.Dense(n_units)(x)
-            if self.dropout_rate is not None and self.dropout_rate > 0:
-                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
-            if self.use_layer_norm:
-                x = nn.LayerNorm()(x)
-            x = nn.relu(x)
-        x = nn.Dense(1)(x)
-        return x
-
-
-class VectorCritic(nn.Module):
-    net_arch: Sequence[int]
-    use_layer_norm: bool = False
-    dropout_rate: Optional[float] = None
-    n_critics: int = 2
-
-    @nn.compact
-    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
-        # Idea taken from https://github.com/perrin-isir/xpag
-        # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
-        vmap_critic = nn.vmap(
-            Critic,
-            variable_axes={"params": 0},  # parameters not shared between the critics
-            split_rngs={"params": True, "dropout": True},  # different initializations
-            in_axes=None,
-            out_axes=0,
-            axis_size=self.n_critics,
-        )
-        q_values = vmap_critic(
-            use_layer_norm=self.use_layer_norm,
-            dropout_rate=self.dropout_rate,
-            net_arch=self.net_arch,
-        )(obs, action)
-        return q_values
 
 
 class Actor(nn.Module):
@@ -68,6 +22,7 @@ class Actor(nn.Module):
     action_dim: int
     log_std_min: float = -20
     log_std_max: float = 2
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     def get_std(self):
         # Make it work with gSDE
@@ -78,7 +33,7 @@ class Actor(nn.Module):
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
-            x = nn.relu(x)
+            x = self.activation_fn(x)
         mean = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
         log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
@@ -99,7 +54,7 @@ class SACPolicy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
-        # activation_fn: Type[nn.Module] = nn.ReLU,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
@@ -135,6 +90,7 @@ class SACPolicy(BaseJaxPolicy):
             self.net_arch_pi = self.net_arch_qf = [256, 256]
         self.n_critics = n_critics
         self.use_sde = use_sde
+        self.activation_fn = activation_fn
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -154,6 +110,7 @@ class SACPolicy(BaseJaxPolicy):
         self.actor = Actor(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
+            activation_fn=self.activation_fn,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -172,6 +129,7 @@ class SACPolicy(BaseJaxPolicy):
             use_layer_norm=self.layer_norm,
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
+            activation_fn=self.activation_fn,
         )
 
         self.qf_state = RLTrainState.create(

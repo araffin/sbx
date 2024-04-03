@@ -8,66 +8,21 @@ import optax
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.policies import BaseJaxPolicy, Flatten
+from sbx.common.policies import BaseJaxPolicy, Flatten, VectorCritic
 from sbx.common.type_aliases import RLTrainState
-
-
-class Critic(nn.Module):
-    net_arch: Sequence[int]
-    use_layer_norm: bool = False
-    dropout_rate: Optional[float] = None
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
-        x = Flatten()(x)
-        x = jnp.concatenate([x, action], -1)
-        for n_units in self.net_arch:
-            x = nn.Dense(n_units)(x)
-            if self.dropout_rate is not None and self.dropout_rate > 0:
-                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
-            if self.use_layer_norm:
-                x = nn.LayerNorm()(x)
-            x = nn.relu(x)
-        x = nn.Dense(1)(x)
-        return x
-
-
-class VectorCritic(nn.Module):
-    net_arch: Sequence[int]
-    use_layer_norm: bool = False
-    dropout_rate: Optional[float] = None
-    n_critics: int = 2
-
-    @nn.compact
-    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
-        # Idea taken from https://github.com/perrin-isir/xpag
-        # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
-        vmap_critic = nn.vmap(
-            Critic,
-            variable_axes={"params": 0},  # parameters not shared between the critics
-            split_rngs={"params": True, "dropout": True},  # different initializations
-            in_axes=None,
-            out_axes=0,
-            axis_size=self.n_critics,
-        )
-        q_values = vmap_critic(
-            use_layer_norm=self.use_layer_norm,
-            dropout_rate=self.dropout_rate,
-            net_arch=self.net_arch,
-        )(obs, action)
-        return q_values
 
 
 class Actor(nn.Module):
     net_arch: Sequence[int]
     action_dim: int
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:  # type: ignore[name-defined]
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
-            x = nn.relu(x)
+            x = self.activation_fn(x)
         return nn.tanh(nn.Dense(self.action_dim)(x))
 
 
@@ -82,7 +37,7 @@ class TD3Policy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
-        # activation_fn: Type[nn.Module] = nn.ReLU,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
         features_extractor_class=None,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
@@ -112,6 +67,7 @@ class TD3Policy(BaseJaxPolicy):
         else:
             self.net_arch_pi = self.net_arch_qf = [256, 256]
         self.n_critics = n_critics
+        self.activation_fn = activation_fn
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -127,8 +83,7 @@ class TD3Policy(BaseJaxPolicy):
         action = jnp.array([self.action_space.sample()])
 
         self.actor = Actor(
-            action_dim=int(np.prod(self.action_space.shape)),
-            net_arch=self.net_arch_pi,
+            action_dim=int(np.prod(self.action_space.shape)), net_arch=self.net_arch_pi, activation_fn=self.activation_fn
         )
 
         self.actor_state = RLTrainState.create(
@@ -146,6 +101,7 @@ class TD3Policy(BaseJaxPolicy):
             use_layer_norm=self.layer_norm,
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
+            activation_fn=self.activation_fn,
         )
 
         self.qf_state = RLTrainState.create(
