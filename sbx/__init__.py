@@ -1,5 +1,6 @@
 import os
 
+from sbx.crossq import CrossQ
 from sbx.ddpg import DDPG
 from sbx.dqn import DQN
 from sbx.droq import DroQ
@@ -14,6 +15,7 @@ with open(version_file) as file_handler:
     __version__ = file_handler.read().strip()
 
 __all__ = [
+    "CrossQ",
     "DDPG",
     "DQN",
     "DroQ",

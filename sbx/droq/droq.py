@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
 
 from stable_baselines3.common.buffers import ReplayBuffer
@@ -75,6 +76,11 @@ class DroQ(TQC):
 
         self.policy_kwargs["dropout_rate"] = dropout_rate
         self.policy_kwargs["layer_norm"] = layer_norm
+
+        warnings.warn(
+            "Using DroQ class directly is deprecated and will be removed in v0.14.0 of SBX. "
+            "Please use SAC/TQC/CrossQ instead with the DroQ configuration, see https://github.com/araffin/sbx?tab=readme-ov-file#note-about-droq"
+        )
 
         if _init_setup_model:
             self._setup_model()

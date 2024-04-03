@@ -17,6 +17,7 @@ Implemented algorithms:
 - [Deep Q Network (DQN)](https://arxiv.org/abs/1312.5602)
 - [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
+- [Batch Normalization in Deep Reinforcement Learning (CrossQ)](https://openreview.net/forum?id=PczQtTsTIX)
 
 
 ### Install using pip
@@ -36,7 +37,7 @@ pip install sbx-rl
 ```python
 import gymnasium as gym
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
 
 env = gym.make("Pendulum-v1", render_mode="human")
 
@@ -61,15 +62,17 @@ Since SBX shares the SB3 API, it is compatible with the [RL Zoo](https://github.
 import rl_zoo3
 import rl_zoo3.train
 from rl_zoo3.train import train
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
 
 rl_zoo3.ALGOS["ddpg"] = DDPG
 rl_zoo3.ALGOS["dqn"] = DQN
-rl_zoo3.ALGOS["droq"] = DroQ
+# See note below to use DroQ configuration
+# rl_zoo3.ALGOS["droq"] = DroQ
 rl_zoo3.ALGOS["sac"] = SAC
 rl_zoo3.ALGOS["ppo"] = PPO
 rl_zoo3.ALGOS["td3"] = TD3
 rl_zoo3.ALGOS["tqc"] = TQC
+rl_zoo3.ALGOS["crossq"] = CrossQ
 rl_zoo3.train.ALGOS = rl_zoo3.ALGOS
 rl_zoo3.exp_manager.ALGOS = rl_zoo3.ALGOS
 
@@ -89,15 +92,17 @@ The same goes for the enjoy script:
 import rl_zoo3
 import rl_zoo3.enjoy
 from rl_zoo3.enjoy import enjoy
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
 
 rl_zoo3.ALGOS["ddpg"] = DDPG
 rl_zoo3.ALGOS["dqn"] = DQN
-rl_zoo3.ALGOS["droq"] = DroQ
+# See note below to use DroQ configuration
+# rl_zoo3.ALGOS["droq"] = DroQ
 rl_zoo3.ALGOS["sac"] = SAC
 rl_zoo3.ALGOS["ppo"] = PPO
 rl_zoo3.ALGOS["td3"] = TD3
 rl_zoo3.ALGOS["tqc"] = TQC
+rl_zoo3.ALGOS["crossq"] = CrossQ
 rl_zoo3.enjoy.ALGOS = rl_zoo3.ALGOS
 rl_zoo3.exp_manager.ALGOS = rl_zoo3.ALGOS
 
@@ -125,6 +130,11 @@ and then using the RL Zoo script defined above: `python train.py --algo sac --en
 We recommend playing with the `policy_delay` and `gradient_steps` parameters for better speed/efficiency.
 Having a higher learning rate for the q-value function is also helpful: `qf_learning_rate: !!float 1e-3`.
 
+Note: when using the DroQ configuration with CrossQ, you should set `layer_norm=False` as there is already batch normalization.
+
+## Benchmark
+
+A partial benchmark can be found on [OpenRL Benchmark](https://wandb.ai/openrlbenchmark/sbx) where you can also find several [reports](https://wandb.ai/openrlbenchmark/sbx/reportlist).
 
 
 ## Citing the Project
