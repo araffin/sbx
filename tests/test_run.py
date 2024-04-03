@@ -25,22 +25,23 @@ def check_save_load(model, model_class, tmp_path):
 
 
 def test_droq(tmp_path):
-    model = DroQ(
-        "MlpPolicy",
-        "Pendulum-v1",
-        learning_starts=50,
-        learning_rate=1e-3,
-        tau=0.02,
-        gamma=0.98,
-        verbose=1,
-        buffer_size=5000,
-        gradient_steps=2,
-        ent_coef="auto_1.0",
-        seed=1,
-        dropout_rate=0.001,
-        layer_norm=True,
-        # action_noise=NormalActionNoise(np.zeros(1), np.zeros(1)),
-    )
+    with pytest.warns(UserWarning, match="deprecated"):
+        model = DroQ(
+            "MlpPolicy",
+            "Pendulum-v1",
+            learning_starts=50,
+            learning_rate=1e-3,
+            tau=0.02,
+            gamma=0.98,
+            verbose=1,
+            buffer_size=5000,
+            gradient_steps=2,
+            ent_coef="auto_1.0",
+            seed=1,
+            dropout_rate=0.001,
+            layer_norm=True,
+            # action_noise=NormalActionNoise(np.zeros(1), np.zeros(1)),
+        )
     model.learn(total_timesteps=1500)
     # Check that something was learned
     evaluate_policy(model, model.get_env(), reward_threshold=-800)

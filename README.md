@@ -37,7 +37,7 @@ pip install sbx-rl
 ```python
 import gymnasium as gym
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ, CrossQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
 
 env = gym.make("Pendulum-v1", render_mode="human")
 
@@ -62,11 +62,12 @@ Since SBX shares the SB3 API, it is compatible with the [RL Zoo](https://github.
 import rl_zoo3
 import rl_zoo3.train
 from rl_zoo3.train import train
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ, CrossQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
 
 rl_zoo3.ALGOS["ddpg"] = DDPG
 rl_zoo3.ALGOS["dqn"] = DQN
-rl_zoo3.ALGOS["droq"] = DroQ
+# See note below to use DroQ configuration
+# rl_zoo3.ALGOS["droq"] = DroQ
 rl_zoo3.ALGOS["sac"] = SAC
 rl_zoo3.ALGOS["ppo"] = PPO
 rl_zoo3.ALGOS["td3"] = TD3
@@ -91,11 +92,12 @@ The same goes for the enjoy script:
 import rl_zoo3
 import rl_zoo3.enjoy
 from rl_zoo3.enjoy import enjoy
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ, CrossQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
 
 rl_zoo3.ALGOS["ddpg"] = DDPG
 rl_zoo3.ALGOS["dqn"] = DQN
-rl_zoo3.ALGOS["droq"] = DroQ
+# See note below to use DroQ configuration
+# rl_zoo3.ALGOS["droq"] = DroQ
 rl_zoo3.ALGOS["sac"] = SAC
 rl_zoo3.ALGOS["ppo"] = PPO
 rl_zoo3.ALGOS["td3"] = TD3
@@ -128,7 +130,7 @@ and then using the RL Zoo script defined above: `python train.py --algo sac --en
 We recommend playing with the `policy_delay` and `gradient_steps` parameters for better speed/efficiency.
 Having a higher learning rate for the q-value function is also helpful: `qf_learning_rate: !!float 1e-3`.
 
-
+Note: when using the DroQ configuration with CrossQ, you should set `layer_norm=False` as there is already batch normalization.
 
 ## Citing the Project
 
