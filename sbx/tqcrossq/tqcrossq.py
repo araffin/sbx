@@ -334,8 +334,8 @@ class TQCrossQ(OffPolicyAlgorithmJax):
             # Make target_quantiles broadcastable to (batch_size, n_quantiles, n_target_quantiles).
             target_quantiles = jnp.expand_dims(target_quantiles, axis=1)
 
-            qf1_loss = huber_quantile_loss(current_qf1_quantiles, target_quantiles)
-            qf2_loss = huber_quantile_loss(current_qf2_quantiles, target_quantiles)
+            qf1_loss = huber_quantile_loss(current_qf1_quantiles, jax.lax.stop_gradient(target_quantiles))
+            qf2_loss = huber_quantile_loss(current_qf2_quantiles, jax.lax.stop_gradient(target_quantiles))
 
             return qf1_loss + qf2_loss, (state1_updates, state2_updates)
 
