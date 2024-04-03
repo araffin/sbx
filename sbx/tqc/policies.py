@@ -22,6 +22,7 @@ class Critic(nn.Module):
     use_layer_norm: bool = False
     dropout_rate: Optional[float] = None
     n_quantiles: int = 25
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, a: jnp.ndarray, training: bool = False) -> jnp.ndarray:
@@ -33,7 +34,7 @@ class Critic(nn.Module):
                 x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
             if self.use_layer_norm:
                 x = nn.LayerNorm()(x)
-            x = nn.relu(x)
+            x = self.activation_fn(x)
         x = nn.Dense(self.n_quantiles)(x)
         return x
 
@@ -43,6 +44,7 @@ class Actor(nn.Module):
     action_dim: int
     log_std_min: float = -20
     log_std_max: float = 2
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     def get_std(self):
         # Make it work with gSDE
@@ -53,7 +55,7 @@ class Actor(nn.Module):
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
-            x = nn.relu(x)
+            x = self.activation_fn(x)
         mean = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
         log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
@@ -76,7 +78,7 @@ class TQCPolicy(BaseJaxPolicy):
         layer_norm: bool = False,
         top_quantiles_to_drop_per_net: int = 2,
         n_quantiles: int = 25,
-        # activation_fn: Type[nn.Module] = nn.ReLU,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
@@ -118,6 +120,7 @@ class TQCPolicy(BaseJaxPolicy):
         top_quantiles_to_drop_per_net = self.top_quantiles_to_drop_per_net
         self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * self.n_critics
         self.use_sde = use_sde
+        self.activation_fn = activation_fn
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -137,6 +140,7 @@ class TQCPolicy(BaseJaxPolicy):
         self.actor = Actor(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
+            activation_fn=self.activation_fn,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -155,6 +159,7 @@ class TQCPolicy(BaseJaxPolicy):
             use_layer_norm=self.layer_norm,
             net_arch=self.net_arch_qf,
             n_quantiles=self.n_quantiles,
+            activation_fn=self.activation_fn,
         )
 
         self.qf1_state = RLTrainState.create(

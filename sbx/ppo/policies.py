@@ -20,7 +20,7 @@ tfd = tfp.distributions
 
 class Critic(nn.Module):
     n_units: int = 256
-    activation_fn: Callable = nn.tanh
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -37,7 +37,7 @@ class Actor(nn.Module):
     action_dim: int
     n_units: int = 256
     log_std_init: float = 0.0
-    activation_fn: Callable = nn.tanh
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
     # For Discrete, MultiDiscrete and MultiBinary actions
     num_discrete_choices: Optional[Union[int, Sequence[int]]] = None
     # For MultiDiscrete
@@ -104,7 +104,7 @@ class PPOPolicy(BaseJaxPolicy):
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         ortho_init: bool = False,
         log_std_init: float = 0.0,
-        activation_fn=nn.tanh,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh,
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
