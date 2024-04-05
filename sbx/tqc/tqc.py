@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Literal, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
@@ -68,7 +68,7 @@ class TQC(OffPolicyAlgorithmJax):
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
-        target_entropy: Union[str, float] = "auto",
+        target_entropy: Union[Literal["auto"], float] = "auto",
         use_sde: bool = False,
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
