@@ -67,6 +67,7 @@ class SAC(OffPolicyAlgorithmJax):
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
+        target_entropy: Union[str, float] = "auto",
         use_sde: bool = False,
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
@@ -105,6 +106,7 @@ class SAC(OffPolicyAlgorithmJax):
 
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
+        self.target_entropy = target_entropy
 
         if _init_setup_model:
             self._setup_model()
@@ -157,8 +159,14 @@ class SAC(OffPolicyAlgorithmJax):
                 ),
             )
 
-        # automatically set target entropy if needed
-        self.target_entropy = -np.prod(self.action_space.shape).astype(np.float32)
+        # Target entropy is used when learning the entropy coefficient
+        if self.target_entropy == "auto":
+            # automatically set target entropy if needed
+            self.target_entropy = -np.prod(self.env.action_space.shape).astype(np.float32)  # type: ignore
+        else:
+            # Force conversion
+            # this will also throw an error for unexpected string
+            self.target_entropy = float(self.target_entropy)
 
     def learn(
         self,
