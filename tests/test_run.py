@@ -69,6 +69,7 @@ def test_tqc(tmp_path) -> None:
         gradient_steps=1,
         use_sde=True,
         qf_learning_rate=1e-3,
+        target_entropy=-10,
     )
     model.learn(200)
     check_save_load(model, TQC, tmp_path)
