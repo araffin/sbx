@@ -335,6 +335,6 @@ class TD3(OffPolicyAlgorithmJax):
         return (
             update_carry["qf_state"],
             update_carry["actor_state"],
-            key,
+            update_carry["key"],
             (update_carry["info"]["actor_loss"], update_carry["info"]["qf_loss"]),
         )
