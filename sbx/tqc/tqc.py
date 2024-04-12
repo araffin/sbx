@@ -531,7 +531,7 @@ class TQC(OffPolicyAlgorithmJax):
             update_carry["qf2_state"],
             update_carry["actor_state"],
             update_carry["ent_coef_state"],
-            key,
+            update_carry["key"],
             (
                 update_carry["info"]["qf1_loss"],
                 update_carry["info"]["qf2_loss"],

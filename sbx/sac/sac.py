@@ -445,6 +445,6 @@ class SAC(OffPolicyAlgorithmJax):
             update_carry["qf_state"],
             update_carry["actor_state"],
             update_carry["ent_coef_state"],
-            key,
+            update_carry["key"],
             (update_carry["info"]["actor_loss"], update_carry["info"]["qf_loss"], update_carry["info"]["ent_coef_loss"]),
         )
