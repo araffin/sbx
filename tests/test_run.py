@@ -84,7 +84,10 @@ def test_sac_td3(tmp_path, model_class) -> None:
         gradient_steps=1,
         learning_rate=1e-3,
     )
+    key_before_learn = model.key
     model.learn(110)
+    # See issue #45
+    assert not np.allclose(key_before_learn, model.key)
     check_save_load(model, model_class, tmp_path)
 
 
