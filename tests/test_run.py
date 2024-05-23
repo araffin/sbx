@@ -25,30 +25,31 @@ def check_save_load(model, model_class, tmp_path):
 
 
 def test_droq(tmp_path):
-    with pytest.warns(UserWarning, match="deprecated"):
-        model = DroQ(
-            "MlpPolicy",
-            "Pendulum-v1",
-            learning_starts=50,
-            learning_rate=1e-3,
-            tau=0.02,
-            gamma=0.98,
-            verbose=1,
-            buffer_size=5000,
-            gradient_steps=2,
-            ent_coef="auto_1.0",
-            seed=1,
-            dropout_rate=0.001,
-            layer_norm=True,
-            # action_noise=NormalActionNoise(np.zeros(1), np.zeros(1)),
-        )
+    with pytest.raises(ImportError, match="a special configuration of SAC"):
+        model = DroQ("MlpPolicy", "Pendulum-v1", learning_starts=50)
+
+    # DroQ used to be a child class of TQC, now it can be used with SAC/CrossQ/TQC
+    model = TQC(
+        "MlpPolicy",
+        "Pendulum-v1",
+        learning_starts=50,
+        learning_rate=1e-3,
+        tau=0.02,
+        gamma=0.98,
+        verbose=1,
+        buffer_size=5000,
+        gradient_steps=2,
+        ent_coef="auto_1.0",
+        seed=1,
+        policy_kwargs=dict(dropout_rate=0.01, layer_norm=True),
+    )
     model.learn(total_timesteps=1500)
     # Check that something was learned
     evaluate_policy(model, model.get_env(), reward_threshold=-800)
     model.save(tmp_path / "test_save.zip")
 
     env = model.get_env()
-    model = check_save_load(model, DroQ, tmp_path)
+    model = check_save_load(model, TQC, tmp_path)
     # Check we have the same performance
     evaluate_policy(model, env, reward_threshold=-800)
 
