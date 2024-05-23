@@ -179,8 +179,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                             self.policy.vf_state.params,
                             terminal_obs,
                         ).flatten()
-                    )
-
+                    ).item()
                     rewards[idx] += self.gamma * terminal_value
 
             rollout_buffer.add(
