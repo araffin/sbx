@@ -83,8 +83,8 @@ class BatchRenorm(Module):
     warmup_steps: int = 100_000
     dtype: Optional[Dtype] = None
     param_dtype: Dtype = jnp.float32
-    use_bias: bool = True
-    use_scale: bool = True
+    use_bias: bool = False
+    use_scale: bool = False
     bias_init: Callable[[PRNGKey, Shape, Dtype], Array] = initializers.zeros
     scale_init: Callable[[PRNGKey, Shape, Dtype], Array] = initializers.ones
     axis_name: Optional[str] = None
