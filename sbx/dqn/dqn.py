@@ -11,12 +11,13 @@ from stable_baselines3.common.utils import get_linear_fn
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
-from sbx.dqn.policies import DQNPolicy
+from sbx.dqn.policies import CNNPolicy, DQNPolicy
 
 
 class DQN(OffPolicyAlgorithmJax):
     policy_aliases: ClassVar[Dict[str, Type[DQNPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": DQNPolicy,
+        "CnnPolicy": CNNPolicy,
     }
     # Linear schedule will be defined in `_setup_model()`
     exploration_schedule: Schedule

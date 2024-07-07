@@ -28,6 +28,30 @@ class QNetwork(nn.Module):
         return x
 
 
+# Add CNN policy from DQN paper
+class NatureCNN(nn.Module):
+    n_actions: int
+    n_units: int = 512
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        # Convert to float and normalize the image
+        x = x.astype(jnp.float32) / 255.0
+        # TODO: check that padding SAME is equivalent to padding 0
+        x = nn.Conv(32, kernel_size=(8, 8), strides=4, padding="SAME")(x)
+        x = self.activation_fn(x)
+        x = nn.Conv(64, kernel_size=(4, 4), strides=2)(x)
+        x = self.activation_fn(x)
+        x = nn.Conv(64, kernel_size=(3, 3), strides=1)(x)
+        x = self.activation_fn(x)
+        x = Flatten()(x)
+        x = nn.Dense(self.n_units)(x)
+        x = self.activation_fn(x)
+        x = nn.Dense(self.n_actions)(x)
+        return x
+
+
 class DQNPolicy(BaseJaxPolicy):
     action_space: spaces.Discrete  # type: ignore[assignment]
 
@@ -65,7 +89,7 @@ class DQNPolicy(BaseJaxPolicy):
 
         obs = jnp.array([self.observation_space.sample()])
 
-        self.qf = QNetwork(
+        self.qf: nn.Module = QNetwork(
             n_actions=int(self.action_space.n),
             n_units=self.n_units,
             activation_fn=self.activation_fn,
@@ -97,3 +121,29 @@ class DQNPolicy(BaseJaxPolicy):
 
     def _predict(self, observation: np.ndarray, deterministic: bool = True) -> np.ndarray:  # type: ignore[override]
         return DQNPolicy.select_action(self.qf_state, observation)
+
+
+class CNNPolicy(DQNPolicy):
+    def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
+        key, qf_key = jax.random.split(key, 2)
+
+        obs = jnp.array([self.observation_space.sample()])
+
+        self.qf = NatureCNN(
+            n_actions=int(self.action_space.n),
+            n_units=self.n_units,
+            activation_fn=self.activation_fn,
+        )
+
+        self.qf_state = RLTrainState.create(
+            apply_fn=self.qf.apply,
+            params=self.qf.init({"params": qf_key}, obs),
+            target_params=self.qf.init({"params": qf_key}, obs),
+            tx=self.optimizer_class(
+                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
+                **self.optimizer_kwargs,
+            ),
+        )
+        self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
+
+        return key
