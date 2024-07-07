@@ -37,6 +37,7 @@ class DQN(OffPolicyAlgorithmJax):
         exploration_fraction: float = 0.1,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
+        optimize_memory_usage: bool = False,  # Note: unused but to match SB3 API
         # max_grad_norm: float = 10,
         train_freq: Union[int, Tuple[int, str]] = 4,
         gradient_steps: int = 1,
