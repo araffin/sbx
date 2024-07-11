@@ -11,12 +11,13 @@ from stable_baselines3.common.utils import get_linear_fn
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
-from sbx.dqn.policies import DQNPolicy
+from sbx.dqn.policies import CNNPolicy, DQNPolicy
 
 
 class DQN(OffPolicyAlgorithmJax):
     policy_aliases: ClassVar[Dict[str, Type[DQNPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": DQNPolicy,
+        "CnnPolicy": CNNPolicy,
     }
     # Linear schedule will be defined in `_setup_model()`
     exploration_schedule: Schedule
@@ -36,6 +37,7 @@ class DQN(OffPolicyAlgorithmJax):
         exploration_fraction: float = 0.1,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
+        optimize_memory_usage: bool = False,  # Note: unused but to match SB3 API
         # max_grad_norm: float = 10,
         train_freq: Union[int, Tuple[int, str]] = 4,
         gradient_steps: int = 1,

@@ -27,7 +27,7 @@ Implemented algorithms:
 ## Example
 
 ```python
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, DroQ, CrossQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
 
 model = TQC("MlpPolicy", "Pendulum-v1", verbose=1)
 model.learn(total_timesteps=10_000, progress_bar=True)
@@ -40,7 +40,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.3.0",
+        "stable_baselines3>=2.4.0a4,<3.0",
         "jax",
         "jaxlib",
         "flax",
