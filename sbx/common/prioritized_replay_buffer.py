@@ -1,4 +1,4 @@
-# from functools import partial
+from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import jax
@@ -17,12 +17,11 @@ class SumTree:
     SumTree: a binary tree data structure where the parent's value is the sum of its children.
     """
 
-    def __init__(self, buffer_size: int, rng_key: jax.Array):
+    def __init__(self, buffer_size: int):
         self.buffer_size = buffer_size
         self.tree = jnp.zeros(2 * buffer_size - 1)
         self.data = jnp.zeros(buffer_size, dtype=jnp.float32)
         self.size = 0
-        self.key = rng_key
 
     @staticmethod
     # TODO: try forcing on cpu
@@ -131,49 +130,73 @@ class SumTree:
         index, _ = jax.lax.while_loop(cond_fun, body_fun, (0, priority_sum))
         return index
 
-    # FIXME: not working yet
-    # @staticmethod
-    # def _stratified_sampling(
-    #     tree: jnp.ndarray,
-    #     data: jnp.ndarray,
-    #     buffer_size: int,
-    #     batch_size: int,
-    #     total_sum: float,
-    #     rng_key: jax.Array,
-    # ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jax.Array]:
-    #     sample_indices = jnp.zeros(batch_size, dtype=jnp.uint32)
-    #     priorities = jnp.zeros((batch_size, 1))
-    #     leaf_nodes_indices = jnp.zeros(batch_size, dtype=jnp.uint32)
+    @staticmethod
+    @jax.jit
+    def _batch_update(
+        tree: jnp.ndarray,
+        leaf_nodes_indices: jnp.ndarray,
+        priorities: jnp.ndarray,
+    ) -> jnp.ndarray:
+        for leaf_node_idx, priority in zip(leaf_nodes_indices, priorities):
+            tree = SumTree._update(tree, leaf_node_idx, priority)
+        return tree
 
-    #     # Using jax.lax.fori_loop to parallelize the sampling
-    #     def body_fun(batch_idx, args):
-    #         sample_indices, priorities, leaf_nodes_indices, rng_key = args
-    #         segment_size = total_sum / batch_size
-    #         start, end = segment_size * batch_idx, segment_size * (batch_idx + 1)
-    #         cumulative_sum = jax.random.uniform(rng_key, minval=start, maxval=end)
+    def batch_update(self, leaf_nodes_indices: np.ndarray, priorities: np.ndarray) -> None:
+        """
+        Batch update transition priorities.
 
-    #         leaf_node_idx, priority, sample_idx = SumTree._get(tree, data, buffer_size, cumulative_sum)
+        :param leaf_nodes_indices: Indices for the leaf nodes to update
+            (correponding to the transitions)
+        :param priorities: New priorities, td error in the case of
+            proportional prioritized replay buffer.
+        """
+        self.tree = self._batch_update(self.tree, leaf_nodes_indices, priorities)
 
-    #         leaf_nodes_indices = leaf_nodes_indices.at[batch_idx].set(leaf_node_idx)
-    #         priorities = priorities.at[batch_idx].set(priority.item())
-    #         sample_indices = sample_indices.at[batch_idx].set(sample_idx.item())
-    #         return sample_indices, priorities, leaf_nodes_indices, rng_key
+    partial(jax.jit, backend="cpu", static_argnums=(4,))
+    @staticmethod
+    def _stratified_sampling(
+        tree: jnp.ndarray,
+        data: jnp.ndarray,
+        capacity: int,
+        cumulative_sums: jnp.ndarray,
+        batch_size: int,
+    ):
+        leaf_nodes_indices = jnp.zeros(batch_size, dtype=jnp.uint32)
+        priorities = jnp.zeros(batch_size, dtype=jnp.float32)
+        sample_indices = jnp.zeros(batch_size, dtype=jnp.uint32)
 
-    #     sample_indices, priorities, leaf_nodes_indices, rng_key = jax.lax.fori_loop(
-    #         0, batch_size, body_fun, (sample_indices, priorities, leaf_nodes_indices, rng_key)
-    #     )
-    #     return sample_indices, priorities, leaf_nodes_indices, rng_key
+        # Using jax.lax.fori_loop to avoid the need for a static loop
+        def body_fun(i, val):
+            leaf_nodes_indices, priorities, sample_indices, cumulative_sums = val
+            leaf_node_idx, priority, transition_index = SumTree._get(tree, data, capacity, cumulative_sums[i])
+            leaf_nodes_indices = leaf_nodes_indices.at[i].set(leaf_node_idx)
+            priorities = priorities.at[i].set(priority)
+            sample_indices = sample_indices.at[i].set(transition_index)
+            return leaf_nodes_indices, priorities, sample_indices, cumulative_sums
 
-    # def stratified_sampling(self, batch_size: int) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    #     sample_indices, priorities, leaf_nodes_indices, self.key = self._stratified_sampling(
-    #         self.tree,
-    #         self.data,
-    #         self.buffer_size,
-    #         batch_size,
-    #         self.total_sum,
-    #         self.key,
-    #     )
-    #     return sample_indices, priorities, leaf_nodes_indices
+        leaf_nodes_indices, priorities, sample_indices, _ = jax.lax.fori_loop(
+            0,
+            batch_size,
+            body_fun,
+            (leaf_nodes_indices, priorities, sample_indices, cumulative_sums),
+        )
+        return leaf_nodes_indices, priorities, sample_indices
+
+    def stratified_sampling(self, batch_size: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Batch stratified sampling of transitions.
+
+        :param batch_size: Number of transitions to sample
+        :return: Tuple of leaf nodes indices, priorities and sample indices.
+        """
+        segment_size = self.total_sum / batch_size
+        starts = np.arange(batch_size) * segment_size
+        ends = starts + segment_size
+        cumulative_sums = np.random.uniform(starts, ends)
+        leaf_nodes_indices, priorities, sample_indices = self._stratified_sampling(
+            self.tree, self.data, self.buffer_size, cumulative_sums, batch_size
+        )
+        return leaf_nodes_indices, priorities, sample_indices
 
 
 class PrioritizedReplayBuffer(ReplayBuffer):
@@ -226,7 +249,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
             end_fraction=1.0,
         )
         # SumTree: data structure to store priorities
-        self.tree = SumTree(buffer_size=buffer_size, rng_key=jax.random.PRNGKey(0))
+        self.tree = SumTree(buffer_size=buffer_size)
 
     @property
     def beta(self) -> float:
@@ -269,30 +292,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         """
         assert self.buffer_size >= batch_size, "The buffer contains less samples than the batch size requires."
 
-        leaf_nodes_indices = np.zeros(batch_size, dtype=np.uint32)
-        priorities = np.zeros((batch_size, 1))
-        sample_indices = np.zeros(batch_size, dtype=np.uint32)
-
-        # To sample a minibatch of size k, the range [0, total_sum] is divided equally into k ranges.
-        # Next, a value is uniformly sampled from each range. Finally the transitions that correspond
-        # to each of these sampled values are retrieved from the tree.
-        segment_size = self.tree.total_sum / batch_size
-        for batch_idx in range(batch_size):
-            # extremes of the current segment
-            start, end = segment_size * batch_idx, segment_size * (batch_idx + 1)
-
-            # uniformely sample a value from the current segment
-            cumulative_sum = np.random.uniform(start, end)
-
-            # leaf_node_idx is a index of a sample in the tree, needed further to update priorities
-            # sample_idx is a sample index in buffer, needed further to sample actual transitions
-            leaf_node_idx, priority, sample_idx = self.tree.get(cumulative_sum)
-
-            leaf_nodes_indices[batch_idx] = leaf_node_idx
-            priorities[batch_idx] = priority
-            sample_indices[batch_idx] = sample_idx
-
-        # sample_indices, priorities, leaf_nodes_indices = self.tree.stratified_sampling(batch_size)
+        sample_indices, priorities, leaf_nodes_indices = self.tree.stratified_sampling(batch_size)
 
         # probability of sampling transition i as P(i) = p_i^alpha / \sum_{k} p_k^alpha
         # where p_i > 0 is the priority of transition i.
@@ -336,11 +336,8 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         # Update beta schedule
         self._current_progress_remaining = progress_remaining
 
-        for leaf_node_idx, td_error in zip(leaf_nodes_indices, td_errors):
-            # Proportional prioritization priority = (abs(td_error) + eps) ^ alpha
-            # where eps is a small positive constant that prevents the edge-case of transitions not being
-            # revisited once their error is zero. (Section 3.3)
-            priority = (abs(td_error) + self.min_priority) ** self.alpha
-            self.tree.update(leaf_node_idx, priority)
-            # Update max priority for new samples
-            self.max_priority = max(self.max_priority, priority)
+        # Batch update
+        priorities = (np.abs(td_errors) + self.min_priority) ** self.alpha
+        self.tree.batch_update(leaf_nodes_indices, priorities)
+        # Update max priority for new samples
+        self.max_priority = max(self.max_priority, priorities.max())
