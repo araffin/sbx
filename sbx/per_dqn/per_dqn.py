@@ -4,9 +4,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from stable_baselines3.common.prioritized_replay_buffer import PrioritizedReplayBuffer
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
+from sbx.common.prioritized_replay_buffer import PrioritizedReplayBuffer
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
 from sbx.dqn import DQN
 from sbx.dqn.policies import CNNPolicy, DQNPolicy
