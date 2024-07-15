@@ -90,7 +90,7 @@ class SegmentTree:
         end -= 1
         return self._reduce_helper(start, end, 1, 0, self._capacity - 1)
 
-    def __setitem__(self, idx: int, val: float) -> None:
+    def __setitem__(self, idx: np.ndarray, val: np.ndarray) -> None:
         """
         Set the value at index `idx` to `val`
 
@@ -244,7 +244,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         power_of_two = int(np.ceil(np.log2(buffer_size)))
         tree_capacity = 2**power_of_two
 
-        self.min_priority = min_priority
+        self._min_priority = min_priority
         self._max_priority = 1.0
 
         self._alpha = alpha
@@ -370,6 +370,9 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         # Update beta schedule
         self._current_progress_remaining = progress_remaining
 
+        # TODO: double check that all samples are updated
+        # priorities = np.abs(td_errors) + self.min_priority
+        priorities += self._min_priority
         # assert len(indices) == len(priorities)
         assert np.min(priorities) > 0
         assert np.min(indices) >= 0
