@@ -1,8 +1,14 @@
-# from functools import partial
-from typing import Any, Dict, List, Optional, Tuple, Union
+"""
+Segment tree implementation taken from Stable Baselines 2:
+https://github.com/hill-a/stable-baselines/blob/master/stable_baselines/common/segment_tree.py
 
-import jax
-import jax.numpy as jnp
+Notable differences:
+- This implementation uses numpy arrays to store the values (faster initialization)
+- We don't use a special function to have unique indices (no significant performance difference found)
+"""
+
+from typing import Any, Callable, Dict, List, Optional, Union
+
 import numpy as np
 import torch as th
 from gymnasium import spaces
@@ -12,146 +18,186 @@ from stable_baselines3.common.utils import get_linear_fn
 from stable_baselines3.common.vec_env.vec_normalize import VecNormalize
 
 
-class SumTree:
+class SegmentTree:
+    def __init__(self, capacity: int, reduce_op: Callable, neutral_element: float) -> None:
+        """
+        Build a Segment Tree data structure.
+
+        https://en.wikipedia.org/wiki/Segment_tree
+
+        Can be used as regular array that supports Index arrays, but with two
+        important differences:
+
+        a) setting item's value is slightly slower.
+            It is O(log capacity) instead of O(1).
+        b) user has access to an efficient ( O(log segment size) )
+            `reduce` operation which reduces `operation` over
+            a contiguous subsequence of items in the array.
+
+        :param capacity: Total size of the array - must be a power of two.
+        :param reduce_op: Operation for combining elements (eg. sum, max) must form a
+            mathematical group together with the set of possible values for array elements (i.e. be associative)
+        :param neutral_element: Neutral element for the operation above. eg. float('-inf') for max and 0 for sum.
+        """
+        assert capacity > 0 and capacity & (capacity - 1) == 0, f"Capacity must be positive and a power of 2, not {capacity}"
+        self._capacity = capacity
+        self._values = np.full(2 * capacity, neutral_element)
+        self._reduce_op = reduce_op
+        self.neutral_element = neutral_element
+
+    def _reduce_helper(self, start: int, end: int, node: int, node_start: int, node_end: int) -> float:
+        """
+        Query the value of the segment tree for the given range
+
+        :param start: start of the range
+        :param end: end of the range
+        :param node: current node in the segment tree
+        :param node_start: start of the range represented by the current node
+        :param node_end: end of the range represented by the current node
+        :return: result of reducing ``self.reduce_op`` over the specified range of array elements.
+        """
+        if start == node_start and end == node_end:
+            return self._values[node]
+        mid = (node_start + node_end) // 2
+        if end <= mid:
+            return self._reduce_helper(start, end, 2 * node, node_start, mid)
+        else:
+            if mid + 1 <= start:
+                return self._reduce_helper(start, end, 2 * node + 1, mid + 1, node_end)
+            else:
+                return self._reduce_op(
+                    self._reduce_helper(start, mid, 2 * node, node_start, mid),
+                    self._reduce_helper(mid + 1, end, 2 * node + 1, mid + 1, node_end),
+                )
+
+    def reduce(self, start: int = 0, end: Optional[int] = None) -> float:
+        """
+        Returns result of applying ``self.reduce_op``
+        to a contiguous subsequence of the array.
+
+        .. code-block:: python
+
+            self.reduce_op(arr[start], operation(arr[start+1], operation(... arr[end])))
+
+        :param start: beginning of the subsequence
+        :param end: end of the subsequences
+        :return: result of reducing ``self.reduce_op`` over the specified range of array elements.
+        """
+        if end is None:
+            end = self._capacity
+        if end < 0:
+            end += self._capacity
+        end -= 1
+        return self._reduce_helper(start, end, 1, 0, self._capacity - 1)
+
+    def __setitem__(self, idx: int, val: float) -> None:
+        """
+        Set the value at index `idx` to `val`
+
+        :param idx: index of the value to be updated
+        :param val: new value
+        """
+        # Indices of the leafs
+        indices = idx + self._capacity
+        self._values[indices] = val
+        if isinstance(indices, int):
+            indices = np.array([indices])
+        # Go up one level in the tree and remove duplicate indices
+        indices = np.unique(indices // 2)
+        while len(indices) > 1 or indices[0] > 0:
+            # As long as there are non-zero indices, update the corresponding values
+            self._values[indices] = self._reduce_op(self._values[2 * indices], self._values[2 * indices + 1])
+            # Go up one level in the tree and remove duplicate indices
+            indices = np.unique(indices // 2)
+
+    def __getitem__(self, idx: np.ndarray) -> np.ndarray:
+        """
+        Get the value(s) at index `idx`
+        """
+        assert np.max(idx) < self._capacity, f"Index must be less than capacity, got {np.max(idx)} >= {self._capacity}"
+        assert 0 <= np.min(idx)
+        return self._values[self._capacity + idx]
+
+
+class SumSegmentTree(SegmentTree):
     """
-    SumTree: a binary tree data structure where the parent's value is the sum of its children.
+    A Segment Tree data structure where each node contains the sum of the
+    values in its leaf nodes. Can be used as a Sum Tree for priorities.
     """
 
-    def __init__(self, buffer_size: int, rng_key: jax.Array):
-        self.buffer_size = buffer_size
-        self.tree = jnp.zeros(2 * buffer_size - 1)
-        self.data = jnp.zeros(buffer_size, dtype=jnp.float32)
-        self.size = 0
-        self.key = rng_key
+    def __init__(self, capacity: int) -> None:
+        super().__init__(capacity=capacity, reduce_op=np.add, neutral_element=0.0)
 
-    @staticmethod
-    # TODO: try forcing on cpu
-    # partial(jax.jit, backend="cpu")
-    @jax.jit
-    def _add(
-        tree: jnp.ndarray,
-        data: jnp.ndarray,
-        size: int,
-        capacity: int,
-        priority: float,
-        new_data: int,
-    ) -> Tuple[jnp.ndarray, jnp.ndarray, int]:
-        index = size + capacity - 1
-        data = data.at[size].set(new_data)
-        tree = SumTree._update(tree, index, priority)
-        size += 1
-        return tree, data, size
-
-    def add(self, priority: float, new_data: int) -> None:
+    def sum(self, start: int = 0, end: Optional[int] = None) -> float:
         """
-        Add a new transition with priority value,
-        it adds a new leaf node and update cumulative sum.
+        Returns arr[start] + ... + arr[end]
 
-        :param priority: Priority value.
-        :param new_data: Data for the new leaf node, storing transition index
-            in the case of the prioritized replay buffer.
+        :param start: start position of the reduction (must be >= 0)
+        :param end: end position of the reduction (must be < len(arr), can be None for len(arr) - 1)
+        :return: reduction of SumSegmentTree
         """
-        self.tree, self.data, self.size = self._add(self.tree, self.data, self.size, self.buffer_size, priority, new_data)
+        return super().reduce(start, end)
 
-    @staticmethod
-    @jax.jit
-    def _update(tree: jnp.ndarray, index: int, priority: float) -> jnp.ndarray:
-        change = priority - tree[index]
-        tree = tree.at[index].set(priority)
-        tree = SumTree._propagate(tree, index, change)
-        return tree
-
-    def update(self, leaf_node_idx: int, priority: float) -> None:
-        self.tree = self._update(self.tree, leaf_node_idx, priority)
-
-    @staticmethod
-    @jax.jit
-    def _propagate(tree: jnp.ndarray, index: int, change: float) -> jnp.ndarray:
-        def cond_fun(val) -> bool:
-            idx, _, _ = val
-            return idx > 0
-
-        def body_fun(val) -> Tuple[int, float, jnp.ndarray]:
-            idx, change, tree = val
-            parent = (idx - 1) // 2
-            tree = tree.at[parent].add(change)
-            return parent, change, tree
-
-        _, _, tree = jax.lax.while_loop(cond_fun, body_fun, (index, change, tree))
-        return tree
-
-    @property
-    def total_sum(self) -> float:
-        return self.tree[0].item()
-
-    @staticmethod
-    @jax.jit
-    def _get(
-        tree: jnp.ndarray,
-        data: jnp.ndarray,
-        capacity: int,
-        priority_sum: float,
-    ) -> Tuple[int, jnp.ndarray, jnp.ndarray]:
-        index = SumTree._retrieve(tree, priority_sum)
-        data_index = index - capacity + 1
-        return index, tree[index], data[data_index]
-
-    def get(self, cumulative_sum: float) -> Tuple[int, float, int]:
+    def find_prefixsum_idx(self, prefixsum: np.ndarray) -> np.ndarray:
         """
-        Get a leaf node index, its priority value and transition index by cumulative_sum value.
+        Find the highest index `i` in the array such that
+            sum(arr[0] + arr[1] + ... + arr[i - i]) <= prefixsum for each entry in prefixsum
 
-        :param cumulative_sum: Cumulative sum value.
-        :return: Leaf node index, its priority value and transition index.
+        if array values are probabilities, this function
+        allows to sample indices according to the discrete
+        probability efficiently.
+
+        :param prefixsum: float upper bounds on the sum of array prefix
+        :return: highest indices satisfying the prefixsum constraint
         """
-        leaf_tree_index, priority, transition_index = self._get(self.tree, self.data, self.buffer_size, cumulative_sum)
-        return leaf_tree_index, priority.item(), transition_index.item()
+        if isinstance(prefixsum, float):
+            prefixsum = np.array([prefixsum])
+        assert 0 <= np.min(prefixsum)
+        assert np.max(prefixsum) <= self.sum() + 1e-5
+        assert isinstance(prefixsum[0], float)
 
-    @staticmethod
-    @jax.jit
-    def _retrieve(tree: jnp.ndarray, priority_sum: float) -> int:
-        def cond_fun(args) -> bool:
-            idx, _ = args
-            left = 2 * idx + 1
-            return left < len(tree)
+        indices = np.ones(len(prefixsum), dtype=int)
+        should_continue = np.ones(len(prefixsum), dtype=bool)
 
-        def body_fun(args) -> Tuple[int, float]:
-            idx, priority_sum = args
-            left = 2 * idx + 1
-            right = left + 1
+        while np.any(should_continue):  # while not all nodes are leafs
+            indices[should_continue] = 2 * indices[should_continue]
+            prefixsum_new = np.where(
+                self._values[indices] <= prefixsum,
+                prefixsum - self._values[indices],
+                prefixsum,
+            )
+            # Prepare update of prefixsum for all right children
+            indices = np.where(
+                np.logical_or(self._values[indices] > prefixsum, np.logical_not(should_continue)),
+                indices,
+                indices + 1,
+            )
+            # Select child node for non-leaf nodes
+            prefixsum = prefixsum_new
+            # Update prefixsum
+            should_continue = indices < self._capacity
+        # Collect leafs
+        return indices - self._capacity
 
-            def left_branch(_) -> Tuple[int, float]:
-                return left, priority_sum
 
-            def right_branch(_) -> Tuple[int, float]:
-                return right, priority_sum - tree[left]
+class MinSegmentTree(SegmentTree):
+    """
+    A Segment Tree data structure where each node contains the minimum of the
+    values in its leaf nodes. Can be used as a Min Tree for priorities.
+    """
 
-            idx, priority_sum = jax.lax.cond(priority_sum <= tree[left], left_branch, right_branch, None)
-            return idx, priority_sum
+    def __init__(self, capacity: int) -> None:
+        super().__init__(capacity=capacity, reduce_op=np.minimum, neutral_element=float("inf"))
 
-        index, _ = jax.lax.while_loop(cond_fun, body_fun, (0, priority_sum))
-        return index
-
-    @staticmethod
-    @jax.jit
-    def _batch_update(
-        tree: jnp.ndarray,
-        leaf_nodes_indices: jnp.ndarray,
-        priorities: jnp.ndarray,
-    ) -> jnp.ndarray:
-        for leaf_node_idx, priority in zip(leaf_nodes_indices, priorities):
-            tree = SumTree._update(tree, leaf_node_idx, priority)
-        return tree
-
-    def batch_update(self, leaf_nodes_indices: np.ndarray, priorities: np.ndarray) -> None:
+    def min(self, start=0, end=None):
         """
-        Batch update transition priorities.
+        Returns min(arr[start], ...,  arr[end])
 
-        :param leaf_nodes_indices: Indices for the leaf nodes to update
-            (correponding to the transitions)
-        :param priorities: New priorities, td error in the case of
-            proportional prioritized replay buffer.
+        :param start: start position of the reduction (must be >= 0)
+        :param end: end position of the reduction (must be < len(arr), can be None for len(arr) - 1)
+        :return: reduction of MinSegmentTree
         """
-        self.tree = self._batch_update(self.tree, leaf_nodes_indices, priorities)
+        return super().reduce(start, end)
 
 
 class PrioritizedReplayBuffer(ReplayBuffer):
@@ -188,23 +234,36 @@ class PrioritizedReplayBuffer(ReplayBuffer):
     ):
         super().__init__(buffer_size, observation_space, action_space, device, n_envs)
 
+        # TODO: check if we can support optimize_memory_usage
         assert optimize_memory_usage is False, "PrioritizedReplayBuffer doesn't support optimize_memory_usage=True"
 
+        # TODO: add support for multi env
+        assert n_envs == 1, "PrioritizedReplayBuffer doesn't support n_envs > 1"
+
+        # Find the next power of 2 for the buffer size
+        power_of_two = int(np.ceil(np.log2(buffer_size)))
+        tree_capacity = 2**power_of_two
+
         self.min_priority = min_priority
-        self.alpha = alpha
-        self.max_priority = self.min_priority  # priority for new samples, init as eps
+        self._max_priority = 1.0
+
+        self._alpha = alpha
+
         # Track the training progress remaining (from 1 to 0)
         # this is used to update beta
         self._current_progress_remaining = 1.0
-        self.inital_beta = beta
-        self.final_beta = final_beta
+
+        # TODO: move beta schedule to the DQN algorithm
+        self._inital_beta = beta
+        self._final_beta = final_beta
         self.beta_schedule = get_linear_fn(
-            self.inital_beta,
-            self.final_beta,
+            self._inital_beta,
+            self._final_beta,
             end_fraction=1.0,
         )
-        # SumTree: data structure to store priorities
-        self.tree = SumTree(buffer_size=buffer_size, rng_key=jax.random.PRNGKey(0))
+
+        self._sum_tree = SumSegmentTree(tree_capacity)
+        self._min_tree = MinSegmentTree(tree_capacity)
 
     @property
     def beta(self) -> float:
@@ -231,7 +290,8 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         :param infos: Eventual information given by the environment.
         """
         # store transition index with maximum priority in sum tree
-        self.tree.add(self.max_priority, self.pos)
+        self._sum_tree[self.pos] = self._max_priority**self._alpha
+        self._min_tree[self.pos] = self._max_priority**self._alpha
 
         # store transition in the buffer
         super().add(obs, next_obs, action, reward, done, infos)
@@ -247,48 +307,32 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         """
         assert self.buffer_size >= batch_size, "The buffer contains less samples than the batch size requires."
 
-        leaf_nodes_indices = np.zeros(batch_size, dtype=np.uint32)
-        priorities = np.zeros((batch_size, 1))
-        sample_indices = np.zeros(batch_size, dtype=np.uint32)
+        # priorities = np.zeros((batch_size, 1))
+        # sample_indices = np.zeros(batch_size, dtype=np.uint32)
 
-        # To sample a minibatch of size k, the range [0, total_sum] is divided equally into k ranges.
-        # Next, a value is uniformly sampled from each range. Finally the transitions that correspond
-        # to each of these sampled values are retrieved from the tree.
-        segment_size = self.tree.total_sum / batch_size
-        for batch_idx in range(batch_size):
-            # extremes of the current segment
-            start, end = segment_size * batch_idx, segment_size * (batch_idx + 1)
+        # TODO: check how things are sampled in the original implementation
 
-            # uniformely sample a value from the current segment
-            cumulative_sum = np.random.uniform(start, end)
-
-            # leaf_node_idx is a index of a sample in the tree, needed further to update priorities
-            # sample_idx is a sample index in buffer, needed further to sample actual transitions
-            leaf_node_idx, priority, sample_idx = self.tree.get(cumulative_sum)
-
-            leaf_nodes_indices[batch_idx] = leaf_node_idx
-            priorities[batch_idx] = priority
-            sample_indices[batch_idx] = sample_idx
-
-        # sample_indices, priorities, leaf_nodes_indices = self.tree.stratified_sampling(batch_size)
+        sample_indices = self._sample_proportional(batch_size)
+        leaf_nodes_indices = sample_indices
 
         # probability of sampling transition i as P(i) = p_i^alpha / \sum_{k} p_k^alpha
         # where p_i > 0 is the priority of transition i.
-        probs = priorities / self.tree.total_sum
+        # probs = priorities / self.tree.total_sum
+        probabilities = self._sum_tree[sample_indices] / self._sum_tree.sum()
 
         # Importance sampling weights.
         # All weights w_i were scaled so that max_i w_i = 1.
-        weights = (self.size() * probs + 1e-7) ** -self.beta
+        # weights = (self.size() * probs + 1e-7) ** -self.beta
+        # min_probability = self._min_tree.min() / self._sum_tree.sum()
+        # max_weight = (min_probability * self.size()) ** (-self.beta)
+        # weights = (probabilities * self.size()) ** (-self.beta) / max_weight
+        weights = (probabilities * self.size()) ** (-self.beta)
         weights = weights / weights.max()
 
         # TODO: add proper support for multi env
         # env_indices = np.random.randint(0, high=self.n_envs, size=(batch_size,))
         env_indices = np.zeros(batch_size, dtype=np.uint32)
-
-        if self.optimize_memory_usage:
-            next_obs = self._normalize_obs(self.observations[(sample_indices + 1) % self.buffer_size, env_indices, :], env)
-        else:
-            next_obs = self._normalize_obs(self.next_observations[sample_indices, env_indices, :], env)
+        next_obs = self._normalize_obs(self.next_observations[sample_indices, env_indices, :], env)
 
         batch = (
             self._normalize_obs(self.observations[sample_indices, env_indices, :], env),
@@ -300,22 +344,39 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, batch)), leaf_nodes_indices)  # type: ignore[arg-type,call-arg]
 
-    def update_priorities(self, leaf_nodes_indices: np.ndarray, td_errors: np.ndarray, progress_remaining: float) -> None:
+    def _sample_proportional(self, batch_size: int) -> np.ndarray:
         """
-        Update transition priorities.
+        Sample a batch of leaf nodes indices using the proportional prioritization strategy.
+        In other words, the probability of sampling a transition is proportional to its priority.
 
-        :param leaf_nodes_indices: Indices for the leaf nodes to update
-            (correponding to the transitions)
+        :param batch_size: Number of element to sample
+        :return: Indices of the sampled leaf nodes
+        """
+        # TODO: double check if this is correct
+        total = self._sum_tree.sum(0, self.size() - 1)
+        priorities_sum = np.random.random(size=batch_size) * total
+        return self._sum_tree.find_prefixsum_idx(priorities_sum)
+
+    # def update_priorities(self, indices: np.ndarray, priorities: np.ndarray) -> None:
+    def update_priorities(self, indices: np.ndarray, priorities: np.ndarray, progress_remaining: float) -> None:
+        """
+        Update priorities of sampled transitions.
+
+        :param leaf_nodes_indices: Indices of the sampled transitions.
         :param td_errors: New priorities, td error in the case of
             proportional prioritized replay buffer.
-        :param progress_remaining: Current progress remaining (starts from 1 and ends to 0)
-            to linearly anneal beta from its start value to 1.0 at the end of training
         """
+        # TODO: move beta to the DQN algorithm
         # Update beta schedule
         self._current_progress_remaining = progress_remaining
 
-        # Batch update
-        priorities = (np.abs(td_errors) + self.min_priority) ** self.alpha
-        self.tree.batch_update(leaf_nodes_indices, priorities)
+        # assert len(indices) == len(priorities)
+        assert np.min(priorities) > 0
+        assert np.min(indices) >= 0
+        assert np.max(indices) < self.buffer_size
+        # TODO: check if we need to add the min_priority here
+        # priorities = (np.abs(td_errors) + self.min_priority) ** self.alpha
+        self._sum_tree[indices] = priorities**self._alpha
+        self._min_tree[indices] = priorities**self._alpha
         # Update max priority for new samples
-        self.max_priority = max(self.max_priority, priorities.max())
+        self._max_priority = max(self._max_priority, np.max(priorities))
