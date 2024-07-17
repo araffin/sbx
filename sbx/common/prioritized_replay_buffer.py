@@ -293,9 +293,6 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         """
         # assert self.buffer_size >= batch_size, "The buffer contains less samples than the batch size requires."
 
-        # priorities = np.zeros((batch_size, 1))
-        # sample_indices = np.zeros(batch_size, dtype=np.uint32)
-
         # TODO: check how things are sampled in the original implementation
 
         leaf_nodes_indices = self._sample_proportional(batch_size)
@@ -307,17 +304,16 @@ class PrioritizedReplayBuffer(ReplayBuffer):
 
         # probability of sampling transition i as P(i) = p_i^alpha / \sum_{k} p_k^alpha
         # where p_i > 0 is the priority of transition i.
-        # probs = priorities / self.tree.total_sum
-        probabilities = self._sum_tree[leaf_nodes_indices] / self._sum_tree.sum()
+        total_priorities = self._sum_tree.sum()
+        probabilities = self._sum_tree[leaf_nodes_indices] / total_priorities
 
         # Importance sampling weights.
         # All weights w_i were scaled so that max_i w_i = 1.
-        # weights = (self.size() * probs + 1e-7) ** -self.beta
-        # min_probability = self._min_tree.min() / self._sum_tree.sum()
-        # max_weight = (min_probability * self.size()) ** (-self.beta)
-        # weights = (probabilities * self.size()) ** (-self.beta) / max_weight
-        weights = (probabilities * self.size()) ** (-beta)
-        weights = weights / weights.max()
+        min_probability = self._min_tree.min() / total_priorities
+        max_weight = (min_probability * self.size()) ** (-beta)
+        weights = (probabilities * self.size()) ** (-beta) / max_weight
+        # weights = (probabilities * self.size()) ** (-beta)
+        # weights = weights / weights.max()
 
         # env_indices = np.random.randint(0, high=self.n_envs, size=(batch_size,))
         # env_indices = np.zeros(batch_size, dtype=np.uint32)
