@@ -191,7 +191,7 @@ class MinSegmentTree(SegmentTree):
     def __init__(self, capacity: int) -> None:
         super().__init__(capacity=capacity, reduce_op=np.minimum, neutral_element=float("inf"))
 
-    def min(self, start=0, end=None):
+    def min(self, start: int = 0, end: Optional[int] = None) -> float:
         """
         Returns min(arr[start], ...,  arr[end])
 
@@ -294,24 +294,35 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         # assert self.buffer_size >= batch_size, "The buffer contains less samples than the batch size requires."
 
         # TODO: check how things are sampled in the original implementation
+        # Note: should be the same as self._sum_tree.sum(0, buffer_size - 1)
+        total_priorities = self._sum_tree.sum()
+        buffer_size = self.size() * self.n_envs
 
-        leaf_nodes_indices = self._sample_proportional(batch_size)
+        # leaf_nodes_indices = self._sample_proportional(batch_size, total_priorities)
+        # TODO: check that the sampled indices are valid:
+        #  - they should be in the range [0, buffer_size)
+        leaf_nodes_indices = self._stratified_sampling(batch_size, total_priorities)
+        # debug: uniform sampling
+        # leaf_nodes_indices = np.random.randint(0, buffer_size, size=batch_size)
+
         # Convert the leaf nodes indices to buffer indices
         # Replay buffer: (idx, env_idx)
         # Sum tree: idx * self.n_envs + env_idx
         buffer_indices = leaf_nodes_indices // self.n_envs
         env_indices = leaf_nodes_indices % self.n_envs
 
+        # assert np.all(buffer_indices < self.size()), f"Invalid indices: {buffer_indices} >= {self.size()}"
+
         # probability of sampling transition i as P(i) = p_i^alpha / \sum_{k} p_k^alpha
         # where p_i > 0 is the priority of transition i.
-        total_priorities = self._sum_tree.sum()
         probabilities = self._sum_tree[leaf_nodes_indices] / total_priorities
 
         # Importance sampling weights.
         # All weights w_i were scaled so that max_i w_i = 1.
         min_probability = self._min_tree.min() / total_priorities
-        max_weight = (min_probability * self.size()) ** (-beta)
-        weights = (probabilities * self.size()) ** (-beta) / max_weight
+        # FIXME: self.size() doesn't take into account the number of envs
+        max_weight = (min_probability * buffer_size) ** (-beta)
+        weights = (probabilities * buffer_size) ** (-beta) / max_weight
         # weights = (probabilities * self.size()) ** (-beta)
         # weights = weights / weights.max()
 
@@ -331,18 +342,33 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, batch)), leaf_nodes_indices)  # type: ignore[arg-type,call-arg]
 
-    def _sample_proportional(self, batch_size: int) -> np.ndarray:
+    # def _sample_proportional(self, batch_size: int, total_priorities: float) -> np.ndarray:
+    #     """
+    #     Sample a batch of leaf nodes indices using the proportional prioritization strategy.
+    #     In other words, the probability of sampling a transition is proportional to its priority.
+
+    #     :param batch_size: Number of element to sample
+    #     :return: Indices of the sampled leaf nodes
+    #     """
+    #     # TODO: double check if this is correct
+    #     # total = self._sum_tree.sum(0, self.size() - 1)
+    #     # priorities_sum = np.random.random(size=batch_size) * total_priorities
+    #     priorities_sum = np.random.uniform(0, total_priorities, size=batch_size)
+    #     return self._sum_tree.find_prefixsum_idx(priorities_sum)
+
+    def _stratified_sampling(self, batch_size: int, total_priorities: float) -> np.ndarray:
         """
-        Sample a batch of leaf nodes indices using the proportional prioritization strategy.
-        In other words, the probability of sampling a transition is proportional to its priority.
+        To sample a minibatch of size k, the range [0, total_sum] is divided equally into k ranges.
+        Next, a value is uniformly sampled from each range. Finally the transitions that correspond
+        to each of these sampled values are retrieved from the tree.
 
         :param batch_size: Number of element to sample
+        :param total_priorities: Sum of all priorities in the sum tree.
         :return: Indices of the sampled leaf nodes
         """
-        # TODO: double check if this is correct
-        total = self._sum_tree.sum(0, self.size() - 1)
-        priorities_sum = np.random.random(size=batch_size) * total
-        return self._sum_tree.find_prefixsum_idx(priorities_sum)
+        segments = np.linspace(0, total_priorities, num=batch_size + 1)
+        desired_priorities = np.random.uniform(segments[:-1], segments[1:], size=batch_size)
+        return self._sum_tree.find_prefixsum_idx(desired_priorities)
 
     # def update_priorities(self, indices: np.ndarray, priorities: np.ndarray) -> None:
     def update_priorities(self, leaf_nodes_indices: np.ndarray, priorities: np.ndarray) -> None:
@@ -359,7 +385,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         # assert len(indices) == len(priorities)
         assert np.min(priorities) > 0
         assert np.min(leaf_nodes_indices) >= 0
-        assert np.max(leaf_nodes_indices) < self.buffer_size
+        # assert np.max(leaf_nodes_indices) < self.buffer_size * self.n_envs
         # TODO: check if we need to add the min_priority here
         # priorities = (np.abs(td_errors) + self.min_priority) ** self.alpha
         self._sum_tree[leaf_nodes_indices] = priorities**self._alpha
