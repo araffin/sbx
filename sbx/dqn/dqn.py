@@ -135,11 +135,12 @@ class DQN(OffPolicyAlgorithmJax):
             progress_bar=progress_bar,
         )
 
-    def train(self, batch_size: int, gradient_steps: int) -> None:
+    def train(self, gradient_steps: int, batch_size: int) -> None:
+        assert self.replay_buffer is not None
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
         # Convert to numpy
-        data = ReplayBufferSamplesNp(
+        data = ReplayBufferSamplesNp(  # type: ignore[assignment]
             data.observations.numpy(),
             # Convert to int64
             data.actions.long().numpy(),

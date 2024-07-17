@@ -25,6 +25,7 @@ class PERDQN(DQN):
     # Linear schedule will be defined in `_setup_model()`
     exploration_schedule: Schedule
     policy: DQNPolicy
+    replay_buffer: PrioritizedReplayBuffer
 
     def __init__(
         self,
@@ -111,19 +112,20 @@ class PERDQN(DQN):
             progress_bar=progress_bar,
         )
 
-    def train(self, batch_size: int, gradient_steps: int) -> None:
+    def train(self, gradient_steps: int, batch_size: int) -> None:
+        assert self.replay_buffer is not None
         # Sample all at once for efficiency (so we can jit the for loop)
-        data = self.replay_buffer.sample(batch_size * gradient_steps, self.beta, env=self._vec_normalize_env)
+        th_data = self.replay_buffer.sample(batch_size * gradient_steps, self.beta, env=self._vec_normalize_env)
         # Convert to numpy
         data = ReplayBufferSamplesNp(
-            data.observations.numpy(),
+            th_data.observations.numpy(),
             # Convert to int64
-            data.actions.long().numpy(),
-            data.next_observations.numpy(),
-            data.dones.numpy().flatten(),
-            data.rewards.numpy().flatten(),
-            data.weights.numpy().flatten(),
-            data.leaf_nodes_indices,
+            th_data.actions.long().numpy(),
+            th_data.next_observations.numpy(),
+            th_data.dones.numpy().flatten(),
+            th_data.rewards.numpy().flatten(),
+            th_data.weights.numpy().flatten(),  # type: ignore[union-attr]
+            th_data.leaf_nodes_indices,
         )
         # Pre compute the slice indices
         # otherwise jax will complain
@@ -158,12 +160,17 @@ class PERDQN(DQN):
         # Update priorities, they will be proportional to the td error
         # Note: compared to the original implementation, we update
         # the priorities after all the gradient steps
+        assert data.leaf_nodes_indices is not None
         self.replay_buffer.update_priorities(data.leaf_nodes_indices, priorities)
 
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/critic_loss", qf_loss_value.item())
         self.logger.record("train/qf_mean_value", qf_mean_value.item())
+        self.logger.record("train/beta", self.beta)
+        self.logger.record("train/min_priority", priorities.min().item())
+        self.logger.record("train/max_priority", priorities.max().item())
+        self.logger.record("train/mean_priority", priorities.mean().item())
 
     @staticmethod
     @jax.jit

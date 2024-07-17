@@ -282,7 +282,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         # Store transition in the buffer
         super().add(obs, next_obs, action, reward, done, infos)
 
-    def sample(self, batch_size: int, beta: float, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
+    def sample(self, batch_size: int, beta: float, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:  # type: ignore[override]
         """
         Sample elements from the prioritized replay buffer.
 
