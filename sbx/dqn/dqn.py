@@ -227,7 +227,9 @@ class DQN(OffPolicyAlgorithmJax):
         This method is called in ``collect_rollouts()`` after each step in the environment.
         """
         self._n_calls += 1
-        if self._n_calls % self.target_update_interval == 0:
+        # Account for multiple environments
+        # each call to step() corresponds to n_envs transitions
+        if self._n_calls % max(self.target_update_interval // self.n_envs, 1) == 0:
             self.policy.qf_state = DQN.soft_update(self.tau, self.policy.qf_state)
 
         self.exploration_rate = self.exploration_schedule(self._current_progress_remaining)
