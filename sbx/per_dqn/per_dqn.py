@@ -91,8 +91,9 @@ class PERDQN(DQN):
 
     @property
     def beta(self) -> float:
+        return 0.5  # same as Dopamine RL
         # Linear schedule
-        return self.beta_schedule(self._current_progress_remaining)
+        # return self.beta_schedule(self._current_progress_remaining)
 
     def learn(
         self,
