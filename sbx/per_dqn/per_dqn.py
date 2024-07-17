@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
+from stable_baselines3.common.utils import get_linear_fn
 
 from sbx.common.prioritized_replay_buffer import PrioritizedReplayBuffer
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
@@ -39,6 +40,8 @@ class PERDQN(DQN):
         exploration_fraction: float = 0.1,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
+        initial_beta: float = 0.4,
+        final_beta: float = 1.0,
         optimize_memory_usage: bool = False,  # Note: unused but to match SB3 API
         # max_grad_norm: float = 10,
         train_freq: Union[int, Tuple[int, str]] = 4,
@@ -77,6 +80,19 @@ class PERDQN(DQN):
             _init_setup_model=_init_setup_model,
         )
 
+        self._inital_beta = initial_beta
+        self._final_beta = final_beta
+        self.beta_schedule = get_linear_fn(
+            self._inital_beta,
+            self._final_beta,
+            end_fraction=1.0,
+        )
+
+    @property
+    def beta(self) -> float:
+        # Linear schedule
+        return self.beta_schedule(self._current_progress_remaining)
+
     def learn(
         self,
         total_timesteps: int,
@@ -97,7 +113,7 @@ class PERDQN(DQN):
 
     def train(self, batch_size: int, gradient_steps: int) -> None:
         # Sample all at once for efficiency (so we can jit the for loop)
-        data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
+        data = self.replay_buffer.sample(batch_size * gradient_steps, self.beta, env=self._vec_normalize_env)
         # Convert to numpy
         data = ReplayBufferSamplesNp(
             data.observations.numpy(),
@@ -121,7 +137,7 @@ class PERDQN(DQN):
             "info": {
                 "critic_loss": jnp.array([0.0]),
                 "qf_mean_value": jnp.array([0.0]),
-                "td_error": jnp.zeros_like(data.rewards),
+                "priorities": jnp.zeros_like(data.rewards),
             },
         }
 
@@ -137,12 +153,12 @@ class PERDQN(DQN):
         self.policy.qf_state = update_carry["qf_state"]
         qf_loss_value = update_carry["info"]["critic_loss"]
         qf_mean_value = update_carry["info"]["qf_mean_value"] / gradient_steps
-        td_error = update_carry["info"]["td_error"]
+        priorities = update_carry["info"]["priorities"]
 
         # Update priorities, they will be proportional to the td error
         # Note: compared to the original implementation, we update
         # the priorities after all the gradient steps
-        self.replay_buffer.update_priorities(data.leaf_nodes_indices, td_error, self._current_progress_remaining)
+        self.replay_buffer.update_priorities(data.leaf_nodes_indices, priorities)
 
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
@@ -179,24 +195,24 @@ class PERDQN(DQN):
             # Retrieve the q-values for the actions from the replay buffer
             current_q_values = jnp.take_along_axis(current_q_values, replay_actions, axis=1)
             # TD error in absolute value, to update priorities
-            td_error = jnp.abs(current_q_values - target_q_values)
+            priorities = jnp.abs(current_q_values - target_q_values)
             # Weighted Huber loss using importance sampling weights
             loss = (sampling_weights * optax.huber_loss(current_q_values, target_q_values)).mean()
-            return loss, (current_q_values.mean(), td_error.flatten())
+            return loss, (current_q_values.mean(), priorities.flatten())
 
-        (qf_loss_value, (qf_mean_value, td_error)), grads = jax.value_and_grad(weighted_huber_loss, has_aux=True)(
+        (qf_loss_value, (qf_mean_value, priorities)), grads = jax.value_and_grad(weighted_huber_loss, has_aux=True)(
             qf_state.params
         )
         qf_state = qf_state.apply_gradients(grads=grads)
 
-        return qf_state, (qf_loss_value, qf_mean_value, td_error)
+        return qf_state, (qf_loss_value, qf_mean_value, priorities)
 
     @staticmethod
     @jax.jit
     def _train(carry, indices):
         data = carry["data"]
 
-        qf_state, (qf_loss_value, qf_mean_value, td_error) = PERDQN.update_qnetwork(
+        qf_state, (qf_loss_value, qf_mean_value, priorities) = PERDQN.update_qnetwork(
             carry["gamma"],
             carry["qf_state"],
             observations=data.observations[indices],
@@ -210,6 +226,6 @@ class PERDQN(DQN):
         carry["qf_state"] = qf_state
         carry["info"]["critic_loss"] += qf_loss_value
         carry["info"]["qf_mean_value"] += qf_mean_value
-        carry["info"]["td_error"] = carry["info"]["td_error"].at[indices].set(td_error)
+        carry["info"]["priorities"] = carry["info"]["priorities"].at[indices].set(priorities)
 
         return carry, None
