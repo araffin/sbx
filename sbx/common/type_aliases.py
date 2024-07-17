@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import NamedTuple, Optional, Union
 
 import flax
 import numpy as np
@@ -19,3 +19,5 @@ class ReplayBufferSamplesNp(NamedTuple):
     next_observations: np.ndarray
     dones: np.ndarray
     rewards: np.ndarray
+    weights: Union[np.ndarray, float] = 1.0
+    leaf_nodes_indices: Optional[np.ndarray] = None
