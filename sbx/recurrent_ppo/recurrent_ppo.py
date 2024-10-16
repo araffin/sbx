@@ -17,7 +17,7 @@ from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 from stable_baselines3.common.vec_env import VecEnv
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
-from sbx.common.recurrent import RecurrentRolloutBuffer
+from sbx.common.recurrent import RecurrentRolloutBuffer, LSTMStates
 # TODO : Fix this import 
 from sbx.recurrent_ppo.policies import RecurrentPPOPolicy as PPOPolicy
 from sbx.recurrent_ppo.policies import ScanLSTM
@@ -173,7 +173,6 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         if _init_setup_model:
             self._setup_model()
 
-    # TODO : Update the setup model function to add the lstm info ... (maybe not necessary because all in actor and value nets)
     def _setup_model(self) -> None:
         # super()._setup_model()
         self._setup_lr_schedule()
@@ -196,10 +195,17 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
             self.vf = self.policy.vf
 
         hidden_state_shape = self.policy.actor.n_units
-        # TODO : create the last lstm states (dummy atm) --> should surely use the init carry method 
-        lstm_states = ScanLSTM.initialize_carry(self.n_envs, hidden_state_shape) # (1, 64) because 1 env
-        self._last_lstm_states = lstm_states 
-        # self._last_lstm_states = jnp.zeros((2, hidden_state_shape)) # (2, 64) because two lstm states of 1 env --> should surely be of shape (2, 1, 64)
+        # init one lstm state
+        lstm_states = ScanLSTM.initialize_carry(self.n_envs, hidden_state_shape)
+        # use it to initialize the lstm states of the actor and the critic
+        # TODO : check if I need to do a copy or not
+        tuple_lstm_states = LSTMStates(
+            pi=lstm_states,
+            vf=lstm_states,
+        )
+        self._last_lstm_states = tuple_lstm_states 
+
+        lstm_state_buffer_shape = (self.n_steps, self.n_envs, hidden_state_shape)
 
         # TODO : Make this a recurrent rollout buffer --> add lstm states in it
         self.rollout_buffer = RecurrentRolloutBuffer(
@@ -210,7 +216,7 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
             gae_lambda=self.gae_lambda,
             n_envs=self.n_envs,
             # TODO : Add the good hidden state shape
-            hidden_state_shape=hidden_state_shape,
+            lstm_state_buffer_shape=lstm_state_buffer_shape,
             device="cpu",
         )
 

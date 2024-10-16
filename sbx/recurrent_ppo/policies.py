@@ -109,6 +109,9 @@ class Actor(nn.Module):
         # Add embedding like in purejaxrl atm
 
         hidden, out = ScanLSTM()(hidden, obs_dones)
+        # TODO : check if that still works well (had a problem with a new axis=0 that shouldn't be there)
+        out = jnp.squeeze(out, axis=0)
+
         x = nn.Dense(self.n_units)(out)
         x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
@@ -297,10 +300,10 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
     def forward(self, obs: np.ndarray, lstm_states, deterministic: bool = False) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
 
-    # TODO : Add the lstm state to the thing ? Maybe not here
+    # TODO : Add the lstm state to the _predict_method
     def _predict(self, observation: np.ndarray, lstm_states, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:
-            # TODO : include lstm_states here 
+            # TODO : pass the lstm state here (see how to do it cleanly)
             return BaseJaxPolicy.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
@@ -314,14 +317,16 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
     @staticmethod
     @jax.jit
     def _predict_all(actor_state, vf_state, observations, dones, lstm_states, key):
+        # get the lstm states for the actor and the critic
+        act_lstm_states, vf_lstm_states = lstm_states
+
         # TODO : check if really need to add this dimension to obs and dones
         ac_in = (observations[np.newaxis, :], dones[np.newaxis, :])
-        # actor pass
-        act_lstm_states, dist = actor_state.apply_fn(actor_state.params, lstm_states, ac_in)
+        act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, ac_in)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
-        # value pass
-        vf_lstm_states, values = vf_state.apply_fn(vf_state.params, lstm_states, ac_in)
+
+        vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, ac_in)
         values = values.flatten()
         lstm_states = (act_lstm_states, vf_lstm_states)
         return actions, log_probs, values, lstm_states

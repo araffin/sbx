@@ -248,9 +248,9 @@ class PPOPolicy(BaseJaxPolicy):
 
     @staticmethod
     @jax.jit
-    def _predict_all(actor_state, vf_state, obervations, key):
-        dist = actor_state.apply_fn(actor_state.params, obervations)
+    def _predict_all(actor_state, vf_state, observations, key):
+        dist = actor_state.apply_fn(actor_state.params, observations)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
-        values = vf_state.apply_fn(vf_state.params, obervations).flatten()
+        values = vf_state.apply_fn(vf_state.params, observations).flatten()
         return actions, log_probs, values
