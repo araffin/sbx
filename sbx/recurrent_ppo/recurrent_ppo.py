@@ -1,23 +1,31 @@
 import warnings
+from copy import deepcopy
 from functools import partial
 from typing import Any, ClassVar, Dict, Optional, Type, TypeVar, Union
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import torch as th
+import gymnasium as gym
 from flax.training.train_state import TrainState
 from gymnasium import spaces
+# from stable_baselines3.common.buffers import RolloutBuffer
+from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import explained_variance, get_schedule_fn
+from stable_baselines3.common.vec_env import VecEnv
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
+from sbx.common.recurrent import RecurrentRolloutBuffer
 # TODO : Fix this import 
-from sbx.r_ppo.policies import RPPOPolicy as PPOPolicy
+from sbx.recurrent_ppo.policies import RecurrentPPOPolicy as PPOPolicy
+from sbx.recurrent_ppo.policies import ScanLSTM
 
-RPPOSelf = TypeVar("RPPOSelf", bound="RPPO")
+RPPOSelf = TypeVar("RPPOSelf", bound="RecurrentPPO")
 
 
-class RPPO(OnPolicyAlgorithmJax):
+class RecurrentPPO(OnPolicyAlgorithmJax):
     """
     Proximal Policy Optimization algorithm (PPO) (clip version)
 
@@ -165,8 +173,11 @@ class RPPO(OnPolicyAlgorithmJax):
         if _init_setup_model:
             self._setup_model()
 
+    # TODO : Update the setup model function to add the lstm info ... (maybe not necessary because all in actor and value nets)
     def _setup_model(self) -> None:
-        super()._setup_model()
+        # super()._setup_model()
+        self._setup_lr_schedule()
+        self.set_random_seed(self.seed)
 
         if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
             self.policy = self.policy_class(  # type: ignore[assignment]
@@ -178,10 +189,30 @@ class RPPO(OnPolicyAlgorithmJax):
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.max_grad_norm)
 
+            # TODO : what is ent_key ?
             self.key, ent_key = jax.random.split(self.key, 2)
 
             self.actor = self.policy.actor
             self.vf = self.policy.vf
+
+        hidden_state_shape = self.policy.actor.n_units
+        # TODO : create the last lstm states (dummy atm) --> should surely use the init carry method 
+        lstm_states = ScanLSTM.initialize_carry(self.n_envs, hidden_state_shape) # (1, 64) because 1 env
+        self._last_lstm_states = lstm_states 
+        # self._last_lstm_states = jnp.zeros((2, hidden_state_shape)) # (2, 64) because two lstm states of 1 env --> should surely be of shape (2, 1, 64)
+
+        # TODO : Make this a recurrent rollout buffer --> add lstm states in it
+        self.rollout_buffer = RecurrentRolloutBuffer(
+            self.n_steps,
+            self.observation_space,
+            self.action_space,
+            gamma=self.gamma,
+            gae_lambda=self.gae_lambda,
+            n_envs=self.n_envs,
+            # TODO : Add the good hidden state shape
+            hidden_state_shape=hidden_state_shape,
+            device="cpu",
+        )
 
         # Initialize schedules for policy/value clipping
         self.clip_range_schedule = get_schedule_fn(self.clip_range)
@@ -190,6 +221,128 @@ class RPPO(OnPolicyAlgorithmJax):
         #         assert self.clip_range_vf > 0, "`clip_range_vf` must be positive, " "pass `None` to deactivate vf clipping"
         #
         #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
+
+    
+    def collect_rollouts(
+        self,
+        env: VecEnv,
+        callback: BaseCallback,
+        rollout_buffer: RecurrentRolloutBuffer,
+        n_rollout_steps: int,
+    ) -> bool:
+        """
+        Collect experiences using the current policy and fill a ``RolloutBuffer``.
+        The term rollout here refers to the model-free notion and should not
+        be used with the concept of rollout used in model-based RL or planning.
+
+        :param env: The training environment
+        :param callback: Callback that will be called at each step
+            (and at the beginning and end of the rollout)
+        :param rollout_buffer: Buffer to fill with rollouts
+        :param n_rollout_steps: Number of experiences to collect per environment
+        :return: True if function returned with at least `n_rollout_steps`
+            collected, False if callback terminated rollout prematurely.
+        """
+        assert self._last_obs is not None, "No previous observation was provided"  # type: ignore[has-type]
+        # Switch to eval mode (this affects batch norm / dropout)
+
+        n_steps = 0
+        rollout_buffer.reset()
+        # Sample new weights for the state dependent exploration
+        if self.use_sde:
+            self.policy.reset_noise()
+
+        callback.on_rollout_start()
+
+        # TODO : initialize the dones and lstm states
+        lstm_states = deepcopy(self._last_lstm_states)
+        dones = jnp.zeros(self.n_envs) # Check it is the right shape for dones
+
+        while n_steps < n_rollout_steps:
+            if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
+                # Sample a new noise matrix
+                self.policy.reset_noise()
+
+            if not self.use_sde or isinstance(self.action_space, gym.spaces.Discrete):
+                # Always sample new stochastic action
+                self.policy.reset_noise()
+
+            obs_tensor, _ = self.policy.prepare_obs(self._last_obs)  # type: ignore[has-type]
+            # TODO : check why I get a wrong shape for actions (1, 2), wheras I should only have 1 action here because only 1 env
+            actions, log_probs, values, lstm_states = self.policy.predict_all(obs_tensor, dones, lstm_states, self.policy.noise_key)
+
+            actions = np.array(actions)
+            log_probs = np.array(log_probs)
+            values = np.array(values)
+
+            # Rescale and perform action
+            clipped_actions = actions
+            # Clip the actions to avoid out of bound error
+            if isinstance(self.action_space, gym.spaces.Box):
+                clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
+
+            new_obs, rewards, dones, infos = env.step(clipped_actions)
+
+            self.num_timesteps += env.num_envs
+
+            # Give access to local variables
+            callback.update_locals(locals())
+            if callback.on_step() is False:
+                return False
+
+            self._update_info_buffer(infos)
+            n_steps += 1
+
+            if isinstance(self.action_space, gym.spaces.Discrete):
+                # Reshape in case of discrete action
+                actions = actions.reshape(-1, 1)
+
+            # Handle timeout by bootstraping with value function
+            # see GitHub issue #633
+            for idx, done in enumerate(dones):
+                if (
+                    done
+                    and infos[idx].get("terminal_observation") is not None
+                    and infos[idx].get("TimeLimit.truncated", False)
+                ):
+                    terminal_obs = self.policy.prepare_obs(infos[idx]["terminal_observation"])[0]
+                    terminal_value = np.array(
+                        self.vf.apply(  # type: ignore[union-attr]
+                            self.policy.vf_state.params,
+                            # TODO : might need to also give the lstm_states and the dones here
+                            terminal_obs,  
+                        ).flatten()
+                    ).item()
+                    rewards[idx] += self.gamma * terminal_value
+
+            rollout_buffer.add(
+                self._last_obs,  # type: ignore
+                actions,
+                rewards,
+                self._last_episode_starts,  # type: ignore
+                th.as_tensor(values),
+                th.as_tensor(log_probs),
+                lstm_states=self._last_lstm_states, # Should it be last lstm states ? or lstm states
+            )
+
+
+            self._last_obs = new_obs  # type: ignore[assignment]
+            self._last_episode_starts = dones
+            self._last_lstm_states = lstm_states
+
+        # TODO : Compute the value by also giving the dones and the lstm states values
+        values = np.array(
+            self.vf.apply(  # type: ignore[union-attr]
+                self.policy.vf_state.params,
+                self.policy.prepare_obs(new_obs)[0],  # type: ignore[arg-type]
+            ).flatten()
+        )
+
+        rollout_buffer.compute_returns_and_advantage(last_values=th.as_tensor(values), dones=dones)
+
+        callback.on_rollout_end()
+
+        return True
 
     # TODO : use lstm train state
     @staticmethod
@@ -246,8 +399,6 @@ class RPPO(OnPolicyAlgorithmJax):
         vf_loss_value, vf_grads = jax.value_and_grad(critic_loss, has_aux=False)(vf_state.params)
         vf_state = vf_state.apply_gradients(grads=vf_grads)
 
-        # TODO ? What should be lstm loss ?? Atm just give as a loss the sum of losses for actor and critic
-        lstm_grads = pg_grads + vf_grads
         vf_state = vf_state.apply_gradients(grads=vf_grads)
 
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
@@ -319,6 +470,7 @@ class RPPO(OnPolicyAlgorithmJax):
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
     ) -> RPPOSelf:
+        # TODO : stuck because need to use a custom replay buffer now --> See how it is done in Sb3-Contrib
         return super().learn(
             total_timesteps=total_timesteps,
             callback=callback,
@@ -333,7 +485,6 @@ if __name__ == "__main__":
     import gymnasium as gym
     from sbx import PPO
 
-    # env = gym.make("CartPole-v1", render_mode="human")
     n_steps = 2048
     batch_size = 32
     train_steps = 5_000
@@ -341,27 +492,18 @@ if __name__ == "__main__":
 
     model = PPO("MlpPolicy", env, n_steps=n_steps, batch_size=batch_size, verbose=1)
     vec_env = model.get_env()
-    print("")
-    print(f"{vec_env = }")
     obs = vec_env.reset()
-    print(f"{obs = }")
-    print(f"{obs.shape = }")
 
 
-    model = RPPO("MlpPolicy", env, n_steps=n_steps, batch_size=batch_size, verbose=1)
+    model = RecurrentPPO("MlpPolicy", env, n_steps=n_steps, batch_size=batch_size, verbose=1)
     model.learn(total_timesteps=train_steps, progress_bar=True)
 
     vec_env = model.get_env()
-    print(f"\n{vec_env = }")
-    print("AA")
     obs = vec_env.reset()
     test_steps = 10
     for _ in range(test_steps):
         # vec_env.render()
         action, _states = model.predict(obs, deterministic=True)
-        print(f"\n{action.shape = }")
-        print(f"{obs.shape = }")
-        print(f"{_states = }")
         obs, reward, done, info = vec_env.step(action)
 
     vec_env.close()

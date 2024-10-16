@@ -21,35 +21,45 @@ from sbx.common.policies import BaseJaxPolicy, Flatten
 tfd = tfp.distributions
 
 
-# TODO : Add LSTM class as a ScanRNN Module (see PureJaxRL) code from https://github.com/luchris429/purejaxrl/blob/main/purejaxrl/ppo_rnn.py
-# TODO : at the moment take exactly the same model with GruCell + embedding space in the actor and critic before giving obs to the RNN
-class ScanRNN(nn.Module):
+class ScanLSTM(nn.Module):
     @functools.partial(
         nn.scan,
-        variable_broadcast="params",
+        variable_broadcast='params',
         in_axes=0,
         out_axes=0,
-        split_rngs={"params": False},
+        split_rngs={'params': False}
     )
     @nn.compact
-    def __call__(self, carry, x):
-        rnn_state = carry
-        ins, resets = x
-        # Handle the reset logic of rnn states here
-        lstm_states = jnp.where(
+    def __call__(self, lstm_states, inputs_and_resets):
+        input, resets = inputs_and_resets
+        hidden_state, cell_state = lstm_states
+        # create new lstm states to replace the old ones if reset is True
+        reset_lstm_states = self.initialize_carry(hidden_state.shape[0], hidden_state.shape[1])
+
+        # handle the reset of the hidden lstm states
+        hidden_state = jnp.where(
             resets[:, np.newaxis],
-            self.initialize_carry(ins.shape[0], ins.shape[1]),
-            rnn_state
+            reset_lstm_states[0],
+            hidden_state
         )
-        hidden_size = rnn_state[0].shape[0]
-        new_lstm_states, out = nn.GRUCell(features=hidden_size)(lstm_states, ins)
-        return new_lstm_states, out
+        # handle the reset of the cell lstm states
+        cell_state = jnp.where(
+            resets[:, np.newaxis],
+            reset_lstm_states[1],
+            cell_state
+        )
+
+        lstm_states = (hidden_state, cell_state)
+        hidden_size = lstm_states[0].shape[-1]
+        
+        new_lstm_states, output = nn.LSTMCell(features=hidden_size)(lstm_states, input)
+        return new_lstm_states, output
     
     
     @staticmethod
     def initialize_carry(batch_size, hidden_size):
-        # like in purejaxrl, use a dummy key because default state init fn is just zeros
-        return nn.GRUCell(features=hidden_size).initialize_carry(
+        # Return the tuple of hidden and cell states as a tuple
+        return nn.LSTMCell(features=hidden_size).initialize_carry(
             rng=jax.random.PRNGKey(0), input_shape=(batch_size, hidden_size)
         )
 
@@ -60,23 +70,14 @@ class Critic(nn.Module):
 
     # return hidden state + val
     @nn.compact
-    def __call__(self, hidden, x) -> jnp.ndarray:
-        # Add embedding like in purejaxrl atm
-        obs, dones = x
-        # TODO : replace hardcoded 64 later
-        embedding = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(obs)
-        embedding = nn.relu(embedding)
-
-        rnn_in = (embedding, dones)
-        hidden, out = ScanRNN()(hidden, rnn_in)
+    def __call__(self, lstm_states, obs_dones) -> jnp.ndarray:
+        lstm_states, out = ScanLSTM()(lstm_states, obs_dones)
         x = nn.Dense(self.n_units)(out)
         x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
         x = self.activation_fn(x)
         x = nn.Dense(1)(x)
-        return hidden, x
+        return lstm_states, x
 
 # Add scanned lstm in the actor
 class Actor(nn.Module):
@@ -102,19 +103,12 @@ class Actor(nn.Module):
             self.split_indices = np.cumsum(self.num_discrete_choices[:-1])
         super().__post_init__()
 
-    # return hidden state + dist
+    # return hidden state + action dist
     @nn.compact
-    def __call__(self, hidden, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, hidden, obs_dones) -> tfd.Distribution:  # type: ignore[name-defined]
         # Add embedding like in purejaxrl atm
-        obs, dones = x
-        embedding = nn.Dense(
-            64, kernel_init=orthogonal(np.sqrt(2)), bias_init=constant(0.0)
-        )(obs)
-        embedding = nn.relu(embedding)
 
-        rnn_in = (embedding, dones)
-
-        hidden, out = ScanRNN()(hidden, rnn_in)
+        hidden, out = ScanLSTM()(hidden, obs_dones)
         x = nn.Dense(self.n_units)(out)
         x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
@@ -151,7 +145,7 @@ class Actor(nn.Module):
         return hidden, dist
 
 
-class RPPOPolicy(BaseJaxPolicy):
+class RecurrentPPOPolicy(BaseJaxPolicy):
     def __init__(
         self,
         observation_space: gym.spaces.Space,
@@ -203,7 +197,7 @@ class RPPOPolicy(BaseJaxPolicy):
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
     def build(self, key: jax.Array, lr_schedule: Schedule, max_grad_norm: float) -> jax.Array:
-        key, actor_key, vf_key = jax.random.split(key, 4)
+        key, actor_key, vf_key = jax.random.split(key, 3)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
         # Initialize noise
@@ -254,18 +248,17 @@ class RPPOPolicy(BaseJaxPolicy):
         init_dones = jnp.zeros((init_obs.shape[0],))
         init_x = (init_obs[np.newaxis, :], init_dones[np.newaxis, :])
 
-        # TODO : See how to get the actual batch size (the number of vectorized envs)
-        batch_size = 1
-        # give same hidden size than n_units so constant shapes in the layers
+        # TODO : HERE HARD CODE THE NUMBER OF ENVS (but find a way to see how to actually get it from recurrent_ppo model)
+        n_envs = 1
         hidden_size = self.n_units 
-        init_hstate = ScanRNN.initialize_carry(batch_size, hidden_size)
+        init_lstm_states = ScanLSTM.initialize_carry(n_envs, hidden_size)
 
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
 
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
-            params=self.actor.init(actor_key, init_hstate, init_x),
+            params=self.actor.init(actor_key, init_lstm_states, init_x),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
                 self.optimizer_class(
@@ -280,7 +273,7 @@ class RPPOPolicy(BaseJaxPolicy):
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
             # TODO : Why difference w params of actor state
-            params=self.vf.init({"params": vf_key}, init_hstate, init_x),
+            params=self.vf.init({"params": vf_key}, init_lstm_states, init_x),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
                 self.optimizer_class(
@@ -301,26 +294,34 @@ class RPPOPolicy(BaseJaxPolicy):
         """
         self.key, self.noise_key = jax.random.split(self.key, 2)
 
-    def forward(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
+    def forward(self, obs: np.ndarray, lstm_states, deterministic: bool = False) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
 
     # TODO : Add the lstm state to the thing ? Maybe not here
-    def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
+    def _predict(self, observation: np.ndarray, lstm_states, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:
+            # TODO : include lstm_states here 
             return BaseJaxPolicy.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
             self.reset_noise()
+            # TODO : include lstm state here
         return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
 
-    def predict_all(self, observation: np.ndarray, key: jax.Array) -> np.ndarray:
-        return self._predict_all(self.actor_state, self.vf_state, observation, key)
+    def predict_all(self, observation: np.ndarray, done, lstm_states, key: jax.Array) -> np.ndarray:
+        return self._predict_all(self.actor_state, self.vf_state, observation, done, lstm_states, key)
 
     @staticmethod
     @jax.jit
-    def _predict_all(actor_state, vf_state, obervations, key):
-        dist = actor_state.apply_fn(actor_state.params, obervations)
+    def _predict_all(actor_state, vf_state, observations, dones, lstm_states, key):
+        # TODO : check if really need to add this dimension to obs and dones
+        ac_in = (observations[np.newaxis, :], dones[np.newaxis, :])
+        # actor pass
+        act_lstm_states, dist = actor_state.apply_fn(actor_state.params, lstm_states, ac_in)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
-        values = vf_state.apply_fn(vf_state.params, obervations).flatten()
-        return actions, log_probs, values
+        # value pass
+        vf_lstm_states, values = vf_state.apply_fn(vf_state.params, lstm_states, ac_in)
+        values = values.flatten()
+        lstm_states = (act_lstm_states, vf_lstm_states)
+        return actions, log_probs, values, lstm_states
