@@ -17,7 +17,8 @@ class LSTMStates(NamedTuple):
     pi: Tuple
     vf: Tuple
 
-# Replaced th.Tensor with jnp.ndarray
+# TODO : Replaced th.Tensor with jnp.ndarray but might not be true (some as still th Tensors because used in other sb3 functions)
+# Added lstm states but also dones because they are used in actor and critic
 class RecurrentRolloutBufferSamples(NamedTuple):
     observations: jnp.ndarray
     actions: jnp.ndarray
@@ -25,6 +26,7 @@ class RecurrentRolloutBufferSamples(NamedTuple):
     old_log_prob: jnp.ndarray
     advantages: jnp.ndarray
     returns: jnp.ndarray
+    dones: jnp.ndarray
     lstm_states: LSTMStates
 
 class RecurrentRolloutBuffer(RolloutBuffer):
@@ -43,7 +45,7 @@ class RecurrentRolloutBuffer(RolloutBuffer):
     :param n_envs: Number of parallel environments
     """
 
-    def __init__(
+    def __init__(       
         self,
         buffer_size: int,
         observation_space: spaces.Space,
@@ -62,6 +64,7 @@ class RecurrentRolloutBuffer(RolloutBuffer):
 
     def reset(self):
         super().reset()
+        self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.hidden_states_pi = np.zeros(self.hidden_state_shape, dtype=np.float32)
         self.cell_states_pi = np.zeros(self.hidden_state_shape, dtype=np.float32)
         self.hidden_states_vf = np.zeros(self.hidden_state_shape, dtype=np.float32)
@@ -77,19 +80,16 @@ class RecurrentRolloutBuffer(RolloutBuffer):
     #     self.hidden_states_vf[self.pos] = np.array(lstm_states.vf[0].cpu().numpy())
     #     self.cell_states_vf[self.pos] = np.array(lstm_states.vf[1].cpu().numpy())
 
-    def add(self, *args, lstm_states, **kwargs) -> None:
+    def add(self, *args, dones, lstm_states, **kwargs) -> None:
         """
         :param hidden_states: LSTM cell and hidden state
         """
         # TODO : at the moment doesn't work because I didn't create a named tuple for lstm states
-        print(lstm_states[0][0])
-        print(np.array(lstm_states[0][0]))
-        print(np.array(lstm_states[0][0]).shape)
-        print(self.hidden_states_pi[self.pos].shape)
         self.hidden_states_pi[self.pos] = np.array(lstm_states[0][0])
         self.cell_states_pi[self.pos] = np.array(lstm_states[0][1])
         self.hidden_states_vf[self.pos] = np.array(lstm_states[1][0])
         self.cell_states_vf[self.pos] = np.array(lstm_states[1][1])
+        self.dones[self.pos] = np.array(dones)
 
         super().add(*args, **kwargs)
 
@@ -113,6 +113,7 @@ class RecurrentRolloutBuffer(RolloutBuffer):
                 "log_probs",
                 "advantages",
                 "returns",
+                "dones",
                 "hidden_states_pi",
                 "cell_states_pi",
                 "hidden_states_vf",
@@ -126,7 +127,8 @@ class RecurrentRolloutBuffer(RolloutBuffer):
         if batch_size is None:
             batch_size = self.buffer_size * self.n_envs
 
-        # Sampling strategy that doesn't allow any mini batch size (must be a product of n_envs)
+        # TODO : Check if this works well 
+        # TODO : Sampling strategy that doesn't allow any mini batch size (must be a multiple of n_envs)
         indices = np.arange(self.buffer_size * self.n_envs)
 
         start_idx = 0
@@ -159,6 +161,8 @@ class RecurrentRolloutBuffer(RolloutBuffer):
             self.log_probs[batch_inds].flatten(),
             self.advantages[batch_inds].flatten(),
             self.returns[batch_inds].flatten(),
+            # TODO : Check that
+            self.dones[batch_inds],
             LSTMStates(pi=lstm_states_pi, vf=lstm_states_vf)
         )
         return RecurrentRolloutBufferSamples(*tuple(map(self.to_torch, data)))

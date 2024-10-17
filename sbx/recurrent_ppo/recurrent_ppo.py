@@ -207,7 +207,7 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
 
         lstm_state_buffer_shape = (self.n_steps, self.n_envs, hidden_state_shape)
 
-        # TODO : Make this a recurrent rollout buffer --> add lstm states in it
+        # TODO : Check why buffer size is n_steps instead of buffer size
         self.rollout_buffer = RecurrentRolloutBuffer(
             self.n_steps,
             self.observation_space,
@@ -260,9 +260,8 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
 
         callback.on_rollout_start()
 
-        # TODO : initialize the dones and lstm states
         lstm_states = deepcopy(self._last_lstm_states)
-        dones = jnp.zeros(self.n_envs) # Check it is the right shape for dones
+        dones = self._last_episode_starts
 
         while n_steps < n_rollout_steps:
             if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
@@ -274,7 +273,6 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 self.policy.reset_noise()
 
             obs_tensor, _ = self.policy.prepare_obs(self._last_obs)  # type: ignore[has-type]
-            # TODO : check why I get a wrong shape for actions (1, 2), wheras I should only have 1 action here because only 1 env
             actions, log_probs, values, lstm_states = self.policy.predict_all(obs_tensor, dones, lstm_states, self.policy.noise_key)
 
             actions = np.array(actions)
@@ -302,9 +300,14 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
             if isinstance(self.action_space, gym.spaces.Discrete):
                 # Reshape in case of discrete action
                 actions = actions.reshape(-1, 1)
+            
+            # will be used to boostreap with the value function if need (need to to a critic pass)
+            vf_lstm_states = lstm_states[0]
+            lstm_in = (obs_tensor[np.newaxis, :], dones[np.newaxis, :])
 
             # Handle timeout by bootstraping with value function
             # see GitHub issue #633
+            # TODO : See how we can handle the lstm states here (bc we iterate on the dones)
             for idx, done in enumerate(dones):
                 if (
                     done
@@ -312,13 +315,15 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                     and infos[idx].get("TimeLimit.truncated", False)
                 ):
                     terminal_obs = self.policy.prepare_obs(infos[idx]["terminal_observation"])[0]
-                    terminal_value = np.array(
-                        self.vf.apply(  # type: ignore[union-attr]
-                            self.policy.vf_state.params,
-                            # TODO : might need to also give the lstm_states and the dones here
-                            terminal_obs,  
-                        ).flatten()
-                    ).item()
+
+                    # TODO Normally should only give the obs and dones for current idx
+                    # TODO Should maybe pre-compute this before and then just iterate over the idx when needed
+                    vf_lstm_states, values = self.vf.apply(
+                        self.policy.vf_state.params,
+                        vf_lstm_states,
+                        lstm_in
+                    )
+                    terminal_value = values.flatten().item()
                     rewards[idx] += self.gamma * terminal_value
 
             rollout_buffer.add(
@@ -326,23 +331,27 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 actions,
                 rewards,
                 self._last_episode_starts,  # type: ignore
+                # TODO : Let the th.Tensors because other sb3 functions that depend on it later
                 th.as_tensor(values),
                 th.as_tensor(log_probs),
+                dones=dones,
                 lstm_states=self._last_lstm_states, # Should it be last lstm states ? or lstm states
             )
-
 
             self._last_obs = new_obs  # type: ignore[assignment]
             self._last_episode_starts = dones
             self._last_lstm_states = lstm_states
 
-        # TODO : Compute the value by also giving the dones and the lstm states values
-        values = np.array(
-            self.vf.apply(  # type: ignore[union-attr]
-                self.policy.vf_state.params,
-                self.policy.prepare_obs(new_obs)[0],  # type: ignore[arg-type]
-            ).flatten()
-        )
+        # Compute the last values when the rollout ends to compute the advantage
+        vf_lstm_states = lstm_states[0]
+        lstm_in = (self.policy.prepare_obs(new_obs)[0][np.newaxis, :], dones[np.newaxis, :])
+
+        vf_lstm_states, values = self.vf.apply(
+                        self.policy.vf_state.params,
+                        vf_lstm_states,
+                        lstm_in
+                    )
+        values = np.array(values).flatten()
 
         rollout_buffer.compute_returns_and_advantage(last_values=th.as_tensor(values), dones=dones)
 
@@ -350,14 +359,15 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
 
         return True
 
-    # TODO : use lstm train state
+    # TODO : Unjit the function to debug it
     @staticmethod
-    @partial(jax.jit, static_argnames=["normalize_advantage"])
+    # @partial(jax.jit, static_argnames=["normalize_advantage"])
     def _one_update(
         actor_state: TrainState,
         vf_state: TrainState,
-        lstm_train_state: TrainState,
+        lstm_states: LSTMStates,
         observations: np.ndarray,
+        dones: np.ndarray,
         actions: np.ndarray,
         advantages: np.ndarray,
         returns: np.ndarray,
@@ -371,10 +381,14 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         # Normalization does not make sense if mini batchsize == 1, see GH issue #325
         if normalize_advantage and len(advantages) > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-        # TODO : Maybe adding an lstm inside is easier for the gradients
+        
+        # TODO : something weird here because the params aren't used and only actor_state.params instead
         def actor_loss(params):
-            dist = actor_state.apply_fn(params, observations)
+            lstm_in = (observations[np.newaxis, :], dones[np.newaxis, :])
+            act_lstm_states, _ = lstm_states
+
+            act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, lstm_in)
+            # dist = actor_state.apply_fn(params, observations)
             log_prob = dist.log_prob(actions)
             entropy = dist.entropy()
 
@@ -397,14 +411,16 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         pg_loss_value, pg_grads = jax.value_and_grad(actor_loss, has_aux=False)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=pg_grads)
 
-        def critic_loss(params):
+        def critic_loss(params):            
+            lstm_in = (observations[np.newaxis, :], dones[np.newaxis, :])   
+            _, vf_lstm_states = lstm_states
             # Value loss using the TD(gae_lambda) target
-            vf_values = vf_state.apply_fn(params, observations).flatten()
+            vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, lstm_in)
+            vf_values = values.flatten()
+            # vf_values = vf_state.apply_fn(params, observations).flatten()
             return ((returns - vf_values) ** 2).mean()
 
         vf_loss_value, vf_grads = jax.value_and_grad(critic_loss, has_aux=False)(vf_state.params)
-        vf_state = vf_state.apply_gradients(grads=vf_grads)
-
         vf_state = vf_state.apply_gradients(grads=vf_grads)
 
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
@@ -422,7 +438,7 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # JIT only one update
-            # TODO : Fix the buffer here because we don't want to do permutations in it
+            # TODO : Fix the recurrent buffer here because we don't want to do permutations in it to get our observations, returns, advantages, etc.
             for rollout_data in self.rollout_buffer.get(self.batch_size):  # type: ignore[attr-defined]
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to int
@@ -430,14 +446,30 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 else:
                     actions = rollout_data.actions.numpy()
 
+                # TODO : 32 is the batch size 
+                # TODO : 8 is the n_envs 
+                # TODO : goal is to have a batch_size that is a multiple of n_envs (good here)
+                # TODO : assert it 
+                # TODO : transform the LSTMStates to give them the correct shape --> 
+                # TODO : tuple[pi, vf]
+                # TODO : with pi and vf tuple[hidden_state, cell_state]
+                # TODO : hidden_state.shape = (batch_size, hidden_size) = (32, 64)
+                # TODO : is normally of size during rollouts (n_envs, hidden_size) = (8, 64)
+                dones = rollout_data.dones.numpy()
+                lstm_states = LSTMStates(
+                    pi=rollout_data.lstm_states[0].numpy(),
+                    vf=rollout_data.lstm_states[1].numpy(),
+                )
                 (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss) = self._one_update(
                     actor_state=self.policy.actor_state,
                     vf_state=self.policy.vf_state,
                     observations=rollout_data.observations.numpy(),
                     actions=actions,
+                    dones=dones,
                     advantages=rollout_data.advantages.numpy(),
                     returns=rollout_data.returns.numpy(),
                     old_log_prob=rollout_data.old_log_prob.numpy(),
+                    lstm_states=lstm_states,
                     clip_range=clip_range,
                     ent_coef=self.ent_coef,
                     vf_coef=self.vf_coef,

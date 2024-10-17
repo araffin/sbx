@@ -10,8 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tensorflow_probability.substrates.jax as tfp
-# DONE : Added orthogonal to the imports
-from flax.linen.initializers import constant, orthogonal
+from flax.linen.initializers import constant
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
@@ -106,10 +105,7 @@ class Actor(nn.Module):
     # return hidden state + action dist
     @nn.compact
     def __call__(self, hidden, obs_dones) -> tfd.Distribution:  # type: ignore[name-defined]
-        # Add embedding like in purejaxrl atm
-
         hidden, out = ScanLSTM()(hidden, obs_dones)
-        # TODO : check if that still works well (had a problem with a new axis=0 that shouldn't be there)
         out = jnp.squeeze(out, axis=0)
 
         x = nn.Dense(self.n_units)(out)
@@ -251,7 +247,7 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
         init_dones = jnp.zeros((init_obs.shape[0],))
         init_x = (init_obs[np.newaxis, :], init_dones[np.newaxis, :])
 
-        # TODO : HERE HARD CODE THE NUMBER OF ENVS (but find a way to see how to actually get it from recurrent_ppo model)
+        # hardcode the number of envs to 1 for the initialization of the lstm states
         n_envs = 1
         hidden_size = self.n_units 
         init_lstm_states = ScanLSTM.initialize_carry(n_envs, hidden_size)
@@ -320,13 +316,12 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
         # get the lstm states for the actor and the critic
         act_lstm_states, vf_lstm_states = lstm_states
 
-        # TODO : check if really need to add this dimension to obs and dones
-        ac_in = (observations[np.newaxis, :], dones[np.newaxis, :])
-        act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, ac_in)
+        lstm_in = (observations[np.newaxis, :], dones[np.newaxis, :])
+        act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, lstm_in)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
 
-        vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, ac_in)
+        vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, lstm_in)
         values = values.flatten()
         lstm_states = (act_lstm_states, vf_lstm_states)
         return actions, log_probs, values, lstm_states
