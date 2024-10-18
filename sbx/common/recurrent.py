@@ -1,18 +1,14 @@
-from functools import partial
 from typing import Callable, Generator, Optional, Tuple, Union, NamedTuple
 
 import numpy as np
 import torch as th
 import jax.numpy as jnp
 from gymnasium import spaces
+# TODO : see later how to enable DictRolloutBuffer
 from stable_baselines3.common.buffers import DictRolloutBuffer, RolloutBuffer
 from stable_baselines3.common.vec_env import VecNormalize
 
-# class LSTMStates(NamedTuple):
-#     pi: Tuple[th.Tensor, ...]
-#     vf: Tuple[th.Tensor, ...]
-
-# TODO : see if I add jax info
+# TODO : see if I add type aliases for the NamedTuple
 class LSTMStates(NamedTuple):
     pi: Tuple
     vf: Tuple
@@ -70,21 +66,11 @@ class RecurrentRolloutBuffer(RolloutBuffer):
         self.hidden_states_vf = np.zeros(self.hidden_state_shape, dtype=np.float32)
         self.cell_states_vf = np.zeros(self.hidden_state_shape, dtype=np.float32)
 
-    # def add(self, *args, lstm_states: LSTMStates, **kwargs) -> None:
-    #     """
-    #     :param hidden_states: LSTM cell and hidden state
-    #     """
-    #     # TODO : at the moment doesn't work because I didn't create a named tuple for lstm states
-    #     self.hidden_states_pi[self.pos] = np.array(lstm_states.pi[0].cpu().numpy())
-    #     self.cell_states_pi[self.pos] = np.array(lstm_states.pi[1].cpu().numpy())
-    #     self.hidden_states_vf[self.pos] = np.array(lstm_states.vf[0].cpu().numpy())
-    #     self.cell_states_vf[self.pos] = np.array(lstm_states.vf[1].cpu().numpy())
-
     def add(self, *args, dones, lstm_states, **kwargs) -> None:
         """
         :param hidden_states: LSTM cell and hidden state
         """
-        # TODO : at the moment doesn't work because I didn't create a named tuple for lstm states
+        # TODO :Replace idx [0] and [1] by named tuples (pi and vf)
         self.hidden_states_pi[self.pos] = np.array(lstm_states[0][0])
         self.cell_states_pi[self.pos] = np.array(lstm_states[0][1])
         self.hidden_states_vf[self.pos] = np.array(lstm_states[1][0])
@@ -127,8 +113,8 @@ class RecurrentRolloutBuffer(RolloutBuffer):
         if batch_size is None:
             batch_size = self.buffer_size * self.n_envs
 
-        # TODO : Check if this works well 
-        # TODO : Sampling strategy that doesn't allow any mini batch size (must be a multiple of n_envs)
+        # TODO : See how to effectively use the indices to conserve temporal order in the batch data during updates
+        # TODO : I think the easisest way is to ensure the n_steps is a multiple of batch_size
         indices = np.arange(self.buffer_size * self.n_envs)
 
         start_idx = 0
@@ -161,7 +147,6 @@ class RecurrentRolloutBuffer(RolloutBuffer):
             self.log_probs[batch_inds].flatten(),
             self.advantages[batch_inds].flatten(),
             self.returns[batch_inds].flatten(),
-            # TODO : Check that
             self.dones[batch_inds],
             LSTMStates(pi=lstm_states_pi, vf=lstm_states_vf)
         )

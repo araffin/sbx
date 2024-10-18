@@ -271,7 +271,6 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
 
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
-            # TODO : Why difference w params of actor state
             params=self.vf.init({"params": vf_key}, init_lstm_states, init_x),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
@@ -296,15 +295,16 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
     def forward(self, obs: np.ndarray, lstm_states, deterministic: bool = False) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
 
-    # TODO : Add the lstm state to the _predict_method
+    # TODO : Add the lstm state to the _predict_method (Might also need to return them)
+    # Like in this recurrent ppo ex in sb3 contrib : https://sb3-contrib.readthedocs.io/en/master/modules/ppo_recurrent.html 
     def _predict(self, observation: np.ndarray, lstm_states, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:
-            # TODO : pass the lstm state here (see how to do it cleanly)
+            # TODO : pass the lstm state here (see how to do it cleanly because uses a function from parent class)
             return BaseJaxPolicy.select_action(self.actor_state, observation)
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
             self.reset_noise()
-            # TODO : include lstm state here
+            # TODO : also include lstm state here
         return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
 
     def predict_all(self, observation: np.ndarray, done, lstm_states, key: jax.Array) -> np.ndarray:

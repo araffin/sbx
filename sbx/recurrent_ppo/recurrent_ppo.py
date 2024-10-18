@@ -1,6 +1,6 @@
 import warnings
-from copy import deepcopy
 from functools import partial
+from copy import deepcopy
 from typing import Any, ClassVar, Dict, Optional, Type, TypeVar, Union
 
 import jax
@@ -10,7 +10,7 @@ import torch as th
 import gymnasium as gym
 from flax.training.train_state import TrainState
 from gymnasium import spaces
-# from stable_baselines3.common.buffers import RolloutBuffer
+
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import explained_variance, get_schedule_fn
@@ -18,7 +18,6 @@ from stable_baselines3.common.vec_env import VecEnv
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
 from sbx.common.recurrent import RecurrentRolloutBuffer, LSTMStates
-# TODO : Fix this import 
 from sbx.recurrent_ppo.policies import RecurrentPPOPolicy as PPOPolicy
 from sbx.recurrent_ppo.policies import ScanLSTM
 
@@ -194,20 +193,22 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
             self.actor = self.policy.actor
             self.vf = self.policy.vf
 
-        hidden_state_shape = self.policy.actor.n_units
-        # init one lstm state
-        lstm_states = ScanLSTM.initialize_carry(self.n_envs, hidden_state_shape)
-        # use it to initialize the lstm states of the actor and the critic
-        # TODO : check if I need to do a copy or not
-        tuple_lstm_states = LSTMStates(
+        # added the lstm states hidden_size
+        self.hidden_state_size = self.policy.actor.n_units
+
+        # TODO : change this hardcoded value and see how to add more layers in the policy
+        num_lstm_layers = 1
+
+        # use a dummy lstm state to init the 
+        lstm_states = ScanLSTM.initialize_carry(self.n_envs, self.hidden_state_size)
+        init_lstm_states = LSTMStates(
             pi=lstm_states,
             vf=lstm_states,
         )
-        self._last_lstm_states = tuple_lstm_states 
+        self._last_lstm_states = init_lstm_states 
 
-        lstm_state_buffer_shape = (self.n_steps, self.n_envs, hidden_state_shape)
+        lstm_state_buffer_shape = (self.n_steps, num_lstm_layers, self.n_envs, self.hidden_state_size)
 
-        # TODO : Check why buffer size is n_steps instead of buffer size
         self.rollout_buffer = RecurrentRolloutBuffer(
             self.n_steps,
             self.observation_space,
@@ -215,7 +216,6 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
             n_envs=self.n_envs,
-            # TODO : Add the good hidden state shape
             lstm_state_buffer_shape=lstm_state_buffer_shape,
             device="cpu",
         )
@@ -318,6 +318,7 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
 
                     # TODO Normally should only give the obs and dones for current idx
                     # TODO Should maybe pre-compute this before and then just iterate over the idx when needed
+                    # TODO This is surely slowing everything for no reason
                     vf_lstm_states, values = self.vf.apply(
                         self.policy.vf_state.params,
                         vf_lstm_states,
@@ -331,11 +332,10 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 actions,
                 rewards,
                 self._last_episode_starts,  # type: ignore
-                # TODO : Let the th.Tensors because other sb3 functions that depend on it later
                 th.as_tensor(values),
                 th.as_tensor(log_probs),
                 dones=dones,
-                lstm_states=self._last_lstm_states, # Should it be last lstm states ? or lstm states
+                lstm_states=self._last_lstm_states,
             )
 
             self._last_obs = new_obs  # type: ignore[assignment]
@@ -359,9 +359,8 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
 
         return True
 
-    # TODO : Unjit the function to debug it
     @staticmethod
-    # @partial(jax.jit, static_argnames=["normalize_advantage"])
+    @partial(jax.jit, static_argnames=["normalize_advantage"])
     def _one_update(
         actor_state: TrainState,
         vf_state: TrainState,
@@ -384,7 +383,8 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         
         # TODO : something weird here because the params aren't used and only actor_state.params instead
         def actor_loss(params):
-            lstm_in = (observations[np.newaxis, :], dones[np.newaxis, :])
+            # TODO : see why I need to flatten dones here (otherwise error in the shapes given to the lstm)
+            lstm_in = (observations[np.newaxis, :], dones.flatten()[np.newaxis, :])
             act_lstm_states, _ = lstm_states
 
             act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, lstm_in)
@@ -412,7 +412,7 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         actor_state = actor_state.apply_gradients(grads=pg_grads)
 
         def critic_loss(params):            
-            lstm_in = (observations[np.newaxis, :], dones[np.newaxis, :])   
+            lstm_in = (observations[np.newaxis, :], dones.flatten()[np.newaxis, :])   
             _, vf_lstm_states = lstm_states
             # Value loss using the TD(gae_lambda) target
             vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, lstm_in)
@@ -438,7 +438,6 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # JIT only one update
-            # TODO : Fix the recurrent buffer here because we don't want to do permutations in it to get our observations, returns, advantages, etc.
             for rollout_data in self.rollout_buffer.get(self.batch_size):  # type: ignore[attr-defined]
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to int
@@ -446,20 +445,27 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 else:
                     actions = rollout_data.actions.numpy()
 
-                # TODO : 32 is the batch size 
-                # TODO : 8 is the n_envs 
-                # TODO : goal is to have a batch_size that is a multiple of n_envs (good here)
-                # TODO : assert it 
-                # TODO : transform the LSTMStates to give them the correct shape --> 
-                # TODO : tuple[pi, vf]
-                # TODO : with pi and vf tuple[hidden_state, cell_state]
-                # TODO : hidden_state.shape = (batch_size, hidden_size) = (32, 64)
-                # TODO : is normally of size during rollouts (n_envs, hidden_size) = (8, 64)
                 dones = rollout_data.dones.numpy()
-                lstm_states = LSTMStates(
-                    pi=rollout_data.lstm_states[0].numpy(),
-                    vf=rollout_data.lstm_states[1].numpy(),
+
+                # TODO : fix this reshape somewhere else
+                # in sb3 contrib, shape = (n_steps, n_lstm_layers, n_envs, hidden_size)
+                # here same shape in the rollout buffer
+                # but give a shape of (batch_size, hidden_size) to the lstm layer
+                lstm_states_pi = (
+                    rollout_data.lstm_states[0][0].numpy().reshape(self.batch_size, self.hidden_state_size),
+                    rollout_data.lstm_states[0][1].numpy().reshape(self.batch_size, self.hidden_state_size)
                 )
+
+                lstm_states_vf = (
+                    rollout_data.lstm_states[1][0].numpy().reshape(self.batch_size, self.hidden_state_size),
+                    rollout_data.lstm_states[1][1].numpy().reshape(self.batch_size, self.hidden_state_size)
+                )
+
+                lstm_states = LSTMStates(
+                    pi=lstm_states_pi,
+                    vf=lstm_states_vf,
+                )
+
                 (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss) = self._one_update(
                     actor_state=self.policy.actor_state,
                     vf_state=self.policy.vf_state,
@@ -508,7 +514,6 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
     ) -> RPPOSelf:
-        # TODO : stuck because need to use a custom replay buffer now --> See how it is done in Sb3-Contrib
         return super().learn(
             total_timesteps=total_timesteps,
             callback=callback,
@@ -521,27 +526,17 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
 
 if __name__ == "__main__":
     import gymnasium as gym
-    from sbx import PPO
+    from stable_baselines3.common.env_util import make_vec_env
 
-    n_steps = 2048
-    batch_size = 32
-    train_steps = 5_000
-    env = gym.make("CartPole-v1")
+    n_steps = 128
+    batch_size = 32 
+    train_steps = 20_000
+    n_envs = 4
+    env_id = "CartPole-v1"
 
-    model = PPO("MlpPolicy", env, n_steps=n_steps, batch_size=batch_size, verbose=1)
-    vec_env = model.get_env()
-    obs = vec_env.reset()
-
-
-    model = RecurrentPPO("MlpPolicy", env, n_steps=n_steps, batch_size=batch_size, verbose=1)
+    # create vec env and train algo
+    vec_env = make_vec_env(env_id, n_envs=n_envs)
+    model = RecurrentPPO("MlpPolicy", vec_env, n_steps=n_steps, batch_size=batch_size, verbose=1)
     model.learn(total_timesteps=train_steps, progress_bar=True)
-
-    vec_env = model.get_env()
-    obs = vec_env.reset()
-    test_steps = 10
-    for _ in range(test_steps):
-        # vec_env.render()
-        action, _states = model.predict(obs, deterministic=True)
-        obs, reward, done, info = vec_env.step(action)
 
     vec_env.close()
