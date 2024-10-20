@@ -16,10 +16,13 @@ from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import BaseJaxPolicy, Flatten
+from sbx.common.recurrent import LSTMStates
 
 tfd = tfp.distributions
 
 
+# Added a ScanLSTM Module that automatically handles the reset of LSTM states
+# inspired from the ScanRNN in purejaxrl : https://github.com/luchris429/purejaxrl/blob/main/purejaxrl/ppo_rnn.py
 class ScanLSTM(nn.Module):
     @functools.partial(
         nn.scan,
@@ -30,8 +33,10 @@ class ScanLSTM(nn.Module):
     )
     @nn.compact
     def __call__(self, lstm_states, inputs_and_resets):
+        # pass the pi and vf lstm states, as well as the obs and the resets
         input, resets = inputs_and_resets
         hidden_state, cell_state = lstm_states
+
         # create new lstm states to replace the old ones if reset is True
         reset_lstm_states = self.initialize_carry(hidden_state.shape[0], hidden_state.shape[1])
 
@@ -54,15 +59,14 @@ class ScanLSTM(nn.Module):
         new_lstm_states, output = nn.LSTMCell(features=hidden_size)(lstm_states, input)
         return new_lstm_states, output
     
-    
     @staticmethod
     def initialize_carry(batch_size, hidden_size):
-        # Return the tuple of hidden and cell states as a tuple
+        # Returns a tuple of lstm states (hidden and cell states)
         return nn.LSTMCell(features=hidden_size).initialize_carry(
             rng=jax.random.PRNGKey(0), input_shape=(batch_size, hidden_size)
         )
 
-# Add scanned rnn in the critic
+# Add ScanLSTM as first element of the Critic architecture
 class Critic(nn.Module):
     n_units: int = 256
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
@@ -78,7 +82,7 @@ class Critic(nn.Module):
         x = nn.Dense(1)(x)
         return lstm_states, x
 
-# Add scanned lstm in the actor
+# Add ScanLSTM as first element of the Actor architecture
 class Actor(nn.Module):
     action_dim: int
     n_units: int = 256
@@ -144,6 +148,7 @@ class Actor(nn.Module):
         return hidden, dist
 
 
+# TODO Later : at the moment custom net_architectures are not supported for the LSTM
 class RecurrentPPOPolicy(BaseJaxPolicy):
     def __init__(
         self,
@@ -241,10 +246,10 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
             **actor_kwargs,  # type: ignore[arg-type]
         )
 
-        # Initialize a dummy x input (obs, dones)
+        # Initialize a dummy input for the LSTM layer (obs, dones)
         init_obs = jnp.array([self.observation_space.sample()])
-        # create an array of dones to create the good x (obs, dones)
         init_dones = jnp.zeros((init_obs.shape[0],))
+        # at the moment use this trick of adding a dimension to obs and dones to pass them to the LSTM
         init_x = (init_obs[np.newaxis, :], init_dones[np.newaxis, :])
 
         # hardcode the number of envs to 1 for the initialization of the lstm states
@@ -255,6 +260,7 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
 
+        # pass the init lstm states as argument to the actor train state
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, init_lstm_states, init_x),
@@ -269,6 +275,7 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
 
         self.vf = Critic(n_units=self.n_units, activation_fn=self.activation_fn)
 
+        # pass the init lstm states as argument to the critic train state
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
             params=self.vf.init({"params": vf_key}, init_lstm_states, init_x),
@@ -307,21 +314,30 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
             # TODO : also include lstm state here
         return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
 
+    # Added the lstm states to the predict_all method (maybe also the dones but I don't remember)
     def predict_all(self, observation: np.ndarray, done, lstm_states, key: jax.Array) -> np.ndarray:
         return self._predict_all(self.actor_state, self.vf_state, observation, done, lstm_states, key)
 
     @staticmethod
     @jax.jit
     def _predict_all(actor_state, vf_state, observations, dones, lstm_states, key):
-        # get the lstm states for the actor and the critic
+        # separate the lstm states for the actor and the critic, and prepare the input for the lstm
         act_lstm_states, vf_lstm_states = lstm_states
-
         lstm_in = (observations[np.newaxis, :], dones[np.newaxis, :])
+
+        # pass the actor lstm states and the input to the actor
         act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, lstm_in)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
 
+        # pass the critic lstm states and the input to the critic
         vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, lstm_in)
         values = values.flatten()
-        lstm_states = (act_lstm_states, vf_lstm_states)
+
+        # add the actor and critic lstm states to the lstm states tuple
+        lstm_states = LSTMStates(
+            pi=act_lstm_states,
+            vf=vf_lstm_states
+        )
+
         return actions, log_probs, values, lstm_states

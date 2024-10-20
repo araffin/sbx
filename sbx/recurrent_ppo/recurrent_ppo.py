@@ -25,6 +25,7 @@ RPPOSelf = TypeVar("RPPOSelf", bound="RecurrentPPO")
 
 
 class RecurrentPPO(OnPolicyAlgorithmJax):
+    # TODO : Update documentation
     """
     Proximal Policy Optimization algorithm (PPO) (clip version)
 
@@ -193,22 +194,24 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
             self.actor = self.policy.actor
             self.vf = self.policy.vf
 
-        # added the lstm states hidden_size
+        # added the lstm states hidden_size (used to initialize the lstm states and the replay buffer)
+        # at the moment just match the n_units of the policy
+        # TODO : change this to enable more complex architectures (fix the n_lstm layers to 1 for now)
         self.hidden_state_size = self.policy.actor.n_units
-
-        # TODO : change this hardcoded value and see how to add more layers in the policy
         num_lstm_layers = 1
-
-        # use a dummy lstm state to init the 
-        lstm_states = ScanLSTM.initialize_carry(self.n_envs, self.hidden_state_size)
-        init_lstm_states = LSTMStates(
-            pi=lstm_states,
-            vf=lstm_states,
-        )
-        self._last_lstm_states = init_lstm_states 
-
         lstm_state_buffer_shape = (self.n_steps, num_lstm_layers, self.n_envs, self.hidden_state_size)
 
+        # use dummy lstm states to init the pi and the vf states 
+        cell_hidden_lstm_states = ScanLSTM.initialize_carry(self.n_envs, self.hidden_state_size)
+        # add them to the global LSTMStates
+        init_lstm_states = LSTMStates(
+            pi=cell_hidden_lstm_states,
+            vf=cell_hidden_lstm_states,
+        )
+        # update the last lstm states (like in sb3 contrib)
+        self._last_lstm_states = init_lstm_states 
+
+        # Initialize the rollout buffer (it also encompasses the dones now as well as the lstm states)
         self.rollout_buffer = RecurrentRolloutBuffer(
             self.n_steps,
             self.observation_space,
@@ -260,6 +263,7 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
 
         callback.on_rollout_start()
 
+        # copied that from sb3 contrib
         lstm_states = deepcopy(self._last_lstm_states)
         dones = self._last_episode_starts
 
@@ -273,6 +277,7 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 self.policy.reset_noise()
 
             obs_tensor, _ = self.policy.prepare_obs(self._last_obs)  # type: ignore[has-type]
+            # use the predict_all method with the lstm states and the dones
             actions, log_probs, values, lstm_states = self.policy.predict_all(obs_tensor, dones, lstm_states, self.policy.noise_key)
 
             actions = np.array(actions)
@@ -301,8 +306,8 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 # Reshape in case of discrete action
                 actions = actions.reshape(-1, 1)
             
-            # will be used to boostreap with the value function if need (need to to a critic pass)
-            vf_lstm_states = lstm_states[0]
+            # will be used to boostrap with the value function if need (need to to a critic pass)
+            vf_lstm_states = lstm_states.vf
             lstm_in = (obs_tensor[np.newaxis, :], dones[np.newaxis, :])
 
             # Handle timeout by bootstraping with value function
@@ -317,8 +322,8 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                     terminal_obs = self.policy.prepare_obs(infos[idx]["terminal_observation"])[0]
 
                     # TODO Normally should only give the obs and dones for current idx
-                    # TODO Should maybe pre-compute this before and then just iterate over the idx when needed
-                    # TODO This is surely slowing everything for no reason
+                    # TODO Should maybe pre-compute the lstm states and values before and then just iterate over the idx when needed
+                    # TODO This is surely slowing everything for no reason (and seems false)
                     vf_lstm_states, values = self.vf.apply(
                         self.policy.vf_state.params,
                         vf_lstm_states,
@@ -327,6 +332,7 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                     terminal_value = values.flatten().item()
                     rewards[idx] += self.gamma * terminal_value
 
+            # add the dones and the lstm states to the rollout buffer
             rollout_buffer.add(
                 self._last_obs,  # type: ignore
                 actions,
@@ -338,14 +344,14 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 lstm_states=self._last_lstm_states,
             )
 
+            # update the lstm states for the next iteration
             self._last_obs = new_obs  # type: ignore[assignment]
             self._last_episode_starts = dones
             self._last_lstm_states = lstm_states
 
-        # Compute the last values when the rollout ends to compute the advantage
-        vf_lstm_states = lstm_states[0]
+        # Get the last values when the rollout ends to compute the advantages
+        vf_lstm_states = lstm_states.vf
         lstm_in = (self.policy.prepare_obs(new_obs)[0][np.newaxis, :], dones[np.newaxis, :])
-
         vf_lstm_states, values = self.vf.apply(
                         self.policy.vf_state.params,
                         vf_lstm_states,
@@ -381,14 +387,13 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         if normalize_advantage and len(advantages) > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         
-        # TODO : something weird here because the params aren't used and only actor_state.params instead
+        # TODO : something weird here because the params argument isn't used and only actor_state.params instead
         def actor_loss(params):
             # TODO : see why I need to flatten dones here (otherwise error in the shapes given to the lstm)
             lstm_in = (observations[np.newaxis, :], dones.flatten()[np.newaxis, :])
             act_lstm_states, _ = lstm_states
 
             act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, lstm_in)
-            # dist = actor_state.apply_fn(params, observations)
             log_prob = dist.log_prob(actions)
             entropy = dist.entropy()
 
@@ -411,13 +416,13 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
         pg_loss_value, pg_grads = jax.value_and_grad(actor_loss, has_aux=False)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=pg_grads)
 
+        # TODO : same observation as above
         def critic_loss(params):            
             lstm_in = (observations[np.newaxis, :], dones.flatten()[np.newaxis, :])   
             _, vf_lstm_states = lstm_states
             # Value loss using the TD(gae_lambda) target
             vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, lstm_in)
             vf_values = values.flatten()
-            # vf_values = vf_state.apply_fn(params, observations).flatten()
             return ((returns - vf_values) ** 2).mean()
 
         vf_loss_value, vf_grads = jax.value_and_grad(critic_loss, has_aux=False)(vf_state.params)
@@ -445,12 +450,8 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                 else:
                     actions = rollout_data.actions.numpy()
 
-                dones = rollout_data.dones.numpy()
-
-                # TODO : fix this reshape somewhere else
-                # in sb3 contrib, shape = (n_steps, n_lstm_layers, n_envs, hidden_size)
-                # here same shape in the rollout buffer
-                # but give a shape of (batch_size, hidden_size) to the lstm layer
+                # TODO : fix the values of the lstm states (at the moment they dot not follow the right temporal order I think)
+                # TODO : also fix this mechanism where I need to reshape the lstm states here
                 lstm_states_pi = (
                     rollout_data.lstm_states[0][0].numpy().reshape(self.batch_size, self.hidden_state_size),
                     rollout_data.lstm_states[0][1].numpy().reshape(self.batch_size, self.hidden_state_size)
@@ -471,10 +472,12 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
                     vf_state=self.policy.vf_state,
                     observations=rollout_data.observations.numpy(),
                     actions=actions,
-                    dones=dones,
+                    # added the dones here
+                    dones=rollout_data.dones.numpy(),
                     advantages=rollout_data.advantages.numpy(),
                     returns=rollout_data.returns.numpy(),
                     old_log_prob=rollout_data.old_log_prob.numpy(),
+                    # added the lstm states here
                     lstm_states=lstm_states,
                     clip_range=clip_range,
                     ent_coef=self.ent_coef,
@@ -530,7 +533,7 @@ if __name__ == "__main__":
 
     n_steps = 128
     batch_size = 32 
-    train_steps = 20_000
+    train_steps = 10_000
     n_envs = 4
     env_id = "CartPole-v1"
 
@@ -538,5 +541,11 @@ if __name__ == "__main__":
     vec_env = make_vec_env(env_id, n_envs=n_envs)
     model = RecurrentPPO("MlpPolicy", vec_env, n_steps=n_steps, batch_size=batch_size, verbose=1)
     model.learn(total_timesteps=train_steps, progress_bar=True)
+
+    # vec_env = model.get_env()
+    # obs = vec_env.reset()
+    # for _ in range(10):
+    #     action, lstm_states = model.predict(obs, deterministic=True)
+    #     obs, reward, done, info = vec_env.step(action)
 
     vec_env.close()

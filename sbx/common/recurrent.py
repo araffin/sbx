@@ -8,12 +8,12 @@ from gymnasium import spaces
 from stable_baselines3.common.buffers import DictRolloutBuffer, RolloutBuffer
 from stable_baselines3.common.vec_env import VecNormalize
 
-# TODO : see if I add type aliases for the NamedTuple
+# TODO : add type aliases for the NamedTuple
 class LSTMStates(NamedTuple):
     pi: Tuple
     vf: Tuple
 
-# TODO : Replaced th.Tensor with jnp.ndarray but might not be true (some as still th Tensors because used in other sb3 functions)
+# TODO : Replaced th.Tensor with jnp.ndarray but might not be true (some as still th Tensors because used in other sb3 fns)
 # Added lstm states but also dones because they are used in actor and critic
 class RecurrentRolloutBufferSamples(NamedTuple):
     observations: jnp.ndarray
@@ -25,6 +25,7 @@ class RecurrentRolloutBufferSamples(NamedTuple):
     dones: jnp.ndarray
     lstm_states: LSTMStates
 
+# Add a recurrent buffer that also takes care of the lstm states and dones flags
 class RecurrentRolloutBuffer(RolloutBuffer):
     """
     Rollout buffer that also stores the LSTM cell and hidden states.
@@ -53,13 +54,13 @@ class RecurrentRolloutBuffer(RolloutBuffer):
         gamma: float = 0.99,
         n_envs: int = 1,
     ):  
-        # TODO : see if I rename this in all the code
         self.hidden_state_shape = lstm_state_buffer_shape
         self.seq_start_indices, self.seq_end_indices = None, None
         super().__init__(buffer_size, observation_space, action_space, device, gae_lambda, gamma, n_envs)
 
     def reset(self):
         super().reset()
+        # also add the dones and all lstm states
         self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.hidden_states_pi = np.zeros(self.hidden_state_shape, dtype=np.float32)
         self.cell_states_pi = np.zeros(self.hidden_state_shape, dtype=np.float32)
@@ -70,12 +71,11 @@ class RecurrentRolloutBuffer(RolloutBuffer):
         """
         :param hidden_states: LSTM cell and hidden state
         """
-        # TODO :Replace idx [0] and [1] by named tuples (pi and vf)
-        self.hidden_states_pi[self.pos] = np.array(lstm_states[0][0])
-        self.cell_states_pi[self.pos] = np.array(lstm_states[0][1])
-        self.hidden_states_vf[self.pos] = np.array(lstm_states[1][0])
-        self.cell_states_vf[self.pos] = np.array(lstm_states[1][1])
         self.dones[self.pos] = np.array(dones)
+        self.hidden_states_pi[self.pos] = np.array(lstm_states.pi[0])
+        self.cell_states_pi[self.pos] = np.array(lstm_states.pi[1])
+        self.hidden_states_vf[self.pos] = np.array(lstm_states.vf[0])
+        self.cell_states_vf[self.pos] = np.array(lstm_states.vf[1])
 
         super().add(*args, **kwargs)
 
@@ -115,6 +115,7 @@ class RecurrentRolloutBuffer(RolloutBuffer):
 
         # TODO : See how to effectively use the indices to conserve temporal order in the batch data during updates
         # TODO : I think the easisest way is to ensure the n_steps is a multiple of batch_size
+        # TODO : But still need to be fixed at the moment (I just made sure the returned shape was right)
         indices = np.arange(self.buffer_size * self.n_envs)
 
         start_idx = 0
@@ -123,7 +124,7 @@ class RecurrentRolloutBuffer(RolloutBuffer):
             yield self._get_samples(batch_inds)
             start_idx += batch_size
 
-
+    # return the lstm states as an LSTMStates tuple
     def _get_samples(
         self,
         batch_inds: np.ndarray,
