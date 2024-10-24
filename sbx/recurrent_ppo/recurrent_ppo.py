@@ -534,6 +534,7 @@ if __name__ == "__main__":
     n_steps = 128
     batch_size = 32 
     train_steps = 10_000
+    test_steps = 10
     n_envs = 4
     env_id = "CartPole-v1"
 
@@ -542,10 +543,12 @@ if __name__ == "__main__":
     model = RecurrentPPO("MlpPolicy", vec_env, n_steps=n_steps, batch_size=batch_size, verbose=1)
     model.learn(total_timesteps=train_steps, progress_bar=True)
 
-    # vec_env = model.get_env()
-    # obs = vec_env.reset()
-    # for _ in range(10):
-    #     action, lstm_states = model.predict(obs, deterministic=True)
-    #     obs, reward, done, info = vec_env.step(action)
+    vec_env = model.get_env()
+    obs = vec_env.reset()
+    lstm_states = None
+
+    for _ in range(test_steps):
+        action, lstm_states = model.predict(obs, state=lstm_states, deterministic=True)
+        obs, reward, done, info = vec_env.step(action)
 
     vec_env.close()

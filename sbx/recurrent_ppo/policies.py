@@ -1,7 +1,7 @@
 import functools
 
 from dataclasses import field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union, Tuple
 
 import flax.linen as nn
 import gymnasium as gym
@@ -15,7 +15,7 @@ from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.policies import BaseJaxPolicy, Flatten
+from sbx.common.policies import BaseJaxPolicy
 from sbx.common.recurrent import LSTMStates
 
 tfd = tfp.distributions
@@ -254,8 +254,8 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
 
         # hardcode the number of envs to 1 for the initialization of the lstm states
         n_envs = 1
-        hidden_size = self.n_units 
-        init_lstm_states = ScanLSTM.initialize_carry(n_envs, hidden_size)
+        self.hidden_size = self.n_units 
+        init_lstm_states = ScanLSTM.initialize_carry(n_envs, self.hidden_size)
 
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -299,20 +299,92 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
         """
         self.key, self.noise_key = jax.random.split(self.key, 2)
 
-    def forward(self, obs: np.ndarray, lstm_states, deterministic: bool = False) -> np.ndarray:
+    def forward(self, obs: np.ndarray, lstm_states, deterministic: bool = False, key = None) -> np.ndarray:
         return self._predict(obs, deterministic=deterministic)
 
-    # TODO : Add the lstm state to the _predict_method (Might also need to return them)
-    # Like in this recurrent ppo ex in sb3 contrib : https://sb3-contrib.readthedocs.io/en/master/modules/ppo_recurrent.html 
-    def _predict(self, observation: np.ndarray, lstm_states, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
+    # Overrided the _predict function with a new one taking the lstm states as arguments
+    def _predict(
+            self, 
+            observation: np.ndarray, 
+            lstm_states: LSTMStates, 
+            episode_start: np.ndarray, 
+            deterministic: bool = False
+        ) -> Tuple[np.ndarray, LSTMStates]:
+        # TODO : could do a helper fn to transform the obs, dones and return lstm states and action / value
+        # because it is used in several parts of the code and quite verbose
+        lstm_in = (observation[np.newaxis, :], episode_start[np.newaxis, :])
+        new_pi_lstm_states, dist = self.actor_state.apply_fn(self.actor_state.params, lstm_states.pi, lstm_in)
+
         if deterministic:
-            # TODO : pass the lstm state here (see how to do it cleanly because uses a function from parent class)
-            return BaseJaxPolicy.select_action(self.actor_state, observation)
+            actions = dist.mode()
+        else:
+            actions = dist.sample(seed=self.noise_key)
+
         # Trick to use gSDE: repeat sampled noise by using the same noise key
         if not self.use_sde:
             self.reset_noise()
-            # TODO : also include lstm state here
-        return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
+
+        # add the new actor and old critic lstm states to the lstm states tuple
+        lstm_states = LSTMStates(
+            pi=new_pi_lstm_states,
+            vf=lstm_states.vf
+        )
+
+        return actions, lstm_states
+    
+    # Overrided the predict function with a new one taking the lstm states as arguments
+    def predict(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        lstm_states: Optional[Tuple[jnp.ndarray, ...]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+        # Switch to eval mode (this affects batch norm / dropout)
+        self.set_training_mode(False)
+
+        # TODO : see if still need that
+        # observation, vectorized_env = self.obs_to_tensor(observation)
+
+        if isinstance(observation, dict):
+            n_envs = observation[next(iter(observation.keys()))].shape[0]
+        else:
+            n_envs = observation.shape[0]
+        # state : (n_layers, n_envs, dim)
+        if lstm_states is None:
+            # Initialize hidden states to zeros
+            init_lstm_states = ScanLSTM.initialize_carry(n_envs, self.hidden_size)
+            lstm_states = LSTMStates(
+                pi=init_lstm_states,
+                vf=init_lstm_states
+            )
+
+        if episode_start is None:
+            episode_start = jnp.array([False for _ in range(n_envs)])
+
+        actions, lsmt_states = self._predict(
+            observation, lstm_states=lstm_states, episode_start=episode_start, deterministic=deterministic
+        )
+
+        # Convert to numpy
+        actions = np.array(actions)
+
+        if isinstance(self.action_space, spaces.Box):
+            if self.squash_output:
+                # Rescale to proper domain when using squashing
+                actions = self.unscale_action(actions)
+            else:
+                # Actions could be on arbitrary scale, so clip the actions to avoid
+                # out of bound error (e.g. if sampling from a Gaussian distribution)
+                actions = np.clip(actions, self.action_space.low, self.action_space.high)
+
+        # TODO : see if still need that
+        # Remove batch dimension if needed
+        # if not vectorized_env:
+        #     actions = actions.squeeze(axis=0)
+
+        return actions, lsmt_states
+
 
     # Added the lstm states to the predict_all method (maybe also the dones but I don't remember)
     def predict_all(self, observation: np.ndarray, done, lstm_states, key: jax.Array) -> np.ndarray:
