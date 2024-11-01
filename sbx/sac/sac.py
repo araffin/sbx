@@ -141,8 +141,6 @@ class SAC(OffPolicyAlgorithmJax):
                     ent_coef_init = float(self.ent_coef_init.split("_")[1])
                     assert ent_coef_init > 0.0, "The initial value of ent_coef must be greater than 0"
 
-                # Note: we optimize the log of the entropy coeff which is slightly different from the paper
-                # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
                 self.ent_coef = EntropyCoef(ent_coef_init)
             else:
                 # This will throw an error if a malformed string (different from 'auto') is passed
@@ -329,8 +327,10 @@ class SAC(OffPolicyAlgorithmJax):
     @jax.jit
     def update_temperature(target_entropy: ArrayLike, ent_coef_state: TrainState, entropy: float):
         def temperature_loss(temp_params: flax.core.FrozenDict) -> jax.Array:
+            # Note: we optimize the log of the entropy coeff which is slightly different from the paper
+            # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
             ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
-            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()  # type: ignore[union-attr]
+            ent_coef_loss = jnp.log(ent_coef_value) * (entropy - target_entropy).mean()  # type: ignore[union-attr]
             return ent_coef_loss
 
         ent_coef_loss, grads = jax.value_and_grad(temperature_loss)(ent_coef_state.params)
