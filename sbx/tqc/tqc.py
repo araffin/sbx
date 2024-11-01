@@ -383,7 +383,6 @@ class TQC(OffPolicyAlgorithmJax):
     @jax.jit
     def update_temperature(target_entropy: ArrayLike, ent_coef_state: TrainState, entropy: float):
         def temperature_loss(temp_params: flax.core.FrozenDict) -> jax.Array:
-            ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
             # Note: we optimize the log of the entropy coeff which is slightly different from the paper
             # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
             ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
