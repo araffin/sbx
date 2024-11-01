@@ -1,5 +1,6 @@
 from typing import Any, Callable, Optional, Sequence, Tuple, Union
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax.linen.module import Module, compact, merge_param
@@ -204,3 +205,19 @@ class BatchRenorm(Module):
             self.bias_init,
             self.scale_init,
         )
+
+
+# Adapted from simba: https://github.com/SonyResearch/simba
+class SimbaResidualBlock(nn.Module):
+    hidden_dim: int
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    scale_factor: int = 4
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        residual = x
+        x = nn.LayerNorm()(x)
+        x = nn.Dense(self.hidden_dim * self.scale_factor, kernel_init=nn.initializers.he_normal())(x)
+        x = self.activation_fn(x)
+        x = nn.Dense(self.hidden_dim, kernel_init=nn.initializers.he_normal())(x)
+        return residual + x
