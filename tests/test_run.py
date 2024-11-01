@@ -76,10 +76,14 @@ def test_tqc(tmp_path) -> None:
     check_save_load(model, TQC, tmp_path)
 
 
-@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, CrossQ])
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, CrossQ, "SimbaSAC"])
 def test_sac_td3(tmp_path, model_class) -> None:
+    policy = "MlpPolicy"
+    if model_class == "SimbaSAC":
+        model_class = SAC
+        policy = "SimbaPolicy"
     model = model_class(
-        "MlpPolicy",
+        policy,
         "Pendulum-v1",
         verbose=1,
         gradient_steps=1,

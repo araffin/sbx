@@ -10,6 +10,8 @@ from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
 from stable_baselines3.common.utils import is_vectorized_observation
 
+from sbx.common.jax_layers import SimbaResidualBlock
+
 
 class Flatten(nn.Module):
     """
@@ -143,6 +145,29 @@ class ContinuousCritic(nn.Module):
         return x
 
 
+class SimbaContinuousCritic(nn.Module):
+    net_arch: Sequence[int]
+    dropout_rate: Optional[float] = None
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    scale_factor: int = 4
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
+        x = Flatten()(x)
+        x = jnp.concatenate([x, action], -1)
+        # Note: simba was using kernel_init=orthogonal_init(1)
+        x = nn.Dense(self.net_arch[0])(x)
+        for n_units in self.net_arch:
+            x = SimbaResidualBlock(n_units, self.activation_fn, self.scale_factor)(x)
+            # TODO: double check where to put the dropout
+            if self.dropout_rate is not None and self.dropout_rate > 0:
+                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
+        x = nn.LayerNorm()(x)
+
+        x = nn.Dense(1)(x)
+        return x
+
+
 class VectorCritic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
@@ -164,6 +189,34 @@ class VectorCritic(nn.Module):
         )
         q_values = vmap_critic(
             use_layer_norm=self.use_layer_norm,
+            dropout_rate=self.dropout_rate,
+            net_arch=self.net_arch,
+            activation_fn=self.activation_fn,
+        )(obs, action)
+        return q_values
+
+
+class SimbaVectorCritic(nn.Module):
+    net_arch: Sequence[int]
+    # Note: we have use_layer_norm for consistency but it is not used (always on)
+    use_layer_norm: bool = True
+    dropout_rate: Optional[float] = None
+    n_critics: int = 1  # only one critic per default
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    @nn.compact
+    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
+        # Idea taken from https://github.com/perrin-isir/xpag
+        # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
+        vmap_critic = nn.vmap(
+            SimbaContinuousCritic,
+            variable_axes={"params": 0},  # parameters not shared between the critics
+            split_rngs={"params": True, "dropout": True},  # different initializations
+            in_axes=None,
+            out_axes=0,
+            axis_size=self.n_critics,
+        )
+        q_values = vmap_critic(
             dropout_rate=self.dropout_rate,
             net_arch=self.net_arch,
             activation_fn=self.activation_fn,
