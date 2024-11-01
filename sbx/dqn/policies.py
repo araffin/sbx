@@ -69,6 +69,7 @@ class DQNPolicy(BaseJaxPolicy):
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        max_grad_norm: float = 10.0,
     ):
         super().__init__(
             observation_space,
@@ -85,6 +86,7 @@ class DQNPolicy(BaseJaxPolicy):
         else:
             self.n_units = 256
         self.activation_fn = activation_fn
+        self.max_grad_norm = max_grad_norm
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key = jax.random.split(key, 2)
@@ -101,9 +103,12 @@ class DQNPolicy(BaseJaxPolicy):
             apply_fn=self.qf.apply,
             params=self.qf.init({"params": qf_key}, obs),
             target_params=self.qf.init({"params": qf_key}, obs),
-            tx=self.optimizer_class(
-                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                **self.optimizer_kwargs,
+            tx=optax.chain(
+                optax.clip_by_global_norm(self.max_grad_norm),
+                self.optimizer_class(
+                    learning_rate=lr_schedule(1),  # type: ignore[call-arg]
+                    **self.optimizer_kwargs,
+                ),
             ),
         )
 
@@ -140,9 +145,12 @@ class CNNPolicy(DQNPolicy):
             apply_fn=self.qf.apply,
             params=self.qf.init({"params": qf_key}, obs),
             target_params=self.qf.init({"params": qf_key}, obs),
-            tx=self.optimizer_class(
-                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                **self.optimizer_kwargs,
+            tx=optax.chain(
+                optax.clip_by_global_norm(self.max_grad_norm),
+                self.optimizer_class(
+                    learning_rate=lr_schedule(1),  # type: ignore[call-arg]
+                    **self.optimizer_kwargs,
+                ),
             ),
         )
         self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]

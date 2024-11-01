@@ -3,6 +3,7 @@ import os
 from sbx.crossq import CrossQ
 from sbx.ddpg import DDPG
 from sbx.dqn import DQN
+from sbx.per_dqn import PERDQN
 from sbx.ppo import PPO
 from sbx.sac import SAC
 from sbx.td3 import TD3
@@ -26,6 +27,7 @@ __all__ = [
     "CrossQ",
     "DDPG",
     "DQN",
+    "PERDQN",
     "PPO",
     "SAC",
     "TD3",

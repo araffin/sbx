@@ -8,7 +8,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.envs import BitFlippingEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ
+from sbx import DDPG, DQN, PERDQN, PPO, SAC, TD3, TQC, CrossQ, DroQ
 
 
 def check_save_load(model, model_class, tmp_path):
@@ -116,9 +116,9 @@ def test_dropout(model_class):
     model.learn(110)
 
 
-@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, DQN, CrossQ])
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, DQN, PERDQN, CrossQ])
 def test_policy_kwargs(model_class) -> None:
-    env_id = "CartPole-v1" if model_class == DQN else "Pendulum-v1"
+    env_id = "CartPole-v1" if model_class in [DQN, PERDQN] else "Pendulum-v1"
 
     model = model_class(
         "MlpPolicy",
@@ -147,8 +147,9 @@ def test_ppo(tmp_path, env_id: str) -> None:
     check_save_load(model, PPO, tmp_path)
 
 
-def test_dqn(tmp_path) -> None:
-    model = DQN(
+@pytest.mark.parametrize("model_class", [DQN, PERDQN])
+def test_dqn(tmp_path, model_class) -> None:
+    model = model_class(
         "MlpPolicy",
         "CartPole-v1",
         verbose=1,
@@ -156,7 +157,7 @@ def test_dqn(tmp_path) -> None:
         target_update_interval=10,
     )
     model.learn(128)
-    check_save_load(model, DQN, tmp_path)
+    check_save_load(model, model_class, tmp_path)
 
 
 @pytest.mark.parametrize("replay_buffer_class", [None, HerReplayBuffer])

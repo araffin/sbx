@@ -216,7 +216,7 @@ class TQC(OffPolicyAlgorithmJax):
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_value),
+            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_loss),
         ) = self._train(
             self.gamma,
             self.tau,
@@ -232,11 +232,15 @@ class TQC(OffPolicyAlgorithmJax):
             self.ent_coef_state,
             self.key,
         )
+        ent_coef_value = self.ent_coef_state.apply_fn({"params": self.ent_coef_state.params})
+
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/actor_loss", actor_loss_value.item())
         self.logger.record("train/critic_loss", qf1_loss_value.item())
         self.logger.record("train/ent_coef", ent_coef_value.item())
+        if isinstance(self.ent_coef, EntropyCoef):
+            self.logger.record("train/ent_coef_loss", ent_coef_loss.item())
 
     @staticmethod
     @partial(jax.jit, static_argnames=["n_target_quantiles"])
