@@ -19,6 +19,7 @@ from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
 from sbx.bro.policies import BROPolicy
 
 
+
 class EntropyCoef(nn.Module):
     ent_coef_init: float = 1.0
 
@@ -238,10 +239,10 @@ class BRO(OffPolicyAlgorithmJax):
             self.key,
         )
         self._n_updates += gradient_steps
-        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        self.logger.record("train/actor_loss", actor_loss_value.item())
-        self.logger.record("train/critic_loss", qf_loss_value.item())
-        self.logger.record("train/ent_coef", ent_coef_value.item())
+        #self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        #self.logger.record("train/actor_loss", actor_loss_value.item())
+        #self.logger.record("train/critic_loss", qf_loss_value.item())
+        #self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
     @jax.jit

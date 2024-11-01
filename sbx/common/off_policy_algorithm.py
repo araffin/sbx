@@ -115,6 +115,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
             device="cpu",  # force cpu device to easy torch -> numpy conversion
             n_envs=self.n_envs,
             optimize_memory_usage=self.optimize_memory_usage,
+            handle_timeout_termination=False,
             **replay_buffer_kwargs,
         )
         # Convert train freq parameter to TrainFreq object
