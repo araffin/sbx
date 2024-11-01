@@ -68,8 +68,8 @@ def main(_):
         config=FLAGS,
         entity='naumix',
         project='BRO_SBX',
-        group=f'{FLAGS.env_name}_{SEED}',
-        name=f'BRO_Quantile:{FLAGS.n_quantiles}_BS:{FLAGS.batch_size}'
+        group=f'{FLAGS.env_name}',
+        name=f'BRO_Quantile:{FLAGS.n_quantiles}_BS:{FLAGS.batch_size}_{SEED}'
     )
     
     env = get_env(FLAGS.benchmark, FLAGS.env_name)
