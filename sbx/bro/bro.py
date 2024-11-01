@@ -239,6 +239,11 @@ class BRO(OffPolicyAlgorithmJax):
             self.key,
         )
         self._n_updates += gradient_steps
+        return {
+            'actor_loss': actor_loss_value.item(),
+            'critic_loss': qf_loss_value.item(),
+            'ent_coef': ent_coef_value.item(),
+            }
         #self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         #self.logger.record("train/actor_loss", actor_loss_value.item())
         #self.logger.record("train/critic_loss", qf_loss_value.item())
