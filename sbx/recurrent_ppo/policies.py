@@ -32,13 +32,14 @@ class ScanLSTM(nn.Module):
         split_rngs={'params': False}
     )
     @nn.compact
-    def __call__(self, lstm_states, inputs_and_resets):
+    def __call__(self, lstm_states, obs_and_resets):
         # pass the pi and vf lstm states, as well as the obs and the resets
-        input, resets = inputs_and_resets
+        obs, resets = obs_and_resets
         hidden_state, cell_state = lstm_states
 
         # create new lstm states to replace the old ones if reset is True
-        reset_lstm_states = self.initialize_carry(hidden_state.shape[0], hidden_state.shape[1])
+        batch_size, hidden_size = hidden_state.shape
+        reset_lstm_states = self.initialize_carry(batch_size, hidden_size)
 
         # handle the reset of the hidden lstm states
         hidden_state = jnp.where(
@@ -56,7 +57,7 @@ class ScanLSTM(nn.Module):
         lstm_states = (hidden_state, cell_state)
         hidden_size = lstm_states[0].shape[-1]
         
-        new_lstm_states, output = nn.LSTMCell(features=hidden_size)(lstm_states, input)
+        new_lstm_states, output = nn.LSTMCell(features=hidden_size)(lstm_states, obs)
         return new_lstm_states, output
     
     @staticmethod
@@ -122,29 +123,10 @@ class Actor(nn.Module):
             log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
             dist = tfd.MultivariateNormalDiag(loc=action_logits, scale_diag=jnp.exp(log_std))
         elif isinstance(self.num_discrete_choices, int):
+            # Discrete actions
             dist = tfd.Categorical(logits=action_logits)
         else:
-            # Split action_logits = (batch_size, total_choices=sum(self.num_discrete_choices))
-            action_logits = jnp.split(action_logits, self.split_indices, axis=1)
-            # Pad to the maximum number of choices (required by tfp.distributions.Categorical).
-            # Pad by -inf, so that the probability of these invalid actions is 0.
-            logits_padded = jnp.stack(
-                [
-                    jnp.pad(
-                        logit,
-                        # logit is of shape (batch_size, n)
-                        # only pad after dim=1, to max_num_choices - n
-                        # pad_width=((before_dim_0, after_0), (before_dim_1, after_1))
-                        pad_width=((0, 0), (0, self.max_num_choices - logit.shape[1])),
-                        constant_values=-np.inf,
-                    )
-                    for logit in action_logits
-                ],
-                axis=1,
-            )
-            dist = tfp.distributions.Independent(
-                tfp.distributions.Categorical(logits=logits_padded), reinterpreted_batch_ndims=1
-            )
+            raise ValueError("Invalid action space. Only Discrete and Continuous are supported at the moment.")
         return hidden, dist
 
 
@@ -196,7 +178,7 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
                 self.n_units = net_arch["pi"][0]
         else:
             self.n_units = 64
-        self.use_sde = use_sde
+        # self.use_sde = use_sde
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -321,8 +303,10 @@ class RecurrentPPOPolicy(BaseJaxPolicy):
             actions = dist.sample(seed=self.noise_key)
 
         # Trick to use gSDE: repeat sampled noise by using the same noise key
-        if not self.use_sde:
-            self.reset_noise()
+        # if not self.use_sde:
+            # self.reset_noise()
+
+        self.reset_noise()
 
         # add the new actor and old critic lstm states to the lstm states tuple
         lstm_states = LSTMStates(

@@ -393,7 +393,9 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
             lstm_in = (observations[np.newaxis, :], dones.flatten()[np.newaxis, :])
             act_lstm_states, _ = lstm_states
 
-            act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, lstm_in)
+            # TODO 
+            # act_lstm_states, dist = actor_state.apply_fn(actor_state.params, act_lstm_states, lstm_in)
+            act_lstm_states, dist = actor_state.apply_fn(params, act_lstm_states, lstm_in)
             log_prob = dist.log_prob(actions)
             entropy = dist.entropy()
 
@@ -421,7 +423,9 @@ class RecurrentPPO(OnPolicyAlgorithmJax):
             lstm_in = (observations[np.newaxis, :], dones.flatten()[np.newaxis, :])   
             _, vf_lstm_states = lstm_states
             # Value loss using the TD(gae_lambda) target
-            vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, lstm_in)
+            # TODO 
+            # vf_lstm_states, values = vf_state.apply_fn(vf_state.params, vf_lstm_states, lstm_in)
+            vf_lstm_states, values = vf_state.apply_fn(params, vf_lstm_states, lstm_in)
             vf_values = values.flatten()
             return ((returns - vf_values) ** 2).mean()
 
