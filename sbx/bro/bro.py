@@ -27,8 +27,7 @@ class EntropyCoef(nn.Module):
     def __call__(self) -> jnp.ndarray:
         log_ent_coef = self.param("log_ent_coef", init_fn=lambda key: jnp.full((), jnp.log(self.ent_coef_init)))
         return jnp.exp(log_ent_coef)
-
-
+    
 class ConstantEntropyCoef(nn.Module):
     ent_coef_init: float = 1.0
 
@@ -39,7 +38,27 @@ class ConstantEntropyCoef(nn.Module):
         self.param("dummy_param", init_fn=lambda key: jnp.full((), self.ent_coef_init))
         return self.ent_coef_init
 
-
+@jax.jit
+def _get_stats(
+    actor_state: RLTrainState,
+    qf_state: RLTrainState,
+    ent_coef_state: TrainState,
+    observations: jax.Array,
+    key: jax.Array,
+):
+    key, dropout_key, noise_key = jax.random.split(key, 3)
+    dist = actor_state.apply_fn(actor_state.params, observations)
+    actor_actions = dist.sample(seed=noise_key)
+    log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
+    qf_pi = qf_state.apply_fn(
+        qf_state.params,
+        observations,
+        actor_actions,
+        rngs={"dropout": dropout_key},
+    )
+    ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
+    return qf_pi.mean(), jnp.absolute(actor_actions).mean(), ent_coef_value.mean(), -log_prob.mean()
+    
 class BRO(OffPolicyAlgorithmJax):
     policy_aliases: ClassVar[Dict[str, Type[BROPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": BROPolicy,
@@ -110,10 +129,12 @@ class BRO(OffPolicyAlgorithmJax):
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
         self.target_entropy = target_entropy
+        self.init_key = jax.random.PRNGKey(seed)
         
         self.n_quantiles = n_quantiles
         taus_ = jnp.arange(0, n_quantiles+1) / n_quantiles
         self.quantile_taus = ((taus_[1:] + taus_[:-1]) / 2.0)[None, ..., None]
+        
         
         self.distributional = True if self.n_quantiles > 1 else False
         if _init_setup_model:
@@ -132,8 +153,7 @@ class BRO(OffPolicyAlgorithmJax):
             )
 
             assert isinstance(self.qf_learning_rate, float)
-
-            self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
+            self.key = self.policy.build(self.init_key, self.lr_schedule, self.qf_learning_rate)
 
             self.key, ent_key = jax.random.split(self.key, 2)
 
@@ -164,7 +184,63 @@ class BRO(OffPolicyAlgorithmJax):
                 apply_fn=self.ent_coef.apply,
                 params=self.ent_coef.init(ent_key)["params"],
                 tx=optax.adam(
-                    learning_rate=self.learning_rate,
+                    learning_rate=self.learning_rate, b1=0.5
+                ),
+            )
+
+        # Target entropy is used when learning the entropy coefficient
+        if self.target_entropy == "auto":
+            # automatically set target entropy if needed
+            self.target_entropy = -np.prod(self.env.action_space.shape).astype(np.float32) / 2  # type: ignore
+        else:
+            # Force conversion
+            # this will also throw an error for unexpected string
+            self.target_entropy = float(self.target_entropy)
+            
+    def reset(self):
+        if not hasattr(self, "policy") or self.policy is None:
+            self.policy = self.policy_class(  # type: ignore[assignment]
+                self.observation_space,
+                self.action_space,
+                self.lr_schedule,
+                self.n_quantiles,
+                **self.policy_kwargs,
+            )
+
+            assert isinstance(self.qf_learning_rate, float)
+
+            self.key = self.policy.build(self.init_key, self.lr_schedule, self.qf_learning_rate)
+
+            self.key, ent_key = jax.random.split(self.key, 2)
+
+            self.actor = self.policy.actor  # type: ignore[assignment]
+            self.qf = self.policy.qf  # type: ignore[assignment]
+
+            # The entropy coefficient or entropy can be learned automatically
+            # see Automating Entropy Adjustment for Maximum Entropy RL section
+            # of https://arxiv.org/abs/1812.05905
+            if isinstance(self.ent_coef_init, str) and self.ent_coef_init.startswith("auto"):
+                # Default initial value of ent_coef when learned
+                ent_coef_init = 1.0
+                if "_" in self.ent_coef_init:
+                    ent_coef_init = float(self.ent_coef_init.split("_")[1])
+                    assert ent_coef_init > 0.0, "The initial value of ent_coef must be greater than 0"
+
+                # Note: we optimize the log of the entropy coeff which is slightly different from the paper
+                # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
+                self.ent_coef = EntropyCoef(ent_coef_init)
+            else:
+                # This will throw an error if a malformed string (different from 'auto') is passed
+                assert isinstance(
+                    self.ent_coef_init, float
+                ), f"Entropy coef must be float when not equal to 'auto', actual: {self.ent_coef_init}"
+                self.ent_coef = ConstantEntropyCoef(self.ent_coef_init)  # type: ignore[assignment]
+
+            self.ent_coef_state = TrainState.create(
+                apply_fn=self.ent_coef.apply,
+                params=self.ent_coef.init(ent_key)["params"],
+                tx=optax.adam(
+                    learning_rate=self.learning_rate, b1=0.5
                 ),
             )
 
@@ -242,7 +318,7 @@ class BRO(OffPolicyAlgorithmJax):
         return {
             'actor_loss': actor_loss_value.item(),
             'critic_loss': qf_loss_value.item(),
-            'ent_coef': ent_coef_value.item(),
+            'ent_loss': ent_coef_value.item(),
             }
         #self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         #self.logger.record("train/actor_loss", actor_loss_value.item())
@@ -431,7 +507,40 @@ class BRO(OffPolicyAlgorithmJax):
         )
         ent_coef_state, ent_coef_loss_value = cls.update_temperature(target_entropy, ent_coef_state, entropy)
         return actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key
+    
+    def get_stats(self, batch_size):
+        data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
 
+        if isinstance(data.observations, dict):
+            keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
+            obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
+            next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
+        else:
+            obs = data.observations.numpy()
+            next_obs = data.next_observations.numpy()
+
+        # Convert to numpy
+        data = ReplayBufferSamplesNp(  # type: ignore[assignment]
+            obs,
+            data.actions.numpy(),
+            next_obs,
+            data.dones.numpy().flatten(),
+            data.rewards.numpy().flatten(),
+        )
+        q, a, temp, ent = _get_stats(
+            self.policy.actor_state,
+            self.policy.qf_state,
+            self.ent_coef_state,
+            obs,
+            self.key,
+        )
+                
+        return {        
+                'q': q.mean().item(),
+                'a': a.item(),
+                'temp': temp.item(),
+                'entropy': ent.item()}
+        
     @classmethod
     @partial(jax.jit, static_argnames=["cls", "gradient_steps", "policy_delay", "policy_delay_offset", "distributional"])
     def _train(

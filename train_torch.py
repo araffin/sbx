@@ -8,9 +8,9 @@ from absl import app, flags
 
 flags.DEFINE_string('env_name', 'cheetah-run', 'Environment name.')
 flags.DEFINE_string('benchmark', 'dmc', 'Environment name.')
-flags.DEFINE_integer('learning_starts', 2500, 'Number of training steps to start training.')
+flags.DEFINE_integer('learning_starts', 2000, 'Number of training steps to start training.')
 flags.DEFINE_integer('training_steps', 1000000, 'Number of training steps.')
-flags.DEFINE_integer('batch_size', 128, 'Mini batch size.')
+flags.DEFINE_integer('batch_size', 256, 'Mini batch size.')
 flags.DEFINE_integer('gradient_steps', 2, 'Number of updates per step.')
 flags.DEFINE_integer('n_quantiles', 100, 'Number of training steps.')
 flags.DEFINE_integer('eval_freq', 25000, 'Eval interval.')
@@ -74,9 +74,10 @@ def main(_):
     
     env = get_env(FLAGS.benchmark, FLAGS.env_name)
     eval_env = get_env(FLAGS.benchmark, FLAGS.env_name)
-    model = BRO("MlpPolicy", env, learning_starts=FLAGS.learning_starts, verbose=0, n_quantiles=FLAGS.n_quantiles, seed=SEED)
+    model = BRO("MlpPolicy", env, learning_starts=FLAGS.learning_starts, verbose=0, n_quantiles=FLAGS.n_quantiles, seed=SEED, batch_size=FLAGS.batch_size, learning_starts=FLAGS.learning_starts, gradient_steps=FLAGS.gradient_steps)
     np.random.seed(SEED)
     
+    reset_list = [20000]
     obs, _ = env.reset(seed=np.random.randint(1e7))
     obs = np.expand_dims(obs, axis=0)
     
@@ -97,12 +98,16 @@ def main(_):
         else:
             obs = next_obs
             
+        if i in reset_list:
+            model.reset()
+            
         if i >= FLAGS.learning_starts:
             train_info = model.train(FLAGS.gradient_steps, FLAGS.batch_size)
-        
+            
         if i % FLAGS.eval_freq == 0:
             eval_info = evaluate(eval_env, model, FLAGS.num_episodes)
-            info = {**eval_info, **train_info}
+            stat_info = model.get_stats(FLAGS.batch_size)
+            info = {**eval_info, **train_info, **stat_info}
             #print(eval_info)
             log_to_wandb(i, info)
         

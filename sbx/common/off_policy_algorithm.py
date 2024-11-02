@@ -71,7 +71,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
             support_multi_env=support_multi_env,
         )
         # Will be updated later
-        self.key = jax.random.PRNGKey(0)
+        self.key = jax.random.PRNGKey(seed)
         # Note: we do not allow schedule for it
         self.qf_learning_rate = qf_learning_rate
 
