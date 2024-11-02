@@ -21,7 +21,7 @@ class BroNetBlock(nn.Module):
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray: 
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         out = nn.Dense(self.n_units)(x)
         out = nn.LayerNorm()(out)
         out = self.activation_fn(out)
@@ -74,10 +74,10 @@ class Critic(nn.Module):
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
         x = Flatten()(x)
-        x = jnp.concatenate([x, action], -1)
-        x = BroNet(self.net_arch, self.activation_fn)(x)
-        x = nn.Dense(self.n_quantiles)(x)
-        return x
+        out = jnp.concatenate([x, action], -1)
+        out = BroNet(self.net_arch, self.activation_fn)(out)
+        out = nn.Dense(self.n_quantiles)(out)
+        return out
     
 class VectorCritic(nn.Module):
     net_arch: Sequence[int]
@@ -139,7 +139,7 @@ class BROPolicy(BaseJaxPolicy):
             # but shows only little overall improvement.
             optimizer_kwargs = {}
             if optimizer_class in [optax.adam, optax.adamw]:
-                optimizer_kwargs["b1"] = 0.5
+                pass
 
         super().__init__(
             observation_space,
@@ -163,7 +163,7 @@ class BROPolicy(BaseJaxPolicy):
         else:
             self.net_arch_pi = [256]
             # In the paper we use [512, 512] although we also use higher RR, here we use bigger network size to compensate for the smaller RR
-            self.net_arch_qf = [1024, 1024]
+            self.net_arch_qf = [512, 512]
         print(self.net_arch_qf)
         self.n_critics = n_critics
         self.use_sde = use_sde
