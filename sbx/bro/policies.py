@@ -115,6 +115,7 @@ class BROPolicy(BaseJaxPolicy):
         lr_schedule: Schedule,
         # BRO
         n_quantiles: int = 100,
+        n_critics: int = 2,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = True,
@@ -130,7 +131,6 @@ class BROPolicy(BaseJaxPolicy):
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
-        n_critics: int = 2,
         share_features_extractor: bool = False,
     ):
         if optimizer_kwargs is None:

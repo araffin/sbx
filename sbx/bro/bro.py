@@ -75,6 +75,7 @@ class BRO(OffPolicyAlgorithmJax):
         env: Union[GymEnv, str],
         #BRO
         n_quantiles: int = 100,
+        pessimism: float = 0.0,
         learning_rate: Union[float, Schedule] = 3e-4,
         qf_learning_rate: Optional[float] = None,
         buffer_size: int = 1_000_000,  # 1e6
@@ -134,7 +135,7 @@ class BRO(OffPolicyAlgorithmJax):
         self.n_quantiles = n_quantiles
         taus_ = jnp.arange(0, n_quantiles+1) / n_quantiles
         self.quantile_taus = ((taus_[1:] + taus_[:-1]) / 2.0)[None, ..., None]
-        
+        self.pessimism = pessimism
         
         self.distributional = True if self.n_quantiles > 1 else False
         if _init_setup_model:
@@ -312,6 +313,7 @@ class BRO(OffPolicyAlgorithmJax):
             self.ent_coef_state,
             self.quantile_taus,
             self.distributional,
+            self.pessimism,
             self.key,
         )
         self._n_updates += gradient_steps
@@ -338,6 +340,7 @@ class BRO(OffPolicyAlgorithmJax):
         rewards: jax.Array,
         dones: jax.Array,
         quantile_taus: jax.Array,
+        pessimism: float,
         key: jax.Array,
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
@@ -354,8 +357,13 @@ class BRO(OffPolicyAlgorithmJax):
             next_state_actions,
             rngs={"dropout": dropout_key_target},
         )
-
-        next_q_values = jnp.mean(qf_next_values, axis=0)
+        
+        ensemble_size = qf_next_values.shape[0]
+        diff = jnp.abs(qf_next_values[:, None, :, :] - qf_next_values[None, :, :, :]) / 2
+        i, j = jnp.triu_indices(ensemble_size, k=1)  # Get indices for upper triangle without the diagonal            
+        critic_disagreement = jnp.mean(diff[i, j], axis=0)
+        
+        next_q_values = jnp.mean(qf_next_values, axis=0) - pessimism * critic_disagreement
         # td error + entropy term
         next_q_values = next_q_values - ent_coef_value * next_log_prob.reshape(-1, 1)
         # shape is (batch_size, 1)
@@ -388,6 +396,7 @@ class BRO(OffPolicyAlgorithmJax):
         rewards: jax.Array,
         dones: jax.Array,
         quantile_taus: jax.Array,
+        pessimism: float,
         key: jax.Array,
     ):
 
@@ -405,17 +414,22 @@ class BRO(OffPolicyAlgorithmJax):
             next_state_actions,
             rngs={"dropout": dropout_key_target},
         )
-    
-        next_q_values = jnp.mean(qf_next_values, axis=0)
+        
+        # calculate disagreement
+        ensemble_size = qf_next_values.shape[0]
+        diff = jnp.abs(qf_next_values[:, None, :, :] - qf_next_values[None, :, :, :]) / 2
+        i, j = jnp.triu_indices(ensemble_size, k=1)  # Get indices for upper triangle without the diagonal            
+        critic_disagreement = jnp.mean(diff[i, j], axis=0)
+        next_q_values = jnp.mean(qf_next_values, axis=0) - pessimism * critic_disagreement
         # entropy term
         next_q_values = next_q_values - ent_coef_value * next_log_prob.reshape(-1, 1)
-        # shape is (batch_size, n_quantiles, n_quantiles)
+        # shape is (batch_size, 1, n_quantiles)
         target_q_values = rewards[..., None, None] + (1 - dones[..., None, None]) * gamma * next_q_values[:, None, :]
 
         def quantile_loss(params: flax.core.FrozenDict, dropout_key: jax.Array) -> jax.Array:
             # shape is (n_critics, batch_size, 1)
             current_q_values = qf_state.apply_fn(params, observations, actions, rngs={"dropout": dropout_key})
-            quantile_td_error = current_q_values[..., None] - target_q_values[None, ...]
+            quantile_td_error = target_q_values[None, ...] - current_q_values[..., None]
             def calculate_quantile_huber_loss(quantile_td_error: jnp.ndarray, quantile_taus: jnp.ndarray, kappa: float = 1.0) -> jnp.ndarray:
                 element_wise_huber_loss = jnp.where(jnp.absolute(quantile_td_error) <= kappa, 0.5 * quantile_td_error ** 2, kappa * (jnp.absolute(quantile_td_error) - 0.5 * kappa))
                 mask = jax.lax.stop_gradient(jnp.where(quantile_td_error < 0, 1, 0)) # detach this
@@ -441,6 +455,7 @@ class BRO(OffPolicyAlgorithmJax):
         qf_state: RLTrainState,
         ent_coef_state: TrainState,
         observations: jax.Array,
+        pessimism: float, 
         key: jax.Array,
     ):
         key, dropout_key, noise_key = jax.random.split(key, 3)
@@ -458,7 +473,12 @@ class BRO(OffPolicyAlgorithmJax):
             )
             
             # Take mean among all critics
-            qf_pi_lb = jnp.mean(qf_pi, axis=0)
+            ensemble_size = qf_pi.shape[0]
+            diff = jnp.abs(qf_pi[:, None, :, :] - qf_pi[None, :, :, :]) / 2
+            i, j = jnp.triu_indices(ensemble_size, k=1)  # Get indices for upper triangle without the diagonal            
+            critic_disagreement = jnp.mean(diff[i, j], axis=0)
+            
+            qf_pi_lb = jnp.mean(qf_pi, axis=0) - pessimism * critic_disagreement
             qf_pi_lb = jnp.mean(qf_pi_lb, axis=-1, keepdims=True)
             ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
             actor_loss = (ent_coef_value * log_prob - qf_pi_lb).mean()
@@ -496,6 +516,7 @@ class BRO(OffPolicyAlgorithmJax):
         ent_coef_state: TrainState,
         observations: jax.Array,
         target_entropy: ArrayLike,
+        pessimism: float,
         key: jax.Array,
     ):
         (actor_state, qf_state, actor_loss_value, key, entropy) = cls.update_actor(
@@ -503,6 +524,7 @@ class BRO(OffPolicyAlgorithmJax):
             qf_state,
             ent_coef_state,
             observations,
+            pessimism,
             key,
         )
         ent_coef_state, ent_coef_loss_value = cls.update_temperature(target_entropy, ent_coef_state, entropy)
@@ -557,6 +579,7 @@ class BRO(OffPolicyAlgorithmJax):
         ent_coef_state: TrainState,
         quantile_taus: jax.Array,
         distributional: bool,
+        pessimism: float,
         key: jax.Array,
     ):
         assert data.observations.shape[0] % gradient_steps == 0
@@ -604,6 +627,7 @@ class BRO(OffPolicyAlgorithmJax):
                 batch_rew,
                 batch_done,
                 quantile_taus,
+                pessimism,
                 key,
             )       
             
@@ -620,6 +644,7 @@ class BRO(OffPolicyAlgorithmJax):
                 ent_coef_state,
                 batch_obs,
                 target_entropy,
+                pessimism,
                 key,
             )
             info = {"actor_loss": actor_loss_value, "qf_loss": qf_loss_value, "ent_coef_loss": ent_coef_loss_value}

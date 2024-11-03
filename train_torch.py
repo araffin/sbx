@@ -20,7 +20,7 @@ FLAGS = flags.FLAGS
 '''
 class flags:
     benchmark: str = 'dmc'
-    env_name: str = "cheetah-run"
+    env_name: str = "walker-walk"
     learning_starts: int = 9999
     training_steps: int = 10_000
     seed: int = 0
@@ -109,7 +109,7 @@ def main(_):
             eval_info = evaluate(eval_env, model, FLAGS.num_episodes)
             stat_info = model.get_stats(FLAGS.batch_size)
             info = {**eval_info, **train_info, **stat_info}
-            #print(eval_info)
+            print(eval_info)
             log_to_wandb(i, info)
         
 if __name__ == '__main__':
