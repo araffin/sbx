@@ -117,7 +117,7 @@ class BROPolicy(BaseJaxPolicy):
         n_quantiles: int = 100,
         net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
         dropout_rate: float = 0.0,
-        layer_norm: bool = False,
+        layer_norm: bool = True,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,        
         # Note: most gSDE parameters are not used
