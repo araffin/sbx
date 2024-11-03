@@ -12,7 +12,7 @@ flags.DEFINE_integer('learning_starts', 2500, 'Number of training steps to start
 flags.DEFINE_integer('training_steps', 1000000, 'Number of training steps.')
 flags.DEFINE_integer('batch_size', 128, 'Mini batch size.')
 flags.DEFINE_integer('gradient_steps', 2, 'Number of updates per step.')
-flags.DEFINE_integer('n_quantiles', 1, 'Number of training steps.')
+flags.DEFINE_integer('n_quantiles', 100, 'Number of training steps.')
 flags.DEFINE_integer('eval_freq', 25000, 'Eval interval.')
 flags.DEFINE_integer('num_episodes', 5, 'Number of episodes used for evaluation.')
 FLAGS = flags.FLAGS
