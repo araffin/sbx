@@ -12,7 +12,7 @@ flags.DEFINE_integer('learning_starts', 2500, 'Number of training steps to start
 flags.DEFINE_integer('training_steps', 1000000, 'Number of training steps.')
 flags.DEFINE_integer('batch_size', 128, 'Mini batch size.')
 flags.DEFINE_integer('gradient_steps', 2, 'Number of updates per step.')
-flags.DEFINE_integer('n_quantiles', 1, 'Number of training steps.')
+flags.DEFINE_integer('n_quantiles', 100, 'Number of training steps.')
 flags.DEFINE_integer('eval_freq', 25000, 'Eval interval.')
 flags.DEFINE_integer('num_episodes', 5, 'Number of episodes used for evaluation.')
 FLAGS = flags.FLAGS
@@ -20,7 +20,7 @@ FLAGS = flags.FLAGS
 '''
 class flags:
     benchmark: str = 'dmc'
-    env_name: str = "cheetah-run"
+    env_name: str = "walker-walk"
     learning_starts: int = 9999
     training_steps: int = 10_000
     seed: int = 0
@@ -109,7 +109,7 @@ def main(_):
             eval_info = evaluate(eval_env, model, FLAGS.num_episodes)
             stat_info = model.get_stats(FLAGS.batch_size)
             info = {**eval_info, **train_info, **stat_info}
-            #print(eval_info)
+            print(eval_info)
             log_to_wandb(i, info)
         
 if __name__ == '__main__':
