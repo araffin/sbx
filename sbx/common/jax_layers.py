@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Optional, Sequence, Tuple, Type, Union
 
 import flax.linen as nn
 import jax
@@ -212,11 +212,12 @@ class SimbaResidualBlock(nn.Module):
     hidden_dim: int
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     scale_factor: int = 4
+    norm_layer: Type[nn.Module] = nn.LayerNorm
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         residual = x
-        x = nn.LayerNorm()(x)
+        x = self.norm_layer()(x)
         x = nn.Dense(self.hidden_dim * self.scale_factor, kernel_init=nn.initializers.he_normal())(x)
         x = self.activation_fn(x)
         x = nn.Dense(self.hidden_dim, kernel_init=nn.initializers.he_normal())(x)

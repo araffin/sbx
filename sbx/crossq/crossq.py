@@ -16,7 +16,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import BatchNormTrainState, ReplayBufferSamplesNp
-from sbx.crossq.policies import CrossQPolicy
+from sbx.crossq.policies import CrossQPolicy, SimbaCrossQPolicy
 
 
 class EntropyCoef(nn.Module):
@@ -42,6 +42,7 @@ class ConstantEntropyCoef(nn.Module):
 class CrossQ(OffPolicyAlgorithmJax):
     policy_aliases: ClassVar[Dict[str, Type[CrossQPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": CrossQPolicy,
+        "SimbaPolicy": SimbaCrossQPolicy,
         # Minimal dict support using flatten()
         "MultiInputPolicy": CrossQPolicy,
     }

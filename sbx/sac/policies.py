@@ -235,7 +235,7 @@ class SimbaSACPolicy(SACPolicy):
         # AdamW for simba
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
-        n_critics: int = 2,
+        n_critics: int = 1,
         share_features_extractor: bool = False,
         actor_class: Type[nn.Module] = SimbaActor,
         vector_critic_class: Type[nn.Module] = SimbaVectorCritic,
