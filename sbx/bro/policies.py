@@ -37,11 +37,11 @@ class BroNet(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = nn.Dense(self.net_arch[0], self.activation_fn)(x)
+        x = nn.Dense(self.net_arch[0])(x)
         x = nn.LayerNorm()(x)
         x = self.activation_fn(x)
         for n_units in self.net_arch:
-            x = BroNetBlock(n_units)(x)
+            x = BroNetBlock(n_units, self.activation_fn)(x)
         return x
 
 
@@ -168,7 +168,9 @@ class BROPolicy(BaseJaxPolicy):
                 self.net_arch_qf = net_arch["qf"]
         else:
             self.net_arch_pi = [256]
-            # In the paper we use [512, 512] although we also use higher RR, here we use bigger network size to compensate for the smaller RR
+            # In the original implementation, the authors use [512, 512]
+            # but with a higher replay ratio (RR),
+            # here we use bigger network size to compensate for the smaller RR
             self.net_arch_qf = [1024, 1024]
         self.n_critics = n_critics
         self.use_sde = use_sde
