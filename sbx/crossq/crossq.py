@@ -355,8 +355,10 @@ class CrossQ(OffPolicyAlgorithmJax):
     @jax.jit
     def update_temperature(target_entropy: ArrayLike, ent_coef_state: TrainState, entropy: float):
         def temperature_loss(temp_params: flax.core.FrozenDict) -> jax.Array:
+            # Note: we optimize the log of the entropy coeff which is slightly different from the paper
+            # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
             ent_coef_value = ent_coef_state.apply_fn({"params": temp_params})
-            ent_coef_loss = ent_coef_value * (entropy - target_entropy).mean()  # type: ignore[union-attr]
+            ent_coef_loss = jnp.log(ent_coef_value) * (entropy - target_entropy).mean()  # type: ignore[union-attr]
             return ent_coef_loss
 
         ent_coef_loss, grads = jax.value_and_grad(temperature_loss)(ent_coef_state.params)
