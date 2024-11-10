@@ -81,7 +81,7 @@ class BRO(OffPolicyAlgorithmJax):
         learning_rate: Union[float, Schedule] = 3e-4,
         qf_learning_rate: Optional[float] = None,
         buffer_size: int = 1_000_000,  # 1e6
-        learning_starts: int = 2_500,
+        learning_starts: int = 100,
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
