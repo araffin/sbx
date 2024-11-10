@@ -7,6 +7,8 @@ from sbx.ppo import PPO
 from sbx.sac import SAC
 from sbx.td3 import TD3
 from sbx.tqc import TQC
+from sbx.bro import BRO
+
 
 # Read version from file
 version_file = os.path.join(os.path.dirname(__file__), "version.txt")
@@ -30,4 +32,5 @@ __all__ = [
     "SAC",
     "TD3",
     "TQC",
+    "BRO",
 ]
