@@ -264,15 +264,10 @@ class BRO(OffPolicyAlgorithmJax):
             self.key,
         )
         self._n_updates += gradient_steps
-        return {
-            'actor_loss': actor_loss_value.item(),
-            'critic_loss': qf_loss_value.item(),
-            'ent_loss': ent_coef_value.item(),
-            }
-        #self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        #self.logger.record("train/actor_loss", actor_loss_value.item())
-        #self.logger.record("train/critic_loss", qf_loss_value.item())
-        #self.logger.record("train/ent_coef", ent_coef_value.item())
+        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        self.logger.record("train/actor_loss", actor_loss_value.item())
+        self.logger.record("train/critic_loss", qf_loss_value.item())
+        self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
     @jax.jit
@@ -476,39 +471,6 @@ class BRO(OffPolicyAlgorithmJax):
         )
         ent_coef_state, ent_coef_loss_value = cls.update_temperature(target_entropy, ent_coef_state, entropy)
         return actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key
-    
-    def get_stats(self, batch_size):
-        data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)
-
-        if isinstance(data.observations, dict):
-            keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
-            obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
-            next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
-        else:
-            obs = data.observations.numpy()
-            next_obs = data.next_observations.numpy()
-
-        # Convert to numpy
-        data = ReplayBufferSamplesNp(  # type: ignore[assignment]
-            obs,
-            data.actions.numpy(),
-            next_obs,
-            data.dones.numpy().flatten(),
-            data.rewards.numpy().flatten(),
-        )
-        q, a, temp, ent = _get_stats(
-            self.policy.actor_state,
-            self.policy.qf_state,
-            self.ent_coef_state,
-            obs,
-            self.key,
-        )
-                
-        return {        
-                'q': q.mean().item(),
-                'a': a.item(),
-                'temp': temp.item(),
-                'entropy': ent.item()}
         
     @classmethod
     @partial(jax.jit, static_argnames=["cls", "gradient_steps", "policy_delay", "policy_delay_offset", "distributional"])
