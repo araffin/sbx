@@ -143,60 +143,7 @@ class BRO(OffPolicyAlgorithmJax):
 
     def _setup_model(self) -> None:
         super()._setup_model()
-
-        if not hasattr(self, "policy") or self.policy is None:
-            self.policy = self.policy_class(  # type: ignore[assignment]
-                self.observation_space,
-                self.action_space,
-                self.lr_schedule,
-                self.n_quantiles,
-                **self.policy_kwargs,
-            )
-
-            assert isinstance(self.qf_learning_rate, float)
-            self.key = self.policy.build(self.init_key, self.lr_schedule, self.qf_learning_rate)
-
-            self.key, ent_key = jax.random.split(self.key, 2)
-
-            self.actor = self.policy.actor  # type: ignore[assignment]
-            self.qf = self.policy.qf  # type: ignore[assignment]
-
-            # The entropy coefficient or entropy can be learned automatically
-            # see Automating Entropy Adjustment for Maximum Entropy RL section
-            # of https://arxiv.org/abs/1812.05905
-            if isinstance(self.ent_coef_init, str) and self.ent_coef_init.startswith("auto"):
-                # Default initial value of ent_coef when learned
-                ent_coef_init = 1.0
-                if "_" in self.ent_coef_init:
-                    ent_coef_init = float(self.ent_coef_init.split("_")[1])
-                    assert ent_coef_init > 0.0, "The initial value of ent_coef must be greater than 0"
-
-                # Note: we optimize the log of the entropy coeff which is slightly different from the paper
-                # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
-                self.ent_coef = EntropyCoef(ent_coef_init)
-            else:
-                # This will throw an error if a malformed string (different from 'auto') is passed
-                assert isinstance(
-                    self.ent_coef_init, float
-                ), f"Entropy coef must be float when not equal to 'auto', actual: {self.ent_coef_init}"
-                self.ent_coef = ConstantEntropyCoef(self.ent_coef_init)  # type: ignore[assignment]
-
-            self.ent_coef_state = TrainState.create(
-                apply_fn=self.ent_coef.apply,
-                params=self.ent_coef.init(ent_key)["params"],
-                tx=optax.adam(
-                    learning_rate=self.learning_rate, b1=0.5
-                ),
-            )
-
-        # Target entropy is used when learning the entropy coefficient
-        if self.target_entropy == "auto":
-            # automatically set target entropy if needed
-            self.target_entropy = -np.prod(self.env.action_space.shape).astype(np.float32) / 2  # type: ignore
-        else:
-            # Force conversion
-            # this will also throw an error for unexpected string
-            self.target_entropy = float(self.target_entropy)
+        self.reset()
             
     def reset(self):
         if not hasattr(self, "policy") or self.policy is None:
