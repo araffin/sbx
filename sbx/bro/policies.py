@@ -169,8 +169,7 @@ class BROPolicy(BaseJaxPolicy):
         else:
             self.net_arch_pi = [256]
             # In the paper we use [512, 512] although we also use higher RR, here we use bigger network size to compensate for the smaller RR
-            self.net_arch_qf = [512, 512]
-        print(self.net_arch_qf)
+            self.net_arch_qf = [1024, 1024]
         self.n_critics = n_critics
         self.use_sde = use_sde
         self.activation_fn = activation_fn
