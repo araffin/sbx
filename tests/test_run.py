@@ -8,7 +8,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.envs import BitFlippingEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ, BRO
+from sbx import BRO, DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ
 
 
 def check_save_load(model, model_class, tmp_path):
