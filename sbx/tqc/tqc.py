@@ -16,7 +16,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
-from sbx.tqc.policies import TQCPolicy
+from sbx.tqc.policies import SimbaTQCPolicy, TQCPolicy
 
 
 class EntropyCoef(nn.Module):
@@ -42,6 +42,7 @@ class ConstantEntropyCoef(nn.Module):
 class TQC(OffPolicyAlgorithmJax):
     policy_aliases: ClassVar[Dict[str, Type[TQCPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": TQCPolicy,
+        "SimbaPolicy": SimbaTQCPolicy,
         # Minimal dict support using flatten()
         "MultiInputPolicy": TQCPolicy,
     }

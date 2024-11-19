@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Type, Union
 
 import flax.linen as nn
 import jax
@@ -11,32 +11,11 @@ from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
-from sbx.common.policies import BaseJaxPolicy, Flatten
+from sbx.common.policies import BaseJaxPolicy, ContinuousCritic, Flatten, SimbaContinuousCritic
 from sbx.common.type_aliases import RLTrainState
+from sbx.sac.policies import SimbaActor
 
 tfd = tfp.distributions
-
-
-class Critic(nn.Module):
-    net_arch: Sequence[int]
-    use_layer_norm: bool = False
-    dropout_rate: Optional[float] = None
-    n_quantiles: int = 25
-    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray, a: jnp.ndarray, training: bool = False) -> jnp.ndarray:
-        x = Flatten()(x)
-        x = jnp.concatenate([x, a], -1)
-        for n_units in self.net_arch:
-            x = nn.Dense(n_units)(x)
-            if self.dropout_rate is not None and self.dropout_rate > 0:
-                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
-            if self.use_layer_norm:
-                x = nn.LayerNorm()(x)
-            x = self.activation_fn(x)
-        x = nn.Dense(self.n_quantiles)(x)
-        return x
 
 
 class Actor(nn.Module):
@@ -92,6 +71,8 @@ class TQCPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
+        actor_class: Type[nn.Module] = Actor,
+        critic_class: Type[nn.Module] = ContinuousCritic,
     ):
         super().__init__(
             observation_space,
@@ -121,6 +102,8 @@ class TQCPolicy(BaseJaxPolicy):
         self.n_target_quantiles = quantiles_total - top_quantiles_to_drop_per_net * self.n_critics
         self.use_sde = use_sde
         self.activation_fn = activation_fn
+        self.actor_class = actor_class
+        self.critic_class = critic_class
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -137,7 +120,7 @@ class TQCPolicy(BaseJaxPolicy):
 
         action = jnp.array([self.action_space.sample()])
 
-        self.actor = Actor(
+        self.actor = self.actor_class(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
             activation_fn=self.activation_fn,
@@ -154,11 +137,11 @@ class TQCPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.qf = Critic(
+        self.qf = self.critic_class(
             dropout_rate=self.dropout_rate,
             use_layer_norm=self.layer_norm,
             net_arch=self.net_arch_qf,
-            n_quantiles=self.n_quantiles,
+            output_dim=self.n_quantiles,
             activation_fn=self.activation_fn,
         )
 
@@ -217,3 +200,55 @@ class TQCPolicy(BaseJaxPolicy):
         if not self.use_sde:
             self.reset_noise()
         return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
+
+
+class SimbaTQCPolicy(TQCPolicy):
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        dropout_rate: float = 0,
+        layer_norm: bool = False,
+        top_quantiles_to_drop_per_net: int = 2,
+        n_quantiles: int = 25,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
+        use_sde: bool = False,
+        log_std_init: float = -3,
+        use_expln: bool = False,
+        clip_mean: float = 2,
+        features_extractor_class=None,
+        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        n_critics: int = 2,
+        share_features_extractor: bool = False,
+        actor_class: Type[nn.Module] = SimbaActor,
+        critic_class: Type[nn.Module] = SimbaContinuousCritic,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            dropout_rate,
+            layer_norm,
+            top_quantiles_to_drop_per_net,
+            n_quantiles,
+            activation_fn,
+            use_sde,
+            log_std_init,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            n_critics,
+            share_features_extractor,
+            actor_class,
+            critic_class,
+        )

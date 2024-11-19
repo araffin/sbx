@@ -129,6 +129,7 @@ class ContinuousCritic(nn.Module):
     use_layer_norm: bool = False
     dropout_rate: Optional[float] = None
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    output_dim: int = 1
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
@@ -141,7 +142,7 @@ class ContinuousCritic(nn.Module):
             if self.use_layer_norm:
                 x = nn.LayerNorm()(x)
             x = self.activation_fn(x)
-        x = nn.Dense(1)(x)
+        x = nn.Dense(self.output_dim)(x)
         return x
 
 
@@ -150,6 +151,8 @@ class SimbaContinuousCritic(nn.Module):
     dropout_rate: Optional[float] = None
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     scale_factor: int = 4
+    output_dim: int = 1
+    use_layer_norm: bool = False  # for consistency, not used
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
@@ -164,7 +167,7 @@ class SimbaContinuousCritic(nn.Module):
                 x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
         x = nn.LayerNorm()(x)
 
-        x = nn.Dense(1)(x)
+        x = nn.Dense(self.output_dim)(x)
         return x
 
 
@@ -174,6 +177,7 @@ class VectorCritic(nn.Module):
     dropout_rate: Optional[float] = None
     n_critics: int = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    output_dim: int = 1
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
@@ -192,6 +196,7 @@ class VectorCritic(nn.Module):
             dropout_rate=self.dropout_rate,
             net_arch=self.net_arch,
             activation_fn=self.activation_fn,
+            output_dim=self.output_dim,
         )(obs, action)
         return q_values
 
@@ -203,6 +208,7 @@ class SimbaVectorCritic(nn.Module):
     dropout_rate: Optional[float] = None
     n_critics: int = 1  # only one critic per default
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    output_dim: int = 1
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
@@ -220,5 +226,6 @@ class SimbaVectorCritic(nn.Module):
             dropout_rate=self.dropout_rate,
             net_arch=self.net_arch,
             activation_fn=self.activation_fn,
+            output_dim=self.output_dim,
         )(obs, action)
         return q_values
