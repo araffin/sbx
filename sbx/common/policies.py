@@ -148,11 +148,11 @@ class ContinuousCritic(nn.Module):
 
 class SimbaContinuousCritic(nn.Module):
     net_arch: Sequence[int]
+    use_layer_norm: bool = False  # for consistency, not used
     dropout_rate: Optional[float] = None
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-    scale_factor: int = 4
     output_dim: int = 1
-    use_layer_norm: bool = False  # for consistency, not used
+    scale_factor: int = 4
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:

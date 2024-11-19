@@ -268,14 +268,12 @@ class TQC(OffPolicyAlgorithmJax):
             qf1_state.target_params,
             next_observations,
             next_state_actions,
-            True,
             rngs={"dropout": dropout_key_1},
         )
         qf2_next_quantiles = qf1_state.apply_fn(
             qf2_state.target_params,
             next_observations,
             next_state_actions,
-            True,
             rngs={"dropout": dropout_key_2},
         )
 
@@ -297,7 +295,7 @@ class TQC(OffPolicyAlgorithmJax):
 
         def huber_quantile_loss(params: flax.core.FrozenDict, dropout_key: jax.Array) -> jax.Array:
             # Compute huber quantile loss
-            current_quantiles = qf1_state.apply_fn(params, observations, actions, True, rngs={"dropout": dropout_key})
+            current_quantiles = qf1_state.apply_fn(params, observations, actions, rngs={"dropout": dropout_key})
             # convert to shape: (batch_size, n_quantiles, 1) for broadcast
             current_quantiles = jnp.expand_dims(current_quantiles, axis=-1)
 
@@ -347,14 +345,12 @@ class TQC(OffPolicyAlgorithmJax):
                 qf1_state.params,
                 observations,
                 actor_actions,
-                True,
                 rngs={"dropout": dropout_key_1},
             )
             qf2_pi = qf1_state.apply_fn(
                 qf2_state.params,
                 observations,
                 actor_actions,
-                True,
                 rngs={"dropout": dropout_key_2},
             )
             qf1_pi = jnp.expand_dims(qf1_pi, axis=-1)
