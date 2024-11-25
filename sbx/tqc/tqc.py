@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, ClassVar, Dict, Literal, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
@@ -65,6 +65,7 @@ class TQC(OffPolicyAlgorithmJax):
         gradient_steps: int = 1,
         policy_delay: int = 1,
         top_quantiles_to_drop_per_net: int = 2,
+        resets: Optional[List[int]] = None,  # List of timesteps after which to reset the params
         action_noise: Optional[ActionNoise] = None,
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
@@ -109,6 +110,8 @@ class TQC(OffPolicyAlgorithmJax):
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
         self.target_entropy = target_entropy
+        self.resets = resets
+        self.reset_idx = 0
 
         self.policy_kwargs["top_quantiles_to_drop_per_net"] = top_quantiles_to_drop_per_net
 
@@ -194,6 +197,13 @@ class TQC(OffPolicyAlgorithmJax):
         assert self.replay_buffer is not None
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
+
+        # Maybe reset the parameters
+        if self.resets and self.reset_idx < len(self.resets) and self.resets[self.reset_idx] >= self.num_timesteps:
+            # Note: we are not resetting the entropy coeff
+            assert isinstance(self.qf_learning_rate, float)
+            self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
+            self.reset_idx += 1
 
         if isinstance(data.observations, dict):
             keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
