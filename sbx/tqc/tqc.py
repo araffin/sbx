@@ -199,7 +199,7 @@ class TQC(OffPolicyAlgorithmJax):
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
 
         # Maybe reset the parameters
-        if self.resets and self.reset_idx < len(self.resets) and self.resets[self.reset_idx] >= self.num_timesteps:
+        if self.resets and self.reset_idx < len(self.resets) and self.num_timesteps >= self.resets[self.reset_idx]:
             # Note: we are not resetting the entropy coeff
             assert isinstance(self.qf_learning_rate, float)
             self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
