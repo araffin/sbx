@@ -43,6 +43,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
         sde_support: bool = True,
+        stats_window_size: int = 100,
         supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
     ):
         super().__init__(
@@ -62,6 +63,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
             use_sde_at_warmup=use_sde_at_warmup,
+            stats_window_size=stats_window_size,
             policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
