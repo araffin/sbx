@@ -44,6 +44,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         use_sde_at_warmup: bool = False,
         sde_support: bool = True,
         stats_window_size: int = 100,
+        param_resets: Optional[List[int]] = None,
         supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
     ):
         super().__init__(
@@ -76,6 +77,20 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         self.key = jax.random.PRNGKey(0)
         # Note: we do not allow schedule for it
         self.qf_learning_rate = qf_learning_rate
+        self.param_resets = param_resets
+        self.reset_idx = 0
+
+    def _maybe_reset_params(self) -> None:
+        # Maybe reset the parameters
+        if (
+            self.param_resets
+            and self.reset_idx < len(self.param_resets)
+            and self.num_timesteps >= self.param_resets[self.reset_idx]
+        ):
+            # Note: we are not resetting the entropy coeff
+            assert isinstance(self.qf_learning_rate, float)
+            self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
+            self.reset_idx += 1
 
     def _get_torch_save_params(self):
         return [], []

@@ -211,6 +211,8 @@ class BatchRenorm(Module):
 class SimbaResidualBlock(nn.Module):
     hidden_dim: int
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    # "the MLP is structured with an inverted bottleneck, where the hidden
+    # dimension is expanded to 4 *  hidden_dim"
     scale_factor: int = 4
     norm_layer: Type[nn.Module] = nn.LayerNorm
 

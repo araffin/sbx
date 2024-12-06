@@ -65,7 +65,6 @@ class TQC(OffPolicyAlgorithmJax):
         gradient_steps: int = 1,
         policy_delay: int = 1,
         top_quantiles_to_drop_per_net: int = 2,
-        resets: Optional[List[int]] = None,  # List of timesteps after which to reset the params
         action_noise: Optional[ActionNoise] = None,
         replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
@@ -77,6 +76,7 @@ class TQC(OffPolicyAlgorithmJax):
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
+        param_resets: Optional[List[int]] = None,  # List of timesteps after which to reset the params
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",
@@ -102,6 +102,7 @@ class TQC(OffPolicyAlgorithmJax):
             use_sde_at_warmup=use_sde_at_warmup,
             stats_window_size=stats_window_size,
             policy_kwargs=policy_kwargs,
+            param_resets=param_resets,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
@@ -112,8 +113,6 @@ class TQC(OffPolicyAlgorithmJax):
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
         self.target_entropy = target_entropy
-        self.resets = resets
-        self.reset_idx = 0
 
         self.policy_kwargs["top_quantiles_to_drop_per_net"] = top_quantiles_to_drop_per_net
 
@@ -200,12 +199,8 @@ class TQC(OffPolicyAlgorithmJax):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
 
-        # Maybe reset the parameters
-        if self.resets and self.reset_idx < len(self.resets) and self.num_timesteps >= self.resets[self.reset_idx]:
-            # Note: we are not resetting the entropy coeff
-            assert isinstance(self.qf_learning_rate, float)
-            self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
-            self.reset_idx += 1
+        # Maybe reset the parameters/optimizers fully
+        self._maybe_reset_params()
 
         if isinstance(data.observations, dict):
             keys = list(self.observation_space.keys())  # type: ignore[attr-defined]

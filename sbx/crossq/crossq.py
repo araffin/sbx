@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, ClassVar, Dict, Literal, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import flax
 import flax.linen as nn
@@ -74,6 +74,7 @@ class CrossQ(OffPolicyAlgorithmJax):
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
+        param_resets: Optional[List[int]] = None,  # List of timesteps after which to reset the params
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",
@@ -98,6 +99,7 @@ class CrossQ(OffPolicyAlgorithmJax):
             use_sde_at_warmup=use_sde_at_warmup,
             stats_window_size=stats_window_size,
             policy_kwargs=policy_kwargs,
+            param_resets=param_resets,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
@@ -191,6 +193,9 @@ class CrossQ(OffPolicyAlgorithmJax):
         assert self.replay_buffer is not None
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
+
+        # Maybe reset the parameters/optimizers fully
+        self._maybe_reset_params()
 
         if isinstance(data.observations, dict):
             keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
