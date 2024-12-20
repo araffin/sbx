@@ -1,81 +1,22 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import tensorflow_probability.substrates.jax as tfp
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.distributions import TanhTransformedDistribution
-from sbx.common.jax_layers import SimbaResidualBlock
-from sbx.common.policies import BaseJaxPolicy, Flatten, SimbaVectorCritic, VectorCritic
+from sbx.common.policies import (
+    BaseJaxPolicy,
+    SimbaSquashedGaussianActor,
+    SimbaVectorCritic,
+    SquashedGaussianActor,
+    VectorCritic,
+)
 from sbx.common.type_aliases import RLTrainState
-
-tfd = tfp.distributions
-
-
-class Actor(nn.Module):
-    net_arch: Sequence[int]
-    action_dim: int
-    log_std_min: float = -20
-    log_std_max: float = 2
-    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-
-    def get_std(self):
-        # Make it work with gSDE
-        return jnp.array(0.0)
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
-        x = Flatten()(x)
-        for n_units in self.net_arch:
-            x = nn.Dense(n_units)(x)
-            x = self.activation_fn(x)
-        mean = nn.Dense(self.action_dim)(x)
-        log_std = nn.Dense(self.action_dim)(x)
-        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        dist = TanhTransformedDistribution(
-            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-        )
-        return dist
-
-
-class SimbaActor(nn.Module):
-    # Note: each element in net_arch correpond to a residual block
-    # not just a single layer
-    net_arch: Sequence[int]
-    action_dim: int
-    # num_blocks: int = 2
-    log_std_min: float = -20
-    log_std_max: float = 2
-    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-    scale_factor: int = 4
-
-    def get_std(self):
-        # Make it work with gSDE
-        return jnp.array(0.0)
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
-        x = Flatten()(x)
-
-        # Note: simba was using kernel_init=orthogonal_init(1)
-        x = nn.Dense(self.net_arch[0])(x)
-        for n_units in self.net_arch:
-            x = SimbaResidualBlock(n_units, self.activation_fn, self.scale_factor)(x)
-        x = nn.LayerNorm()(x)
-
-        mean = nn.Dense(self.action_dim)(x)
-        log_std = nn.Dense(self.action_dim)(x)
-        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        dist = TanhTransformedDistribution(
-            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-        )
-        return dist
 
 
 class SACPolicy(BaseJaxPolicy):
@@ -103,7 +44,7 @@ class SACPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: Type[nn.Module] = Actor,
+        actor_class: Type[nn.Module] = SquashedGaussianActor,
         vector_critic_class: Type[nn.Module] = VectorCritic,
     ):
         super().__init__(
@@ -235,9 +176,9 @@ class SimbaSACPolicy(SACPolicy):
         # AdamW for simba
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
-        n_critics: int = 1,
+        n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: Type[nn.Module] = SimbaActor,
+        actor_class: Type[nn.Module] = SimbaSquashedGaussianActor,
         vector_critic_class: Type[nn.Module] = SimbaVectorCritic,
     ):
         super().__init__(

@@ -21,6 +21,8 @@ Implemented algorithms:
 - [Simplicity Bias for Scaling Up Parameters in Deep Reinforcement Learning (SimBa)](https://openreview.net/forum?id=jXLiDKsuDo)
 
 
+Note: parameter resets for off-policy algorithms can be activated by passing a list of timesteps to the model constructor (ex: `param_resets=[int(1e5), int(5e5)]` to reset parameters and optimizers after 100_000 and 500_000 timesteps.
+
 ### Install using pip
 
 For the latest master version:
@@ -173,7 +175,6 @@ for env_id in [
 
 and then using the RL Zoo script defined above: `python train.py --algo tqc --env HalfCheetah-v4 -c simba.py -P`.
 
-Note: parameter resets can be activated by passing a list of timesteps to the model constructor (ex: `param_resets=[int(1e5), int(5e5)]` to reset parameters and optimizers after 100_000 and 500_000 timesteps.
 
 ## Benchmark
 

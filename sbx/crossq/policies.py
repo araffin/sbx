@@ -472,11 +472,11 @@ class SimbaCrossQPolicy(CrossQPolicy):
         features_extractor_class=None,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
-        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: Type[nn.Module] = SimbaActor,  # TODO: replace with Simba actor
+        actor_class: Type[nn.Module] = SimbaActor,
         vector_critic_class: Type[nn.Module] = SimbaVectorCritic,
     ):
         super().__init__(

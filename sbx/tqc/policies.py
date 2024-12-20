@@ -1,47 +1,22 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import tensorflow_probability.substrates.jax as tfp
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.distributions import TanhTransformedDistribution
-from sbx.common.policies import BaseJaxPolicy, ContinuousCritic, Flatten, SimbaContinuousCritic
+from sbx.common.policies import (
+    BaseJaxPolicy,
+    ContinuousCritic,
+    SimbaContinuousCritic,
+    SimbaSquashedGaussianActor,
+    SquashedGaussianActor,
+)
 from sbx.common.type_aliases import RLTrainState
-from sbx.sac.policies import SimbaActor
-
-tfd = tfp.distributions
-
-
-class Actor(nn.Module):
-    net_arch: Sequence[int]
-    action_dim: int
-    log_std_min: float = -20
-    log_std_max: float = 2
-    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-
-    def get_std(self):
-        # Make it work with gSDE
-        return jnp.array(0.0)
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
-        x = Flatten()(x)
-        for n_units in self.net_arch:
-            x = nn.Dense(n_units)(x)
-            x = self.activation_fn(x)
-        mean = nn.Dense(self.action_dim)(x)
-        log_std = nn.Dense(self.action_dim)(x)
-        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        dist = TanhTransformedDistribution(
-            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-        )
-        return dist
 
 
 class TQCPolicy(BaseJaxPolicy):
@@ -71,7 +46,7 @@ class TQCPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: Type[nn.Module] = Actor,
+        actor_class: Type[nn.Module] = SquashedGaussianActor,
         critic_class: Type[nn.Module] = ContinuousCritic,
     ):
         super().__init__(
@@ -221,11 +196,11 @@ class SimbaTQCPolicy(TQCPolicy):
         features_extractor_class=None,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
-        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: Type[nn.Module] = SimbaActor,
+        actor_class: Type[nn.Module] = SimbaSquashedGaussianActor,
         critic_class: Type[nn.Module] = SimbaContinuousCritic,
     ):
         super().__init__(

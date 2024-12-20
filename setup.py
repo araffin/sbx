@@ -23,6 +23,7 @@ Implemented algorithms:
 - [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
 - [Batch Normalization in Deep Reinforcement Learning (CrossQ)](https://openreview.net/forum?id=PczQtTsTIX)
+- [Simplicity Bias for Scaling Up Parameters in Deep Reinforcement Learning (SimBa)](https://openreview.net/forum?id=jXLiDKsuDo)
 
 ## Example
 
@@ -40,7 +41,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.4.0a4,<3.0",
+        "stable_baselines3>=2.4.0,<3.0",
         "jax",
         "jaxlib",
         "flax",

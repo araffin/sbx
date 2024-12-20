@@ -43,16 +43,6 @@ class SAC(OffPolicyAlgorithmJax):
     policy_aliases: ClassVar[Dict[str, Type[SACPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": SACPolicy,
         # Residual net, from https://github.com/SonyResearch/simba
-        # hypeparams:
-        # https://github.com/SonyResearch/simba/blob/master/configs/agent/sac_simba.yaml#L16
-        # NOTE: simba codebase is using several tricks:
-        # - special initialization
-        # - residual block with scale factor (x4)
-        # - AdamW with weight_decay=1e-2
-        # - heuristic for gamma from TD-MPC2
-        # - only one critic except for humanoid
-        # - it is not using policy delay with using larger UTD (replay ratio)
-        # see https://github.com/SonyResearch/simba/blob/master/configs/base.yaml#L15
         "SimbaPolicy": SimbaSACPolicy,
         # Minimal dict support using flatten()
         "MultiInputPolicy": SACPolicy,
