@@ -28,9 +28,7 @@ show_error_codes = true
 
 [tool.pytest.ini_options]
 # Deterministic ordering for tests; useful for pytest-xdist.
-env = [
-	"PYTHONHASHSEED=0"
-]
+env = ["PYTHONHASHSEED=0"]
 
 filterwarnings = [
     # Tensorboard warnings
@@ -41,7 +39,7 @@ filterwarnings = [
     "ignore:rich is experimental",
 ]
 markers = [
-    "expensive: marks tests as expensive (deselect with '-m \"not expensive\"')"
+    "expensive: marks tests as expensive (deselect with '-m \"not expensive\"')",
 ]
 
 [tool.coverage.run]
@@ -50,4 +48,8 @@ branch = false
 omit = ["tests/*", "setup.py"]
 
 [tool.coverage.report]
-exclude_lines = [ "pragma: no cover", "raise NotImplementedError()", "if typing.TYPE_CHECKING:"]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError()",
+    "if typing.TYPE_CHECKING:",
+]
