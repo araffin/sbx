@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
 import jax
@@ -62,13 +62,13 @@ class DQNPolicy(BaseJaxPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Discrete,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
     ):
         super().__init__(
             observation_space,

@@ -1,5 +1,6 @@
+from collections.abc import Sequence
 from dataclasses import field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
 import gymnasium as gym
@@ -101,7 +102,7 @@ class PPOPolicy(BaseJaxPolicy):
         observation_space: gym.spaces.Space,
         action_space: gym.spaces.Space,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
         ortho_init: bool = False,
         log_std_init: float = 0.0,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh,
@@ -111,10 +112,10 @@ class PPOPolicy(BaseJaxPolicy):
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
         share_features_extractor: bool = False,
     ):
         if optimizer_kwargs is None:

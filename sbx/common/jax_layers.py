@@ -1,4 +1,5 @@
-from typing import Any, Callable, Optional, Sequence, Tuple, Type, Union
+from collections.abc import Sequence
+from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
 import jax
@@ -9,7 +10,7 @@ from jax.nn import initializers
 
 PRNGKey = Any
 Array = Any
-Shape = Tuple[int, ...]
+Shape = tuple[int, ...]
 Dtype = Any  # this could be a real type?
 Axes = Union[int, Sequence[int]]
 
@@ -214,7 +215,7 @@ class SimbaResidualBlock(nn.Module):
     # "the MLP is structured with an inverted bottleneck, where the hidden
     # dimension is expanded to 4 *  hidden_dim"
     scale_factor: int = 4
-    norm_layer: Type[nn.Module] = nn.LayerNorm
+    norm_layer: type[nn.Module] = nn.LayerNorm
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:

@@ -1,5 +1,6 @@
+from collections.abc import Sequence
 from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Sequence, Type, Union
+from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
 import jax
@@ -264,7 +265,7 @@ class CrossQPolicy(BaseJaxPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         batch_norm: bool = True,  # for critic
@@ -279,14 +280,14 @@ class CrossQPolicy(BaseJaxPolicy):
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: Type[nn.Module] = Actor,
-        vector_critic_class: Type[nn.Module] = VectorCritic,
+        actor_class: type[nn.Module] = Actor,
+        vector_critic_class: type[nn.Module] = VectorCritic,
     ):
         if optimizer_kwargs is None:
             # Note: the default value for b1 is 0.9 in Adam.
@@ -457,7 +458,7 @@ class SimbaCrossQPolicy(CrossQPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
         dropout_rate: float = 0,
         layer_norm: bool = False,
         batch_norm: bool = True,
@@ -470,14 +471,14 @@ class SimbaCrossQPolicy(CrossQPolicy):
         use_expln: bool = False,
         clip_mean: float = 2,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: Type[nn.Module] = SimbaActor,
-        vector_critic_class: Type[nn.Module] = SimbaVectorCritic,
+        actor_class: type[nn.Module] = SimbaActor,
+        vector_critic_class: type[nn.Module] = SimbaVectorCritic,
     ):
         super().__init__(
             observation_space,
