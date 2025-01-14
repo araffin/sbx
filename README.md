@@ -18,7 +18,10 @@ Implemented algorithms:
 - [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
 - [Batch Normalization in Deep Reinforcement Learning (CrossQ)](https://openreview.net/forum?id=PczQtTsTIX)
+- [Simplicity Bias for Scaling Up Parameters in Deep Reinforcement Learning (SimBa)](https://openreview.net/forum?id=jXLiDKsuDo)
 
+
+Note: parameter resets for off-policy algorithms can be activated by passing a list of timesteps to the model constructor (ex: `param_resets=[int(1e5), int(5e5)]` to reset parameters and optimizers after 100_000 and 500_000 timesteps.
 
 ### Install using pip
 
@@ -131,6 +134,47 @@ We recommend playing with the `policy_delay` and `gradient_steps` parameters for
 Having a higher learning rate for the q-value function is also helpful: `qf_learning_rate: !!float 1e-3`.
 
 Note: when using the DroQ configuration with CrossQ, you should set `layer_norm=False` as there is already batch normalization.
+
+## Note about SimBa
+
+[SimBa](https://openreview.net/forum?id=jXLiDKsuDo) is a special network architecture for off-policy algorithms (SAC, TQC, ...).
+
+Some recommended hyperparameters (tested on MuJoCo and PyBullet environments):
+```python
+import optax
+
+
+default_hyperparams = dict(
+    n_envs=1,
+    n_timesteps=int(1e6),
+    policy="SimbaPolicy",
+    learning_rate=3e-4,
+    # qf_learning_rate=1e-3,
+    policy_kwargs={
+        "optimizer_class": optax.adamw,
+        # "optimizer_kwargs": {"weight_decay": 0.01},
+        # Note: here [128] represent a residual block, not just a single layer
+        "net_arch": {"pi": [128], "qf": [256, 256]},
+        "n_critics": 2,
+    },
+    learning_starts=10_000,
+    # Important: input normalization using VecNormalize
+    normalize={"norm_obs": True, "norm_reward": False},
+)
+
+hyperparams = {}
+
+# You can also loop gym.registry
+for env_id in [
+    "HalfCheetah-v4",
+    "HalfCheetahBulletEnv-v0",
+    "Ant-v4",
+]:
+    hyperparams[env_id] = default_hyperparams
+```
+
+and then using the RL Zoo script defined above: `python train.py --algo tqc --env HalfCheetah-v4 -c simba.py -P`.
+
 
 ## Benchmark
 

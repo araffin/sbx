@@ -1,4 +1,4 @@
-from typing import Optional, Type
+from typing import Optional
 
 import flax.linen as nn
 import numpy as np
@@ -71,19 +71,32 @@ def test_tqc(tmp_path) -> None:
         use_sde=True,
         qf_learning_rate=1e-3,
         target_entropy=-10,
+        param_resets=[125, 150],
     )
     model.learn(200)
     check_save_load(model, TQC, tmp_path)
 
 
-@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, CrossQ])
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, CrossQ, "SimbaSAC", "SimbaCrossQ"])
 def test_sac_td3(tmp_path, model_class) -> None:
+    policy = "MlpPolicy"
+    net_kwargs = {}
+    if model_class == "SimbaSAC":
+        model_class = SAC
+        policy = "SimbaPolicy"
+        net_kwargs = dict(net_arch=[64])
+    elif model_class == "SimbaCrossQ":
+        model_class = CrossQ
+        policy = "SimbaPolicy"
+        net_kwargs = dict(net_arch=[64])
+
     model = model_class(
-        "MlpPolicy",
+        policy,
         "Pendulum-v1",
         verbose=1,
         gradient_steps=1,
         learning_rate=1e-3,
+        policy_kwargs=net_kwargs,
     )
     key_before_learn = model.key
     model.learn(110)
@@ -160,7 +173,7 @@ def test_dqn(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("replay_buffer_class", [None, HerReplayBuffer])
-def test_dict(replay_buffer_class: Optional[Type[HerReplayBuffer]]) -> None:
+def test_dict(replay_buffer_class: Optional[type[HerReplayBuffer]]) -> None:
     env = BitFlippingEnv(n_bits=2, continuous=True)
     model = SAC("MultiInputPolicy", env, replay_buffer_class=replay_buffer_class)
 

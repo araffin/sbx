@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Optional, Union
 
 import gymnasium as gym
 import jax
@@ -15,7 +15,7 @@ from sbx.dqn.policies import CNNPolicy, DQNPolicy
 
 
 class DQN(OffPolicyAlgorithmJax):
-    policy_aliases: ClassVar[Dict[str, Type[DQNPolicy]]] = {  # type: ignore[assignment]
+    policy_aliases: ClassVar[dict[str, type[DQNPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": DQNPolicy,
         "CnnPolicy": CNNPolicy,
     }
@@ -39,10 +39,10 @@ class DQN(OffPolicyAlgorithmJax):
         exploration_final_eps: float = 0.05,
         optimize_memory_usage: bool = False,  # Note: unused but to match SB3 API
         # max_grad_norm: float = 10,
-        train_freq: Union[int, Tuple[int, str]] = 4,
+        train_freq: Union[int, tuple[int, str]] = 4,
         gradient_steps: int = 1,
         tensorboard_log: Optional[str] = None,
-        policy_kwargs: Optional[Dict[str, Any]] = None,
+        policy_kwargs: Optional[dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",
@@ -230,11 +230,11 @@ class DQN(OffPolicyAlgorithmJax):
 
     def predict(
         self,
-        observation: Union[np.ndarray, Dict[str, np.ndarray]],
-        state: Optional[Tuple[np.ndarray, ...]] = None,
+        observation: Union[np.ndarray, dict[str, np.ndarray]],
+        state: Optional[tuple[np.ndarray, ...]] = None,
         episode_start: Optional[np.ndarray] = None,
         deterministic: bool = False,
-    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+    ) -> tuple[np.ndarray, Optional[tuple[np.ndarray, ...]]]:
         """
         Overrides the base_class predict function to include epsilon-greedy exploration.
 

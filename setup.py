@@ -23,6 +23,7 @@ Implemented algorithms:
 - [Twin Delayed DDPG (TD3)](https://arxiv.org/abs/1802.09477)
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
 - [Batch Normalization in Deep Reinforcement Learning (CrossQ)](https://openreview.net/forum?id=PczQtTsTIX)
+- [Simplicity Bias for Scaling Up Parameters in Deep Reinforcement Learning (SimBa)](https://openreview.net/forum?id=jXLiDKsuDo)
 
 ## Example
 
@@ -40,13 +41,11 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.4.0a4,<3.0",
-        "jax",
+        "stable_baselines3>=2.4.0,<3.0",
+        "jax>=0.4.12",
         "jaxlib",
         "flax",
-        'optax; python_version >= "3.9.0"',
-        # See https://github.com/google-deepmind/optax/issues/711
-        'optax<0.1.8; python_version < "3.9.0"',
+        "optax",
         "tqdm",
         "rich",
         "tensorflow_probability",
@@ -71,18 +70,18 @@ setup(
     url="https://github.com/araffin/sbx",
     author_email="antonin.raffin@dlr.de",
     keywords="reinforcement-learning-algorithms reinforcement-learning machine-learning "
-    "gym openai stable baselines toolbox python data-science",
+    "gym gymnasium jax openai stable baselines toolbox python data-science",
     license="MIT",
     long_description=long_description,
     long_description_content_type="text/markdown",
     version=__version__,
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     # PyPI package information.
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
     ],
 )
