@@ -91,7 +91,7 @@ class BaseJaxPolicy(BasePolicy):
 
             # Add batch dim and concatenate
             observation = np.concatenate(
-                [observation[key].reshape(-1, *self.observation_space[key].shape) for key in keys],
+                [observation[key].reshape(-1, *self.observation_space[key].shape) for key in keys],  # type: ignore[misc]
                 axis=1,
             )
             # need to copy the dict as the dict in VecFrameStack will become a torch tensor
