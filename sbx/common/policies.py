@@ -1,5 +1,6 @@
 # import copy
-from typing import Callable, Dict, Optional, Sequence, Tuple, Union, no_type_check
+from collections.abc import Sequence
+from typing import Callable, Optional, Union, no_type_check
 
 import flax.linen as nn
 import jax
@@ -49,11 +50,11 @@ class BaseJaxPolicy(BasePolicy):
     @no_type_check
     def predict(
         self,
-        observation: Union[np.ndarray, Dict[str, np.ndarray]],
-        state: Optional[Tuple[np.ndarray, ...]] = None,
+        observation: Union[np.ndarray, dict[str, np.ndarray]],
+        state: Optional[tuple[np.ndarray, ...]] = None,
         episode_start: Optional[np.ndarray] = None,
         deterministic: bool = False,
-    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+    ) -> tuple[np.ndarray, Optional[tuple[np.ndarray, ...]]]:
         # self.set_training_mode(False)
 
         observation, vectorized_env = self.prepare_obs(observation)
@@ -80,7 +81,7 @@ class BaseJaxPolicy(BasePolicy):
 
         return actions, state
 
-    def prepare_obs(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> Tuple[np.ndarray, bool]:
+    def prepare_obs(self, observation: Union[np.ndarray, dict[str, np.ndarray]]) -> tuple[np.ndarray, bool]:
         vectorized_env = False
         if isinstance(observation, dict):
             assert isinstance(self.observation_space, spaces.Dict)

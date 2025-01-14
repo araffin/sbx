@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Optional, Union
 
 import flax
 import jax
@@ -17,7 +17,7 @@ from sbx.td3.policies import TD3Policy
 
 
 class TD3(OffPolicyAlgorithmJax):
-    policy_aliases: ClassVar[Dict[str, Type[TD3Policy]]] = {  # type: ignore[assignment]
+    policy_aliases: ClassVar[dict[str, type[TD3Policy]]] = {  # type: ignore[assignment]
         "MlpPolicy": TD3Policy,
         # Minimal dict support using flatten()
         "MultiInputPolicy": TD3Policy,
@@ -37,18 +37,18 @@ class TD3(OffPolicyAlgorithmJax):
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
-        train_freq: Union[int, Tuple[int, str]] = 1,
+        train_freq: Union[int, tuple[int, str]] = 1,
         gradient_steps: int = 1,
         policy_delay: int = 2,
         target_policy_noise: float = 0.2,
         target_noise_clip: float = 0.5,
         action_noise: Optional[ActionNoise] = None,
-        replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
-        replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
+        replay_buffer_class: Optional[type[ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         tensorboard_log: Optional[str] = None,
         stats_window_size: int = 100,
-        policy_kwargs: Optional[Dict[str, Any]] = None,
-        param_resets: Optional[List[int]] = None,  # List of timesteps after which to reset the params
+        policy_kwargs: Optional[dict[str, Any]] = None,
+        param_resets: Optional[list[int]] = None,  # List of timesteps after which to reset the params
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",
@@ -250,7 +250,7 @@ class TD3(OffPolicyAlgorithmJax):
 
     @staticmethod
     @jax.jit
-    def soft_update(tau: float, qf_state: RLTrainState, actor_state: RLTrainState) -> Tuple[RLTrainState, RLTrainState]:
+    def soft_update(tau: float, qf_state: RLTrainState, actor_state: RLTrainState) -> tuple[RLTrainState, RLTrainState]:
         qf_state = qf_state.replace(target_params=optax.incremental_update(qf_state.params, qf_state.target_params, tau))
         actor_state = actor_state.replace(
             target_params=optax.incremental_update(actor_state.params, actor_state.target_params, tau)
@@ -286,7 +286,7 @@ class TD3(OffPolicyAlgorithmJax):
             },
         }
 
-        def one_update(i: int, carry: Dict[str, Any]) -> Dict[str, Any]:
+        def one_update(i: int, carry: dict[str, Any]) -> dict[str, Any]:
             # Note: this method must be defined inline because
             # `fori_loop` expect a signature fn(index, carry) -> carry
             actor_state = carry["actor_state"]

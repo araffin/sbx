@@ -1,6 +1,6 @@
 import io
 import pathlib
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Optional, Union
 
 import jax
 import numpy as np
@@ -17,7 +17,7 @@ from stable_baselines3.common.utils import get_device
 class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
     def __init__(
         self,
-        policy: Type[BasePolicy],
+        policy: type[BasePolicy],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule],
         qf_learning_rate: Optional[float] = None,
@@ -26,13 +26,13 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
-        train_freq: Union[int, Tuple[int, str]] = (1, "step"),
+        train_freq: Union[int, tuple[int, str]] = (1, "step"),
         gradient_steps: int = 1,
         action_noise: Optional[ActionNoise] = None,
-        replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
-        replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
+        replay_buffer_class: Optional[type[ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         optimize_memory_usage: bool = False,
-        policy_kwargs: Optional[Dict[str, Any]] = None,
+        policy_kwargs: Optional[dict[str, Any]] = None,
         tensorboard_log: Optional[str] = None,
         verbose: int = 0,
         device: str = "auto",
@@ -44,8 +44,8 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         use_sde_at_warmup: bool = False,
         sde_support: bool = True,
         stats_window_size: int = 100,
-        param_resets: Optional[List[int]] = None,
-        supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
+        param_resets: Optional[list[int]] = None,
+        supported_action_spaces: Optional[tuple[type[spaces.Space], ...]] = None,
     ):
         super().__init__(
             policy=policy,
@@ -95,7 +95,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
     def _get_torch_save_params(self):
         return [], []
 
-    def _excluded_save_params(self) -> List[str]:
+    def _excluded_save_params(self) -> list[str]:
         excluded = super()._excluded_save_params()
         excluded.remove("policy")
         return excluded

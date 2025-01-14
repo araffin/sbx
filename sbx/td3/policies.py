@@ -1,4 +1,5 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from collections.abc import Sequence
+from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
 import jax
@@ -34,16 +35,16 @@ class TD3Policy(BaseJaxPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
     ):
