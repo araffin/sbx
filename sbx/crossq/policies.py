@@ -1,4 +1,6 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from collections.abc import Sequence
+from functools import partial
+from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
 import jax
@@ -10,7 +12,7 @@ from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.distributions import TanhTransformedDistribution
-from sbx.common.jax_layers import BatchRenorm
+from sbx.common.jax_layers import BatchRenorm, SimbaResidualBlock
 from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import BatchNormTrainState
 
@@ -48,8 +50,48 @@ class Critic(nn.Module):
                 x = nn.LayerNorm()(x)
             x = self.activation_fn(x)
             if self.use_batch_norm:
-                x = BatchRenorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+                x = BatchRenorm(
+                    use_running_average=not train,
+                    momentum=self.batch_norm_momentum,
+                    warmup_steps=self.renorm_warmup_steps,
+                )(x)
 
+        x = nn.Dense(1)(x)
+        return x
+
+
+class SimbaCritic(nn.Module):
+    net_arch: Sequence[int]
+    dropout_rate: Optional[float] = None
+    batch_norm_momentum: float = 0.99
+    renorm_warmup_steps: int = 100_000
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    scale_factor: int = 4
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, action: jnp.ndarray, train: bool = False) -> jnp.ndarray:
+        x = Flatten()(x)
+        x = jnp.concatenate([x, action], -1)
+        norm_layer = partial(
+            BatchRenorm,
+            use_running_average=not train,
+            momentum=self.batch_norm_momentum,
+            warmup_steps=self.renorm_warmup_steps,
+        )
+        x = norm_layer()(x)
+        x = nn.Dense(self.net_arch[0])(x)
+
+        for n_units in self.net_arch:
+            x = SimbaResidualBlock(
+                n_units,
+                self.activation_fn,
+                self.scale_factor,
+                norm_layer,  # type: ignore[arg-type]
+            )(x)
+            # TODO: double check where to put the dropout
+            if self.dropout_rate is not None and self.dropout_rate > 0:
+                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
+        x = norm_layer()(x)
         x = nn.Dense(1)(x)
         return x
 
@@ -88,6 +130,87 @@ class VectorCritic(nn.Module):
         return q_values
 
 
+class SimbaVectorCritic(nn.Module):
+    net_arch: Sequence[int]
+    use_layer_norm: bool = False  # ignored
+    use_batch_norm: bool = True
+    batch_norm_momentum: float = 0.99
+    renorm_warmup_steps: int = 100_000
+    dropout_rate: Optional[float] = None
+    n_critics: int = 2
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    scale_factor: int = 4
+
+    @nn.compact
+    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray, train: bool = False):
+        # Idea taken from https://github.com/perrin-isir/xpag
+        # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
+        vmap_critic = nn.vmap(
+            SimbaCritic,
+            variable_axes={"params": 0, "batch_stats": 0},  # parameters not shared between the critics
+            split_rngs={"params": True, "dropout": True, "batch_stats": True},  # different initializations
+            in_axes=None,
+            out_axes=0,
+            axis_size=self.n_critics,
+        )
+        q_values = vmap_critic(
+            # use_layer_norm=self.use_layer_norm,
+            # use_batch_norm=self.use_batch_norm,
+            batch_norm_momentum=self.batch_norm_momentum,
+            renorm_warmup_steps=self.renorm_warmup_steps,
+            dropout_rate=self.dropout_rate,
+            net_arch=self.net_arch,
+            activation_fn=self.activation_fn,
+            scale_factor=self.scale_factor,
+        )(obs, action, train)
+        return q_values
+
+
+class SimbaActor(nn.Module):
+    net_arch: Sequence[int]
+    action_dim: int
+    log_std_min: float = -20
+    log_std_max: float = 2
+    use_batch_norm: bool = True
+    batch_norm_momentum: float = 0.99
+    renorm_warmup_steps: int = 100_000
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    scale_factor: int = 4
+
+    def get_std(self):
+        # Make it work with gSDE
+        return jnp.array(0.0)
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray, train: bool = False) -> tfd.Distribution:  # type: ignore[name-defined]
+        x = Flatten()(x)
+        norm_layer = partial(
+            BatchRenorm,
+            use_running_average=not train,
+            momentum=self.batch_norm_momentum,
+            warmup_steps=self.renorm_warmup_steps,
+        )
+        x = norm_layer()(x)
+        x = nn.Dense(self.net_arch[0])(x)
+
+        for n_units in self.net_arch:
+            x = SimbaResidualBlock(
+                n_units,
+                self.activation_fn,
+                self.scale_factor,
+                norm_layer,  # type: ignore[arg-type]
+            )(x)
+        x = norm_layer()(x)
+
+        mean = nn.Dense(self.action_dim)(x)
+        log_std = nn.Dense(self.action_dim)(x)
+        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
+        dist = TanhTransformedDistribution(
+            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
+        )
+        return dist
+
+
 class Actor(nn.Module):
     net_arch: Sequence[int]
     action_dim: int
@@ -119,7 +242,11 @@ class Actor(nn.Module):
             x = nn.Dense(n_units)(x)
             x = self.activation_fn(x)
             if self.use_batch_norm:
-                x = BatchRenorm(use_running_average=not train, momentum=self.batch_norm_momentum)(x)
+                x = BatchRenorm(
+                    use_running_average=not train,
+                    momentum=self.batch_norm_momentum,
+                    warmup_steps=self.renorm_warmup_steps,
+                )(x)
 
         mean = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
@@ -138,7 +265,7 @@ class CrossQPolicy(BaseJaxPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         batch_norm: bool = True,  # for critic
@@ -153,12 +280,14 @@ class CrossQPolicy(BaseJaxPolicy):
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = Actor,
+        vector_critic_class: type[nn.Module] = VectorCritic,
     ):
         if optimizer_kwargs is None:
             # Note: the default value for b1 is 0.9 in Adam.
@@ -183,6 +312,8 @@ class CrossQPolicy(BaseJaxPolicy):
         self.batch_norm_momentum = batch_norm_momentum
         self.batch_norm_actor = batch_norm_actor
         self.renorm_warmup_steps = renorm_warmup_steps
+        self.actor_class = actor_class
+        self.vector_critic_class = vector_critic_class
 
         if net_arch is not None:
             if isinstance(net_arch, list):
@@ -216,7 +347,7 @@ class CrossQPolicy(BaseJaxPolicy):
             obs = jnp.array([self.observation_space.sample()])
         action = jnp.array([self.action_space.sample()])
 
-        self.actor = Actor(
+        self.actor = self.actor_class(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
             use_batch_norm=self.batch_norm_actor,
@@ -244,7 +375,7 @@ class CrossQPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.qf = VectorCritic(
+        self.qf = self.vector_critic_class(
             dropout_rate=self.dropout_rate,
             use_layer_norm=self.layer_norm,
             use_batch_norm=self.batch_norm,
@@ -319,3 +450,59 @@ class CrossQPolicy(BaseJaxPolicy):
         if not self.use_sde:
             self.reset_noise()
         return self.sample_action(self.actor_state, observation, self.noise_key)
+
+
+class SimbaCrossQPolicy(CrossQPolicy):
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        dropout_rate: float = 0,
+        layer_norm: bool = False,
+        batch_norm: bool = True,
+        batch_norm_actor: bool = True,
+        batch_norm_momentum: float = 0.99,
+        renorm_warmup_steps: int = 100000,
+        use_sde: bool = False,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
+        log_std_init: float = -3,
+        use_expln: bool = False,
+        clip_mean: float = 2,
+        features_extractor_class=None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        n_critics: int = 2,
+        share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = SimbaActor,
+        vector_critic_class: type[nn.Module] = SimbaVectorCritic,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            dropout_rate,
+            layer_norm,
+            batch_norm,
+            batch_norm_actor,
+            batch_norm_momentum,
+            renorm_warmup_steps,
+            use_sde,
+            activation_fn,
+            log_std_init,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            n_critics,
+            share_features_extractor,
+            actor_class,
+            vector_critic_class,
+        )

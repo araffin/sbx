@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union
 
 import gymnasium as gym
 import jax
@@ -24,7 +24,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
 
     def __init__(
         self,
-        policy: Union[str, Type[BasePolicy]],
+        policy: Union[str, type[BasePolicy]],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule],
         n_steps: int,
@@ -37,12 +37,12 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         sde_sample_freq: int,
         tensorboard_log: Optional[str] = None,
         monitor_wrapper: bool = True,
-        policy_kwargs: Optional[Dict[str, Any]] = None,
+        policy_kwargs: Optional[dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",
         _init_setup_model: bool = True,
-        supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
+        supported_action_spaces: Optional[tuple[type[spaces.Space], ...]] = None,
     ):
         super().__init__(
             policy=policy,  # type: ignore[arg-type]
@@ -70,7 +70,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
     def _get_torch_save_params(self):
         return [], []
 
-    def _excluded_save_params(self) -> List[str]:
+    def _excluded_save_params(self) -> list[str]:
         excluded = super()._excluded_save_params()
         excluded.remove("policy")
         return excluded
