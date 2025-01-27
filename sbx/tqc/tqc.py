@@ -224,7 +224,7 @@ class TQC(OffPolicyAlgorithmJax):
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_value, ent_coef_loss_value),
+            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_loss_value, ent_coef_value),
         ) = self._train(
             self.gamma,
             self.tau,
