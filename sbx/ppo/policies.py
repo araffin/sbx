@@ -132,7 +132,7 @@ class PPOPolicy(BaseJaxPolicy):
             features_extractor_kwargs,
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
-            squash_output=True,
+            squash_output=False,
         )
         self.log_std_init = log_std_init
         self.activation_fn = activation_fn
