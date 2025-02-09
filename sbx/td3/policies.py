@@ -136,8 +136,8 @@ class TD3Policy(BaseJaxPolicy):
 
     @staticmethod
     @jax.jit
-    def select_action(actor_state, obervations) -> np.ndarray:
-        return actor_state.apply_fn(actor_state.params, obervations)
+    def select_action(actor_state, observations) -> np.ndarray:
+        return actor_state.apply_fn(actor_state.params, observations)
 
     def _predict(self, observation: np.ndarray, deterministic: bool = True) -> np.ndarray:  # type: ignore[override]
         # TD3 is always deterministic
