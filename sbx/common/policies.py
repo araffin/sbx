@@ -37,15 +37,15 @@ class BaseJaxPolicy(BasePolicy):
 
     @staticmethod
     @jax.jit
-    def sample_action(actor_state, obervations, key):
-        dist = actor_state.apply_fn(actor_state.params, obervations)
+    def sample_action(actor_state, observations, key):
+        dist = actor_state.apply_fn(actor_state.params, observations)
         action = dist.sample(seed=key)
         return action
 
     @staticmethod
     @jax.jit
-    def select_action(actor_state, obervations):
-        return actor_state.apply_fn(actor_state.params, obervations).mode()
+    def select_action(actor_state, observations):
+        return actor_state.apply_fn(actor_state.params, observations).mode()
 
     @no_type_check
     def predict(
