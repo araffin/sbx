@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import tensorflow_probability.substrates.jax as tfp
+from flax.linen.initializers import constant
 from gymnasium import spaces
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.preprocessing import is_image_space, maybe_transpose
@@ -242,6 +243,12 @@ class SquashedGaussianActor(nn.Module):
     log_std_min: float = -20
     log_std_max: float = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    log_std_init: float = 0.0
+    squash_output: bool = True
+    # Small value to avoid NaN due to numerical imprecision
+    # for std computation
+    epsilon: float = 1e-6
+    use_expln: bool = False
 
     def get_std(self):
         # Make it work with gSDE
@@ -254,11 +261,34 @@ class SquashedGaussianActor(nn.Module):
             x = nn.Dense(n_units)(x)
             x = self.activation_fn(x)
         mean = nn.Dense(self.action_dim)(x)
-        log_std = nn.Dense(self.action_dim)(x)
-        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        dist = TanhTransformedDistribution(
-            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-        )
+        if self.squash_output:
+            log_std = nn.Dense(self.action_dim)(x)
+            # log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
+            log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
+            dist = TanhTransformedDistribution(
+                tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
+            )
+        else:
+            # log_std = nn.Dense(self.action_dim)(x)
+            # Clip to avoid loss explosion
+            # mean = jnp.clip(mean, -5.0, 5.0)
+            mean = jnp.clip(mean, -10.0, 10.0)
+            log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
+            log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
+            if self.use_expln:
+                # From gSDE paper, it allows to keep variance
+                # above zero and prevent it from growing too fast
+                below_threshold = jnp.exp(log_std) * (log_std <= 0)
+                # Avoid NaN: zeros values that are below zero
+                safe_log_std = log_std * (log_std > 0) + self.epsilon
+                above_threshold = (jnp.log1p(safe_log_std) + 1.0) * (log_std > 0)
+                std = below_threshold + above_threshold
+            else:
+                # Use normal exponential
+                std = jnp.exp(log_std)
+
+            dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=std)
+
         return dist
 
 
@@ -272,6 +302,7 @@ class SimbaSquashedGaussianActor(nn.Module):
     log_std_max: float = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     scale_factor: int = 4
+    squash_output: bool = True
 
     def get_std(self):
         # Make it work with gSDE

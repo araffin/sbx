@@ -48,6 +48,7 @@ class TQCPolicy(BaseJaxPolicy):
         share_features_extractor: bool = False,
         actor_class: type[nn.Module] = SquashedGaussianActor,
         critic_class: type[nn.Module] = ContinuousCritic,
+        squash_output: bool = True,
     ):
         super().__init__(
             observation_space,
@@ -56,7 +57,7 @@ class TQCPolicy(BaseJaxPolicy):
             features_extractor_kwargs,
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
-            squash_output=True,
+            squash_output=squash_output,
         )
         self.dropout_rate = dropout_rate
         self.layer_norm = layer_norm
@@ -99,6 +100,7 @@ class TQCPolicy(BaseJaxPolicy):
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
             activation_fn=self.activation_fn,
+            squash_output=self.squash_output,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
