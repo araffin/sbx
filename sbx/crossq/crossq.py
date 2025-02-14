@@ -219,7 +219,7 @@ class CrossQ(OffPolicyAlgorithmJax):
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
-            (actor_loss_value, qf_loss_value, ent_coef_value),
+            (actor_loss_value, qf_loss_value, ent_coef_loss_value, ent_coef_value),
         ) = self._train(
             self.gamma,
             self.target_entropy,
@@ -236,6 +236,7 @@ class CrossQ(OffPolicyAlgorithmJax):
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/actor_loss", actor_loss_value.item())
         self.logger.record("train/critic_loss", qf_loss_value.item())
+        self.logger.record("train/ent_coef_loss", ent_coef_loss_value.item())
         self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
@@ -421,6 +422,7 @@ class CrossQ(OffPolicyAlgorithmJax):
                 "actor_loss": jnp.array(0.0),
                 "qf_loss": jnp.array(0.0),
                 "ent_coef_loss": jnp.array(0.0),
+                "ent_coef_value": jnp.array(0.0),
             },
         }
 
@@ -468,7 +470,12 @@ class CrossQ(OffPolicyAlgorithmJax):
                 target_entropy,
                 key,
             )
-            info = {"actor_loss": actor_loss_value, "qf_loss": qf_loss_value, "ent_coef_loss": ent_coef_loss_value}
+            info = {
+                "actor_loss": actor_loss_value,
+                "qf_loss": qf_loss_value,
+                "ent_coef_loss": ent_coef_loss_value,
+                "ent_coef_value": ent_coef_value,
+            }
 
             return {
                 "actor_state": actor_state,
@@ -485,5 +492,10 @@ class CrossQ(OffPolicyAlgorithmJax):
             update_carry["actor_state"],
             update_carry["ent_coef_state"],
             update_carry["key"],
-            (update_carry["info"]["actor_loss"], update_carry["info"]["qf_loss"], update_carry["info"]["ent_coef_loss"]),
+            (
+                update_carry["info"]["actor_loss"],
+                update_carry["info"]["qf_loss"],
+                update_carry["info"]["ent_coef_loss"],
+                update_carry["info"]["ent_coef_value"],
+            ),
         )
