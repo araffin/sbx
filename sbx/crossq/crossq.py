@@ -492,5 +492,10 @@ class CrossQ(OffPolicyAlgorithmJax):
             update_carry["actor_state"],
             update_carry["ent_coef_state"],
             update_carry["key"],
-            (update_carry["info"]["actor_loss"], update_carry["info"]["qf_loss"], update_carry["info"]["ent_coef_loss"]),
+            (
+                update_carry["info"]["actor_loss"],
+                update_carry["info"]["qf_loss"],
+                update_carry["info"]["ent_coef_loss"],
+                update_carry["info"]["ent_coef_value"],
+            ),
         )
