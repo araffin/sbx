@@ -1,5 +1,6 @@
 import os
 
+from sbx.bro import BRO
 from sbx.crossq import CrossQ
 from sbx.ddpg import DDPG
 from sbx.dqn import DQN
@@ -29,5 +30,6 @@ __all__ = [
     "SAC",
     "TD3",
     "TQC",
+    "BRO",
     "CrossQ",
 ]
