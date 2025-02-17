@@ -167,12 +167,8 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
 
             # Handle timeout by bootstraping with value function
             # see GitHub issue #633
-            for idx, done in enumerate(dones):
-                if (
-                    done
-                    and infos[idx].get("terminal_observation") is not None
-                    and infos[idx].get("TimeLimit.truncated", False)
-                ):
+            for idx in dones.nonzero()[0]:
+                if infos[idx].get("terminal_observation") is not None and infos[idx].get("TimeLimit.truncated", False):
                     terminal_obs = self.policy.prepare_obs(infos[idx]["terminal_observation"])[0]
                     terminal_value = np.array(
                         self.vf.apply(  # type: ignore[union-attr]
