@@ -11,7 +11,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
-from sbx.ppo.policies import PPOPolicy
+from sbx.ppo.policies import PPOPolicy, SimbaPPOPolicy
 
 PPOSelf = TypeVar("PPOSelf", bound="PPO")
 
@@ -70,6 +70,8 @@ class PPO(OnPolicyAlgorithmJax):
 
     policy_aliases: ClassVar[dict[str, type[PPOPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": PPOPolicy,
+        # Residual net, from https://github.com/SonyResearch/simba
+        "SimbaPolicy": SimbaPPOPolicy,
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
@@ -179,8 +181,8 @@ class PPO(OnPolicyAlgorithmJax):
 
             self.key, ent_key = jax.random.split(self.key, 2)
 
-            self.actor = self.policy.actor
-            self.vf = self.policy.vf
+            self.actor = self.policy.actor  # type: ignore[assignment]
+            self.vf = self.policy.vf  # type: ignore[assignment]
 
         # Initialize schedules for policy/value clipping
         self.clip_range_schedule = get_schedule_fn(self.clip_range)

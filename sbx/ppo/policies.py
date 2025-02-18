@@ -14,6 +14,7 @@ from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
+from sbx.common.jax_layers import SimbaResidualBlock
 from sbx.common.policies import BaseJaxPolicy, Flatten
 
 tfd = tfp.distributions
@@ -30,6 +31,23 @@ class Critic(nn.Module):
             x = nn.Dense(n_units)(x)
             x = self.activation_fn(x)
 
+        x = nn.Dense(1)(x)
+        return x
+
+
+class SimbaCritic(nn.Module):
+    net_arch: Sequence[int]
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    scale_factor: int = 4
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        x = Flatten()(x)
+        x = nn.Dense(self.net_arch[0])(x)
+        for n_units in self.net_arch:
+            x = SimbaResidualBlock(n_units, self.activation_fn, self.scale_factor)(x)
+
+        x = nn.LayerNorm()(x)
         x = nn.Dense(1)(x)
         return x
 
@@ -106,6 +124,47 @@ class Actor(nn.Module):
         return dist
 
 
+class SimbaActor(nn.Module):
+    action_dim: int
+    net_arch: Sequence[int]
+    log_std_init: float = 0.0
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    # For Discrete, MultiDiscrete and MultiBinary actions
+    num_discrete_choices: Optional[Union[int, Sequence[int]]] = None
+    # For MultiDiscrete
+    max_num_choices: int = 0
+    # Last layer with small scale
+    ortho_init: bool = False
+    scale_factor: int = 4
+
+    def get_std(self) -> jnp.ndarray:
+        # Make it work with gSDE
+        return jnp.array(0.0)
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+        x = Flatten()(x)
+
+        x = nn.Dense(self.net_arch[0])(x)
+        for n_units in self.net_arch:
+            x = SimbaResidualBlock(n_units, self.activation_fn, self.scale_factor)(x)
+        x = nn.LayerNorm()(x)
+
+        if self.ortho_init:
+            orthogonal_init = nn.initializers.orthogonal(scale=0.01)
+            bias_init = nn.initializers.zeros
+            mean_action = nn.Dense(self.action_dim, kernel_init=orthogonal_init, bias_init=bias_init)(x)
+
+        else:
+            mean_action = nn.Dense(self.action_dim)(x)
+
+        # Continuous actions
+        log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
+        dist = tfd.MultivariateNormalDiag(loc=mean_action, scale_diag=jnp.exp(log_std))
+
+        return dist
+
+
 class PPOPolicy(BaseJaxPolicy):
     def __init__(
         self,
@@ -127,6 +186,8 @@ class PPOPolicy(BaseJaxPolicy):
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
         optimizer_kwargs: Optional[dict[str, Any]] = None,
         share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = Actor,
+        critic_class: type[nn.Module] = Critic,
     ):
         if optimizer_kwargs is None:
             # Small values to avoid NaN in Adam optimizer
@@ -156,6 +217,8 @@ class PPOPolicy(BaseJaxPolicy):
             self.net_arch_pi = self.net_arch_vf = [64, 64]
         self.use_sde = use_sde
         self.ortho_init = ortho_init
+        self.actor_class = actor_class
+        self.critic_class = critic_class
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -199,7 +262,7 @@ class PPOPolicy(BaseJaxPolicy):
         else:
             raise NotImplementedError(f"{self.action_space}")
 
-        self.actor = Actor(
+        self.actor = self.actor_class(
             net_arch=self.net_arch_pi,
             log_std_init=self.log_std_init,
             activation_fn=self.activation_fn,
@@ -221,7 +284,7 @@ class PPOPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.vf = Critic(net_arch=self.net_arch_vf, activation_fn=self.activation_fn)
+        self.vf = self.critic_class(net_arch=self.net_arch_vf, activation_fn=self.activation_fn)
 
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
@@ -268,3 +331,47 @@ class PPOPolicy(BaseJaxPolicy):
         log_probs = dist.log_prob(actions)
         values = vf_state.apply_fn(vf_state.params, observations).flatten()
         return actions, log_probs, values
+
+
+class SimbaPPOPolicy(PPOPolicy):
+    def __init__(
+        self,
+        observation_space: gym.spaces.Space,
+        action_space: gym.spaces.Space,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        ortho_init: bool = False,
+        log_std_init: float = 0,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh,
+        use_sde: bool = False,
+        use_expln: bool = False,
+        clip_mean: float = 2,
+        features_extractor_class=None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = SimbaActor,
+        critic_class: type[nn.Module] = SimbaCritic,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            ortho_init,
+            log_std_init,
+            activation_fn,
+            use_sde,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            share_features_extractor,
+            actor_class,
+            critic_class,
+        )
