@@ -44,6 +44,8 @@ class Actor(nn.Module):
     # For MultiDiscrete
     max_num_choices: int = 0
     split_indices: np.ndarray = field(default_factory=lambda: np.array([]))
+    # Last layer with small scale
+    ortho_init: bool = False
 
     def get_std(self) -> jnp.ndarray:
         # Make it work with gSDE
@@ -65,7 +67,14 @@ class Actor(nn.Module):
             x = nn.Dense(n_units)(x)
             x = self.activation_fn(x)
 
-        action_logits = nn.Dense(self.action_dim)(x)
+        if self.ortho_init:
+            orthogonal_init = nn.initializers.orthogonal(scale=0.01)
+            bias_init = nn.initializers.zeros
+            action_logits = nn.Dense(self.action_dim, kernel_init=orthogonal_init, bias_init=bias_init)(x)
+
+        else:
+            action_logits = nn.Dense(self.action_dim)(x)
+
         if self.num_discrete_choices is None:
             # Continuous actions
             log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
@@ -146,6 +155,7 @@ class PPOPolicy(BaseJaxPolicy):
         else:
             self.net_arch_pi = self.net_arch_vf = [64, 64]
         self.use_sde = use_sde
+        self.ortho_init = ortho_init
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -193,6 +203,7 @@ class PPOPolicy(BaseJaxPolicy):
             net_arch=self.net_arch_pi,
             log_std_init=self.log_std_init,
             activation_fn=self.activation_fn,
+            ortho_init=self.ortho_init,
             **actor_kwargs,  # type: ignore[arg-type]
         )
         # Hack to make gSDE work without modifying internal SB3 code
