@@ -14,8 +14,8 @@ class BatchNormTrainState(TrainState):  # type: ignore[misc]
 
 
 class ReplayBufferSamplesNp(NamedTuple):
-    observations: np.ndarray
+    observations: np.ndarray | dict[str, np.ndarray]
     actions: np.ndarray
-    next_observations: np.ndarray
+    next_observations: np.ndarray | dict[str, np.ndarray]
     dones: np.ndarray
     rewards: np.ndarray

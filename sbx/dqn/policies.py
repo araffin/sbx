@@ -1,15 +1,18 @@
 from typing import Any, Callable, Optional, Union
 
+import flax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import gymnasium as gym
+
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
-
-from sbx.common.policies import BaseJaxPolicy, Flatten
+from sbx.common.policies import BaseJaxPolicy, Flatten, OneHot
 from sbx.common.type_aliases import RLTrainState
+from stable_baselines3.common.preprocessing import is_image_space
 
 
 class QNetwork(nn.Module):
@@ -145,6 +148,69 @@ class CNNPolicy(DQNPolicy):
                 **self.optimizer_kwargs,
             ),
         )
+        self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
+
+        return key
+
+
+class MultiInputQNetwork(nn.Module):
+    observation_space: spaces.Dict
+    n_actions: int
+    cnn_output_dim: int = 256
+    n_units: int = 256
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    def setup(self):
+        def layer(subspace):
+            if is_image_space(subspace):
+                return NatureCNN(
+                    n_actions=self.cnn_output_dim,
+                    n_units=self.n_units,
+                    activation_fn=self.activation_fn,
+                )
+            elif isinstance(subspace, spaces.Discrete):
+                return OneHot(num_classes=subspace.n)
+            return Flatten()
+        self.extractors = jax.tree_map(layer, self.observation_space.spaces)
+
+    @nn.compact
+    def __call__(self, observations: dict[str, jnp.ndarray]) -> jnp.ndarray:
+        observations = flax.core.freeze(observations)
+        encoded_tensors = jax.tree_map(lambda extractor, x: extractor(x), self.extractors, observations)
+
+        x,_ = jax.tree.flatten(encoded_tensors)
+        x = jax.lax.concatenate(x, dimension=1)
+        x = nn.Dense(self.n_units)(x)
+        x = self.activation_fn(x)
+        x = nn.Dense(self.n_units)(x)
+        x = self.activation_fn(x)
+        x = nn.Dense(self.n_actions)(x)
+        return x
+
+class MultiInputPolicy(DQNPolicy):
+    def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
+        key, qf_key = jax.random.split(key, 2)
+
+        # add batch dimension to the observation values.
+        obs = jax.tree.map(lambda x: np.array([x]), self.observation_space.sample())
+
+        self.qf = MultiInputQNetwork(
+            observation_space=self.observation_space,
+            n_actions=int(self.action_space.n),
+            n_units=self.n_units,
+            activation_fn=self.activation_fn,
+        )
+
+        self.qf_state = RLTrainState.create(
+            apply_fn=self.qf.apply,
+            params=self.qf.init({"params": qf_key}, obs),
+            target_params=self.qf.init({"params": qf_key}, obs),
+            tx=self.optimizer_class(
+                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
+                **self.optimizer_kwargs,
+            ),
+        )
+
         self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
 
         return key
