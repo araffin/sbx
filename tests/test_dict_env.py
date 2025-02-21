@@ -25,7 +25,7 @@ class DummyDictEnv(gym.Env):
             self.action_space = spaces.Discrete(3)
         else:
             self.action_space = spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
-        
+
         N_CHANNELS = 1
         HEIGHT = 36
         WIDTH = 36
@@ -92,13 +92,7 @@ def test_consistency(model_class):
 
     n_steps = 256
 
-
-    kwargs = dict(
-        buffer_size=250,
-        train_freq=8,
-        gradient_steps=1,
-        learning_starts=0
-    )
+    kwargs = dict(buffer_size=250, train_freq=8, gradient_steps=1, learning_starts=0)
 
     dict_model = model_class("MultiInputPolicy", dict_env, gamma=0.5, seed=1, **kwargs)
     action_before_learning_1, _ = dict_model.predict(obs, deterministic=True)
@@ -122,12 +116,9 @@ def test_dict_spaces(model_class):
 
     n_steps = 256
 
-    model = model_class("MultiInputPolicy",
-        env,
-        buffer_size=250,
-        policy_kwargs=dict(net_arch=[64]),
-        learning_starts=100,
-        verbose=1)
+    model = model_class(
+        "MultiInputPolicy", env, buffer_size=250, policy_kwargs=dict(net_arch=[64]), learning_starts=100, verbose=1
+    )
     model.learn(total_timesteps=n_steps)
 
     obs, _ = env.reset()

@@ -136,10 +136,10 @@ class DQN(OffPolicyAlgorithmJax):
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
         # Convert to numpy
         data = ReplayBufferSamplesNp(
-            jax.tree.map(lambda x: x.numpy(),data.observations),
+            jax.tree.map(lambda x: x.numpy(), data.observations),
             # Convert to int64
             data.actions.long().numpy(),
-            jax.tree.map(lambda x: x.numpy(),data.next_observations),
+            jax.tree.map(lambda x: x.numpy(), data.next_observations),
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
         )
@@ -267,9 +267,9 @@ class DQN(OffPolicyAlgorithmJax):
         qf_state, (qf_loss_value, qf_mean_value) = DQN.update_qnetwork(
             carry["gamma"],
             carry["qf_state"],
-            observations=jax.tree.map(lambda obs: obs[indices],  data.observations),
+            observations=jax.tree.map(lambda obs: obs[indices], data.observations),
             replay_actions=data.actions[indices],
-            next_observations=jax.tree.map(lambda obs: obs[indices],  data.next_observations),
+            next_observations=jax.tree.map(lambda obs: obs[indices], data.next_observations),
             rewards=data.rewards[indices],
             dones=data.dones[indices],
         )

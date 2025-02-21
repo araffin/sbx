@@ -2,17 +2,17 @@ from typing import Any, Callable, Optional, Union
 
 import flax
 import flax.linen as nn
+import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import gymnasium as gym
-
 from gymnasium import spaces
+from stable_baselines3.common.preprocessing import is_image_space
 from stable_baselines3.common.type_aliases import Schedule
+
 from sbx.common.policies import BaseJaxPolicy, Flatten, OneHot
 from sbx.common.type_aliases import RLTrainState
-from stable_baselines3.common.preprocessing import is_image_space
 
 
 class QNetwork(nn.Module):
@@ -171,6 +171,7 @@ class MultiInputQNetwork(nn.Module):
             elif isinstance(subspace, spaces.Discrete):
                 return OneHot(num_classes=subspace.n)
             return Flatten()
+
         self.extractors = jax.tree_map(layer, self.observation_space.spaces)
 
     @nn.compact
@@ -178,7 +179,7 @@ class MultiInputQNetwork(nn.Module):
         observations = flax.core.freeze(observations)
         encoded_tensors = jax.tree_map(lambda extractor, x: extractor(x), self.extractors, observations)
 
-        x,_ = jax.tree.flatten(encoded_tensors)
+        x, _ = jax.tree.flatten(encoded_tensors)
         x = jax.lax.concatenate(x, dimension=1)
         x = nn.Dense(self.n_units)(x)
         x = self.activation_fn(x)
@@ -186,6 +187,7 @@ class MultiInputQNetwork(nn.Module):
         x = self.activation_fn(x)
         x = nn.Dense(self.n_actions)(x)
         return x
+
 
 class MultiInputPolicy(DQNPolicy):
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:

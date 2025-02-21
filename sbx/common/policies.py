@@ -28,13 +28,15 @@ class Flatten(nn.Module):
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         return x.reshape((x.shape[0], -1))
 
+
 class OneHot(nn.Module):
     """
     Convert int to one-hot representation.
     """
+
     num_classes: int
 
-    @nn.compact 
+    @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         return Flatten()(jax.nn.one_hot(x, num_classes=self.num_classes))
 
@@ -91,7 +93,7 @@ class BaseJaxPolicy(BasePolicy):
             actions = actions.squeeze(axis=0)  # type: ignore[call-overload]
 
         return actions, state
-    
+
     def prepare_obs(self, observation: Union[np.ndarray, dict[str, np.ndarray]]) -> tuple[np.ndarray, bool]:
         return prepare_obs(observation, self.observation_space)
 
@@ -100,32 +102,32 @@ class BaseJaxPolicy(BasePolicy):
         # self.critic.set_training_mode(mode)
         self.training = mode
 
+
 def prepare_obs(observation: Union[np.ndarray, dict[str, np.ndarray]], space: spaces.Space) -> tuple[np.ndarray, bool]:
-        vectorized_env = False
-        if isinstance(observation, dict):
-            assert isinstance(
-                space, spaces.Dict
-            ), f"The observation provided is a dict but the obs space is {space}"
+    vectorized_env = False
+    if isinstance(observation, dict):
+        assert isinstance(space, spaces.Dict), f"The observation provided is a dict but the obs space is {space}"
 
-            vectorized_env = is_vectorized_observation(observation, space)
-            observation = jax.tree.map(lambda obs, obs_sp: prepare_obs(obs, obs_sp)[0], OrderedDict(observation), 
-             OrderedDict(space.spaces))
+        vectorized_env = is_vectorized_observation(observation, space)
+        observation = jax.tree.map(
+            lambda obs, obs_sp: prepare_obs(obs, obs_sp)[0], OrderedDict(observation), OrderedDict(space.spaces)
+        )
 
-        elif is_image_space(space):
-            # Handle the different cases for images
-            # as PyTorch use channel first format
-            observation = maybe_transpose(observation, space)
+    elif is_image_space(space):
+        # Handle the different cases for images
+        # as PyTorch use channel first format
+        observation = maybe_transpose(observation, space)
 
-        else:
-            observation = np.array(observation)
+    else:
+        observation = np.array(observation)
 
-        if not isinstance(space, spaces.Dict):
-            assert isinstance(observation, np.ndarray)
-            vectorized_env = is_vectorized_observation(observation, space)
-            # Add batch dimension if needed
-            observation = observation.reshape((-1, *space.shape))  # type: ignore[misc]
+    if not isinstance(space, spaces.Dict):
+        assert isinstance(observation, np.ndarray)
+        vectorized_env = is_vectorized_observation(observation, space)
+        # Add batch dimension if needed
+        observation = observation.reshape((-1, *space.shape))  # type: ignore[misc]
 
-        return observation, vectorized_env
+    return observation, vectorized_env
 
 
 class ContinuousCritic(nn.Module):
