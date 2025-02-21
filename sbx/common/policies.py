@@ -1,5 +1,4 @@
 # import copy
-from collections import OrderedDict
 from collections.abc import Sequence
 from typing import Callable, Optional, Union, no_type_check
 
@@ -95,39 +94,57 @@ class BaseJaxPolicy(BasePolicy):
         return actions, state
 
     def prepare_obs(self, observation: Union[np.ndarray, dict[str, np.ndarray]]) -> tuple[np.ndarray, bool]:
-        return prepare_obs(observation, self.observation_space)
+        return self._prepare_obs(observation, self.observation_space)
+
+    @staticmethod
+    def _prepare_obs(
+        observation: Union[np.ndarray, dict[str, np.ndarray]], observation_space: spaces.Space
+    ) -> tuple[np.ndarray, bool]:
+        vectorized_env = False
+        if isinstance(observation, dict):
+            assert isinstance(observation_space, spaces.Dict)
+            # Minimal dict support: flatten
+            keys = list(observation_space.keys())
+            vectorized_env = is_vectorized_observation(observation[keys[0]], observation_space[keys[0]])
+
+            # Add batch dim and concatenate
+            observation = np.concatenate(
+                [observation[key].reshape(-1, *observation_space[key].shape) for key in keys],  # type: ignore[misc]
+                axis=1,
+            )
+            # need to copy the dict as the dict in VecFrameStack will become a torch tensor
+            # observation = copy.deepcopy(observation)
+            # for key, obs in observation.items():
+            #     obs_space = self.observation_space.spaces[key]
+            #     if is_image_space(obs_space):
+            #         obs_ = maybe_transpose(obs, obs_space)
+            #     else:
+            #         obs_ = np.array(obs)
+            #     vectorized_env = vectorized_env or is_vectorized_observation(obs_, obs_space)
+            #     # Add batch dimension if needed
+            #     observation[key] = obs_.reshape((-1, *self.observation_space[key].shape))
+
+        elif is_image_space(observation_space):
+            # Handle the different cases for images
+            # as PyTorch use channel first format
+            observation = maybe_transpose(observation, observation_space)
+
+        else:
+            observation = np.array(observation)
+
+        if not isinstance(observation_space, spaces.Dict):
+            assert isinstance(observation, np.ndarray)
+            vectorized_env = is_vectorized_observation(observation, observation_space)
+            # Add batch dimension if needed
+            observation = observation.reshape((-1, *observation_space.shape))  # type: ignore[misc]
+
+        assert isinstance(observation, np.ndarray)
+        return observation, vectorized_env
 
     def set_training_mode(self, mode: bool) -> None:
         # self.actor.set_training_mode(mode)
         # self.critic.set_training_mode(mode)
         self.training = mode
-
-
-def prepare_obs(observation: Union[np.ndarray, dict[str, np.ndarray]], space: spaces.Space) -> tuple[np.ndarray, bool]:
-    vectorized_env = False
-    if isinstance(observation, dict):
-        assert isinstance(space, spaces.Dict), f"The observation provided is a dict but the obs space is {space}"
-
-        vectorized_env = is_vectorized_observation(observation, space)
-        observation = jax.tree.map(
-            lambda obs, obs_sp: prepare_obs(obs, obs_sp)[0], OrderedDict(observation), OrderedDict(space.spaces)
-        )
-
-    elif is_image_space(space):
-        # Handle the different cases for images
-        # as PyTorch use channel first format
-        observation = maybe_transpose(observation, space)
-
-    else:
-        observation = np.array(observation)
-
-    if not isinstance(space, spaces.Dict):
-        assert isinstance(observation, np.ndarray)
-        vectorized_env = is_vectorized_observation(observation, space)
-        # Add batch dimension if needed
-        observation = observation.reshape((-1, *space.shape))  # type: ignore[misc]
-
-    return observation, vectorized_env
 
 
 class ContinuousCritic(nn.Module):

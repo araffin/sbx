@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from typing import Any, Callable, Optional, Union
 
 import flax
@@ -10,6 +11,7 @@ import optax
 from gymnasium import spaces
 from stable_baselines3.common.preprocessing import is_image_space
 from stable_baselines3.common.type_aliases import Schedule
+from stable_baselines3.common.utils import is_vectorized_observation
 
 from sbx.common.policies import BaseJaxPolicy, Flatten, OneHot
 from sbx.common.type_aliases import RLTrainState
@@ -216,3 +218,20 @@ class MultiInputPolicy(DQNPolicy):
         self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
 
         return key
+
+    def prepare_obs(self, observation: Union[np.ndarray, dict[str, np.ndarray]]) -> tuple[np.ndarray, bool]:
+        vectorized_env = False
+        if isinstance(observation, dict):
+            assert isinstance(
+                self.observation_space, spaces.Dict
+            ), f"The observation provided is a dict but the obs space is {self.observation_space}"
+
+            vectorized_env = is_vectorized_observation(observation, self.observation_space)
+            observation = jax.tree.map(
+                lambda obs, obs_space: self._prepare_obs(obs, obs_space)[0],
+                OrderedDict(observation),
+                OrderedDict(self.observation_space.spaces),
+            )
+            return observation, vectorized_env
+
+        return super().prepare_obs(observation)
