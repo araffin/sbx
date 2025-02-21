@@ -293,9 +293,11 @@ class PPO(OnPolicyAlgorithmJax):
         # self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/pg_loss", pg_loss.item())
         self.logger.record("train/explained_variance", explained_var)
-        # if hasattr(self.policy, "log_std"):
-        #     self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
-
+        try:
+            log_std = self.policy.actor_state.params["params"]["log_std"]
+            self.logger.record("train/std", np.exp(log_std).mean().item())
+        except KeyError:
+            pass
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/clip_range", clip_range)
         # if self.clip_range_vf is not None:
