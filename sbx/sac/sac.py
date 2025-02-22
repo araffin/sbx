@@ -380,8 +380,8 @@ class SAC(OffPolicyAlgorithmJax):
         ent_coef_state: TrainState,
         key: jax.Array,
     ):
-        assert data.observations.shape[0] % gradient_steps == 0
-        batch_size = data.observations.shape[0] // gradient_steps
+        assert data.observations.shape[0] % gradient_steps == 0  # type: ignore[union-attr]
+        batch_size = data.observations.shape[0] // gradient_steps  # type: ignore[union-attr]
 
         carry = {
             "actor_state": actor_state,
