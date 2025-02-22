@@ -89,7 +89,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         ):
             # Note: we are not resetting the entropy coeff
             assert isinstance(self.qf_learning_rate, float)
-            self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)
+            self.key = self.policy.build(self.key, self.lr_schedule, self.qf_learning_rate)  # type: ignore[operator]
             self.reset_idx += 1
 
     def _get_torch_save_params(self):
