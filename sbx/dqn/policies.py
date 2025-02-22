@@ -3,7 +3,6 @@ from typing import Any, Callable, Optional, Union
 
 import flax
 import flax.linen as nn
-import gymnasium as gym
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -219,7 +218,9 @@ class MultiInputPolicy(DQNPolicy):
 
         return key
 
-    def prepare_obs(self, observation: Union[np.ndarray, dict[str, np.ndarray]]) -> tuple[np.ndarray, bool]:
+    def prepare_obs(  # type: ignore[override]
+        self, observation: Union[np.ndarray, dict[str, np.ndarray]]
+    ) -> tuple[Union[np.ndarray, dict[str, np.ndarray]], bool]:
         vectorized_env = False
         if isinstance(observation, dict):
             assert isinstance(

@@ -1,4 +1,4 @@
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 import flax
 import numpy as np
@@ -14,8 +14,8 @@ class BatchNormTrainState(TrainState):  # type: ignore[misc]
 
 
 class ReplayBufferSamplesNp(NamedTuple):
-    observations: np.ndarray | dict[str, np.ndarray]
+    observations: Union[np.ndarray, dict[str, np.ndarray]]
     actions: np.ndarray
-    next_observations: np.ndarray | dict[str, np.ndarray]
+    next_observations: Union[np.ndarray, dict[str, np.ndarray]]
     dones: np.ndarray
     rewards: np.ndarray

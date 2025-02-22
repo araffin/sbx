@@ -11,8 +11,6 @@ from sbx import DQN
 class DummyDictEnv(gym.Env):
     """Custom Environment for testing dictionary observation spaces"""
 
-    metadata = {"render_modes": ["human"]}
-
     def __init__(
         self,
         use_discrete_actions=False,
