@@ -155,7 +155,7 @@ class CNNPolicy(DQNPolicy):
 
 
 class MultiInputQNetwork(nn.Module):
-    observation_space: spaces.Dict
+    observation_space: spaces.Space
     n_actions: int
     cnn_output_dim: int = 256
     n_units: int = 256
@@ -177,11 +177,10 @@ class MultiInputQNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, observations: dict[str, jnp.ndarray]) -> jnp.ndarray:
-        observations = flax.core.freeze(observations)
-        encoded_tensors = jax.tree_map(lambda extractor, x: extractor(x), self.extractors, observations)
+        encoded_tensors = jax.tree_map(lambda extractor, x: extractor(x), self.extractors, flax.core.freeze(observations))
 
-        x, _ = jax.tree.flatten(encoded_tensors)
-        x = jax.lax.concatenate(x, dimension=1)
+        flattened, _ = jax.tree.flatten(encoded_tensors)
+        x = jax.lax.concatenate(flattened, dimension=1)
         x = nn.Dense(self.n_units)(x)
         x = self.activation_fn(x)
         x = nn.Dense(self.n_units)(x)
@@ -227,7 +226,7 @@ class MultiInputPolicy(DQNPolicy):
                 self.observation_space, spaces.Dict
             ), f"The observation provided is a dict but the obs space is {self.observation_space}"
 
-            vectorized_env = is_vectorized_observation(observation, self.observation_space)
+            vectorized_env = is_vectorized_observation(observation, self.observation_space)  # type: ignore[arg-type]
             observation = jax.tree.map(
                 lambda obs, obs_space: self._prepare_obs(obs, obs_space)[0],
                 OrderedDict(observation),
