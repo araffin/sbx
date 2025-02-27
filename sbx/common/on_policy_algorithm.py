@@ -77,7 +77,11 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         excluded.remove("policy")
         return excluded
 
-    def _update_learning_rate(self, optimizers: Union[list[optax.OptState], optax.OptState], learning_rate: float) -> None:
+    def _update_learning_rate(  # type: ignore[override]
+        self,
+        optimizers: Union[list[optax.OptState], optax.OptState],
+        learning_rate: float,
+    ) -> None:
         """
         Update the optimizers learning rate using the current learning rate schedule
         and the current progress remaining (from 1 to 0).
