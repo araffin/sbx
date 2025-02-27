@@ -266,7 +266,7 @@ class TQC(OffPolicyAlgorithmJax):
         key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
         key, dropout_key_3, dropout_key_4 = jax.random.split(key, 3)
         # sample action from the actor
-        dist = actor_state.apply_fn(actor_state.params, next_observations)
+        dist, _, _ = actor_state.apply_fn(actor_state.params, next_observations)
         next_state_actions = dist.sample(seed=noise_key)
         next_log_prob = dist.log_prob(next_state_actions)
 
@@ -345,7 +345,7 @@ class TQC(OffPolicyAlgorithmJax):
         key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
 
         def actor_loss(params: flax.core.FrozenDict) -> tuple[jax.Array, jax.Array]:
-            dist = actor_state.apply_fn(params, observations)
+            dist, _, _ = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
 

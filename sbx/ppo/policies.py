@@ -78,7 +78,7 @@ class Actor(nn.Module):
         super().__post_init__()
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, x: jnp.ndarray) -> tuple[tfd.Distribution, jnp.ndarray, jnp.ndarray]:  # type: ignore[name-defined]
         x = Flatten()(x)
 
         for n_units in self.net_arch:
@@ -93,6 +93,7 @@ class Actor(nn.Module):
         else:
             action_logits = nn.Dense(self.action_dim)(x)
 
+        log_std = jnp.zeros(1)
         if self.num_discrete_choices is None:
             # Continuous actions
             log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
@@ -121,7 +122,7 @@ class Actor(nn.Module):
             dist = tfp.distributions.Independent(
                 tfp.distributions.Categorical(logits=logits_padded), reinterpreted_batch_ndims=1
             )
-        return dist
+        return dist, action_logits, log_std
 
 
 class SimbaActor(nn.Module):
@@ -142,7 +143,7 @@ class SimbaActor(nn.Module):
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, x: jnp.ndarray) -> tuple[tfd.Distribution, jnp.ndarray, jnp.ndarray]:  # type: ignore[name-defined]
         x = Flatten()(x)
 
         x = nn.Dense(self.net_arch[0])(x)
@@ -162,7 +163,7 @@ class SimbaActor(nn.Module):
         log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
         dist = tfd.MultivariateNormalDiag(loc=mean_action, scale_diag=jnp.exp(log_std))
 
-        return dist
+        return dist, mean_action, log_std
 
 
 class PPOPolicy(BaseJaxPolicy):
@@ -325,7 +326,7 @@ class PPOPolicy(BaseJaxPolicy):
     @staticmethod
     @jax.jit
     def _predict_all(actor_state, vf_state, observations, key):
-        dist = actor_state.apply_fn(actor_state.params, observations)
+        dist, _, _ = actor_state.apply_fn(actor_state.params, observations)
         actions = dist.sample(seed=key)
         log_probs = dist.log_prob(actions)
         values = vf_state.apply_fn(vf_state.params, observations).flatten()

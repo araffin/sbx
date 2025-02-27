@@ -255,7 +255,7 @@ class CrossQ(OffPolicyAlgorithmJax):
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # sample action from the actor
-        dist = actor_state.apply_fn(
+        dist, _, _ = actor_state.apply_fn(
             {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
             next_observations,
             train=False,
@@ -330,7 +330,7 @@ class CrossQ(OffPolicyAlgorithmJax):
         def actor_loss(
             params: flax.core.FrozenDict, batch_stats: flax.core.FrozenDict
         ) -> tuple[jax.Array, tuple[jax.Array, jax.Array]]:
-            dist, state_updates = actor_state.apply_fn(
+            (dist, _, _), state_updates = actor_state.apply_fn(
                 {"params": params, "batch_stats": batch_stats},
                 observations,
                 mutable=["batch_stats"],

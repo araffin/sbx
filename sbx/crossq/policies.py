@@ -182,7 +182,7 @@ class SimbaActor(nn.Module):
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, train: bool = False) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, x: jnp.ndarray, train: bool = False) -> tuple[tfd.Distribution, jnp.ndarray, jnp.ndarray]:  # type: ignore[name-defined]
         x = Flatten()(x)
         norm_layer = partial(
             BatchRenorm,
@@ -208,7 +208,7 @@ class SimbaActor(nn.Module):
         dist = TanhTransformedDistribution(
             tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
         )
-        return dist
+        return dist, mean, log_std
 
 
 class Actor(nn.Module):
@@ -226,7 +226,7 @@ class Actor(nn.Module):
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, train: bool = False) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, x: jnp.ndarray, train: bool = False) -> tuple[tfd.Distribution, jnp.ndarray, jnp.ndarray]:  # type: ignore[name-defined]
         x = Flatten()(x)
         if self.use_batch_norm:
             x = BatchRenorm(
@@ -254,7 +254,7 @@ class Actor(nn.Module):
         dist = TanhTransformedDistribution(
             tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
         )
-        return dist
+        return dist, mean, log_std
 
 
 class CrossQPolicy(BaseJaxPolicy):
@@ -426,7 +426,7 @@ class CrossQPolicy(BaseJaxPolicy):
     @staticmethod
     @jax.jit
     def sample_action(actor_state, observations, key):
-        dist = actor_state.apply_fn(
+        dist, _, _ = actor_state.apply_fn(
             {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
             observations,
             train=False,
@@ -437,11 +437,12 @@ class CrossQPolicy(BaseJaxPolicy):
     @staticmethod
     @jax.jit
     def select_action(actor_state, observations):
-        return actor_state.apply_fn(
+        dist, _, _ = actor_state.apply_fn(
             {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
             observations,
             train=False,
-        ).mode()
+        )
+        return dist.mode()
 
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:

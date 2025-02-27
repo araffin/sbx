@@ -38,14 +38,15 @@ class BaseJaxPolicy(BasePolicy):
     @staticmethod
     @jax.jit
     def sample_action(actor_state, observations, key):
-        dist = actor_state.apply_fn(actor_state.params, observations)
+        dist, _, _ = actor_state.apply_fn(actor_state.params, observations)
         action = dist.sample(seed=key)
         return action
 
     @staticmethod
     @jax.jit
     def select_action(actor_state, observations):
-        return actor_state.apply_fn(actor_state.params, observations).mode()
+        dist, _, _ = actor_state.apply_fn(actor_state.params, observations)
+        return dist.mode()
 
     @no_type_check
     def predict(
@@ -250,7 +251,7 @@ class SquashedGaussianActor(nn.Module):
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, x: jnp.ndarray) -> tuple[tfd.Distribution, jnp.ndarray, jnp.ndarray]:  # type: ignore[name-defined]
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
@@ -271,7 +272,7 @@ class SquashedGaussianActor(nn.Module):
         dist = TanhTransformedDistribution(
             tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
         )
-        return dist
+        return dist, mean, log_std
 
 
 class SimbaSquashedGaussianActor(nn.Module):
@@ -290,7 +291,7 @@ class SimbaSquashedGaussianActor(nn.Module):
         return jnp.array(0.0)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+    def __call__(self, x: jnp.ndarray) -> tuple[tfd.Distribution, jnp.ndarray, jnp.ndarray]:  # type: ignore[name-defined]
         x = Flatten()(x)
 
         # Note: simba was using kernel_init=orthogonal_init(1)
@@ -305,4 +306,4 @@ class SimbaSquashedGaussianActor(nn.Module):
         dist = TanhTransformedDistribution(
             tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
         )
-        return dist
+        return dist, mean, log_std

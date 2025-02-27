@@ -11,6 +11,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
+from sbx.common.utils import KlAdaptiveLR
 from sbx.ppo.policies import PPOPolicy, SimbaPPOPolicy
 
 PPOSelf = TypeVar("PPOSelf", bound="PPO")
@@ -75,7 +76,7 @@ class PPO(OnPolicyAlgorithmJax):
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
     policy: PPOPolicy  # type: ignore[assignment]
-    current_adaptive_lr: float
+    adaptive_lr: KlAdaptiveLR
 
     def __init__(
         self,
@@ -165,12 +166,6 @@ class PPO(OnPolicyAlgorithmJax):
         self.target_kl = target_kl
         if target_kl is not None and self.verbose > 0:
             print(f"Using adaptive learning rate with {target_kl=}, any other lr schedule will be skipped.")
-        # Values taken from https://github.com/leggedrobotics/rsl_rl
-        self.min_learning_rate = 1e-5
-        self.max_learning_rate = 1e-2
-        self.kl_margin = 2.0
-        # Divide or multiple the lr by this factor
-        self.adaptive_lr_factor = 1.5
 
         if _init_setup_model:
             self._setup_model()
@@ -178,7 +173,8 @@ class PPO(OnPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        self.current_adaptive_lr = self.lr_schedule(1.0)
+        if self.target_kl is not None:
+            self.adaptive_lr = KlAdaptiveLR(self.target_kl, self.lr_schedule(1.0))
 
         if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
             self.policy = self.policy_class(  # type: ignore[assignment]
@@ -224,7 +220,7 @@ class PPO(OnPolicyAlgorithmJax):
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         def actor_loss(params):
-            dist = actor_state.apply_fn(params, observations)
+            dist, _, _ = actor_state.apply_fn(params, observations)
             log_prob = dist.log_prob(actions)
             entropy = dist.entropy()
 
@@ -311,18 +307,11 @@ class PPO(OnPolicyAlgorithmJax):
 
                 # Adaptive lr schedule, see https://arxiv.org/abs/1707.02286
                 if self.target_kl is not None:
-                    if approx_kl_div > self.target_kl * self.kl_margin:
-                        self.current_adaptive_lr /= self.adaptive_lr_factor
-                    elif approx_kl_div < self.target_kl / self.kl_margin:
-                        self.current_adaptive_lr *= self.adaptive_lr_factor
-
-                    self.current_adaptive_lr = np.clip(
-                        self.current_adaptive_lr, self.min_learning_rate, self.max_learning_rate
-                    )
+                    self.adaptive_lr.update(approx_kl_div)
 
                     self._update_learning_rate(
                         [self.policy.actor_state.opt_state[1], self.policy.vf_state.opt_state[1]],
-                        learning_rate=self.current_adaptive_lr,
+                        learning_rate=self.adaptive_lr.current_adaptive_lr,
                     )
         self._n_updates += self.n_epochs
         explained_var = explained_variance(
