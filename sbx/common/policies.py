@@ -242,6 +242,8 @@ class SquashedGaussianActor(nn.Module):
     log_std_min: float = -20
     log_std_max: float = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    ortho_init: bool = False
+    log_std_init: float = -1.2 # log(0.3)
 
     def get_std(self):
         # Make it work with gSDE
@@ -253,8 +255,18 @@ class SquashedGaussianActor(nn.Module):
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
             x = self.activation_fn(x)
-        mean = nn.Dense(self.action_dim)(x)
-        log_std = nn.Dense(self.action_dim)(x)
+
+        if self.ortho_init:
+            orthogonal_init = nn.initializers.orthogonal(scale=0.01)
+            # orthogonal_init = nn.initializers.uniform(scale=0.01)
+            # orthogonal_init = nn.initializers.normal(stddev=0.01)
+            bias_init = nn.initializers.zeros
+            mean = nn.Dense(self.action_dim, kernel_init=orthogonal_init, bias_init=bias_init)(x)
+            log_std = self.param("log_std", nn.initializers.constant(self.log_std_init), (self.action_dim,))
+            # log_std = nn.Dense(self.action_dim, kernel_init=orthogonal_init, bias_init=bias_init)(x)
+        else:
+            mean = nn.Dense(self.action_dim)(x)
+            log_std = nn.Dense(self.action_dim)(x)
         log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
         dist = TanhTransformedDistribution(
             tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
