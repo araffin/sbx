@@ -77,7 +77,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         excluded.remove("policy")
         return excluded
 
-    def _update_learning_rate(self, optimizers: Union[list[optax.OptState], optax.OptState]) -> None:
+    def _update_learning_rate(self, optimizers: Union[list[optax.OptState], optax.OptState], learning_rate: float) -> None:
         """
         Update the optimizers learning rate using the current learning rate schedule
         and the current progress remaining (from 1 to 0).
@@ -86,12 +86,12 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             An optimizer or a list of optimizers.
         """
         # Log the current learning rate
-        self.logger.record("train/learning_rate", self.lr_schedule(self._current_progress_remaining))
+        self.logger.record("train/learning_rate", learning_rate)
 
         if not isinstance(optimizers, list):
             optimizers = [optimizers]
         for optimizer in optimizers:
-            update_learning_rate(optimizer, self.lr_schedule(self._current_progress_remaining))
+            update_learning_rate(optimizer, learning_rate)
 
     def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
         super().set_random_seed(seed)
