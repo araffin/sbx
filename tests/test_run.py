@@ -169,6 +169,8 @@ def test_simba_ppo(tmp_path) -> None:
         batch_size=32,
         n_epochs=2,
         policy_kwargs=dict(activation_fn=nn.leaky_relu, net_arch=[64]),
+        # Test adaptive lr
+        target_kl=0.01,
     )
     model.learn(64, progress_bar=True)
 
