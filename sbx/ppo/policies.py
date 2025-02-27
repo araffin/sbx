@@ -272,15 +272,17 @@ class PPOPolicy(BaseJaxPolicy):
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
 
+        # Inject hyperparameters to be able to modify it later
+        # See https://stackoverflow.com/questions/78527164
+        # Note: eps=1e-5 for Adam
+        optimizer_class = optax.inject_hyperparams(self.optimizer_class)(learning_rate=lr_schedule(1), **self.optimizer_kwargs)
+
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
-                self.optimizer_class(
-                    learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                    **self.optimizer_kwargs,  # , eps=1e-5
-                ),
+                optimizer_class,
             ),
         )
 
@@ -291,10 +293,7 @@ class PPOPolicy(BaseJaxPolicy):
             params=self.vf.init({"params": vf_key}, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
-                self.optimizer_class(
-                    learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                    **self.optimizer_kwargs,  # , eps=1e-5
-                ),
+                optimizer_class,
             ),
         )
 

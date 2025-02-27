@@ -3,6 +3,7 @@ from typing import Any, Optional, TypeVar, Union
 import gymnasium as gym
 import jax
 import numpy as np
+import optax
 import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.buffers import RolloutBuffer
@@ -12,6 +13,7 @@ from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from stable_baselines3.common.vec_env import VecEnv
 
+from sbx.common.utils import update_learning_rate
 from sbx.ppo.policies import Actor, Critic, PPOPolicy
 
 OnPolicyAlgorithmSelf = TypeVar("OnPolicyAlgorithmSelf", bound="OnPolicyAlgorithmJax")
@@ -74,6 +76,22 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         excluded = super()._excluded_save_params()
         excluded.remove("policy")
         return excluded
+
+    def _update_learning_rate(self, optimizers: Union[list[optax.OptState], optax.OptState]) -> None:
+        """
+        Update the optimizers learning rate using the current learning rate schedule
+        and the current progress remaining (from 1 to 0).
+
+        :param optimizers:
+            An optimizer or a list of optimizers.
+        """
+        # Log the current learning rate
+        self.logger.record("train/learning_rate", self.lr_schedule(self._current_progress_remaining))
+
+        if not isinstance(optimizers, list):
+            optimizers = [optimizers]
+        for optimizer in optimizers:
+            update_learning_rate(optimizer, self.lr_schedule(self._current_progress_remaining))
 
     def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
         super().set_random_seed(seed)

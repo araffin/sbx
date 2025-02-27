@@ -243,7 +243,7 @@ class SquashedGaussianActor(nn.Module):
     log_std_max: float = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     ortho_init: bool = False
-    log_std_init: float = -1.2 # log(0.3)
+    log_std_init: float = -1.2  # log(0.3)
 
     def get_std(self):
         # Make it work with gSDE

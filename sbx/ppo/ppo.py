@@ -252,7 +252,7 @@ class PPO(OnPolicyAlgorithmJax):
         Update policy using the currently gathered rollout buffer.
         """
         # Update optimizer learning rate
-        # self._update_learning_rate(self.policy.optimizer)
+        self._update_learning_rate([self.policy.actor_state.opt_state[1], self.policy.vf_state.opt_state[1]])
         # Compute current clip range
         clip_range = self.clip_range_schedule(self._current_progress_remaining)
 
