@@ -276,7 +276,10 @@ class PPOPolicy(BaseJaxPolicy):
         # Inject hyperparameters to be able to modify it later
         # See https://stackoverflow.com/questions/78527164
         # Note: eps=1e-5 for Adam
-        optimizer_class = optax.inject_hyperparams(self.optimizer_class)(learning_rate=lr_schedule(1), **self.optimizer_kwargs)
+        optimizer_class = optax.inject_hyperparams(self.optimizer_class)(
+            learning_rate=lr_schedule(1),
+            **self.optimizer_kwargs,
+        )
 
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,

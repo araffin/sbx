@@ -162,7 +162,7 @@ class PPO(OnPolicyAlgorithmJax):
         self.clip_range = clip_range
         self.clip_range_vf = clip_range_vf
         self.normalize_advantage = normalize_advantage
-        # If set will trigger adaptive lr
+        # If set, will trigger adaptive lr
         self.target_kl = target_kl
         if target_kl is not None and self.verbose > 0:
             print(f"Using adaptive learning rate with {target_kl=}, any other lr schedule will be skipped.")
