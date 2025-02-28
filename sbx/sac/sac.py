@@ -16,6 +16,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
+from sbx.common.utils import adaptive_kl_lr
 from sbx.sac.policies import SACPolicy, SimbaSACPolicy
 
 
@@ -50,6 +51,7 @@ class SAC(OffPolicyAlgorithmJax):
 
     policy: SACPolicy
     action_space: spaces.Box  # type: ignore[assignment]
+    current_lr: float
 
     def __init__(
         self,
@@ -70,6 +72,7 @@ class SAC(OffPolicyAlgorithmJax):
         replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
         target_entropy: Union[Literal["auto"], float] = "auto",
+        target_kl: Optional[float] = None,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
@@ -113,12 +116,16 @@ class SAC(OffPolicyAlgorithmJax):
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
         self.target_entropy = target_entropy
+        self.target_kl = target_kl or 0.0
 
         if _init_setup_model:
             self._setup_model()
 
     def _setup_model(self) -> None:
         super()._setup_model()
+
+        # Only used if self.target_kl > 0.0:
+        self.current_lr = self.lr_schedule(1.0)
 
         if not hasattr(self, "policy") or self.policy is None:
             self.policy = self.policy_class(  # type: ignore[assignment]
@@ -190,6 +197,14 @@ class SAC(OffPolicyAlgorithmJax):
             progress_bar=progress_bar,
         )
 
+    @staticmethod
+    @jax.jit
+    def predict_log_prob(actor_state: RLTrainState, observations: ArrayLike, key: jax.Array):
+        key, noise_key = jax.random.split(key, 2)
+        dist = actor_state.apply_fn(actor_state.params, observations)
+        actor_actions = dist.sample(seed=noise_key)
+        return dist.log_prob(actor_actions), actor_actions, key
+
     def train(self, gradient_steps: int, batch_size: int) -> None:
         assert self.replay_buffer is not None
         # Sample all at once for efficiency (so we can jit the for loop)
@@ -215,12 +230,25 @@ class SAC(OffPolicyAlgorithmJax):
             data.rewards.numpy().flatten(),
         )
 
+        old_log_prob, old_actions = np.zeros_like(data.rewards), np.zeros_like(data.actions)
+        # Only compute for actor update
+        # Pre-compute the indices where we need to update the actor
+        # This is a hack in order to jit the train loop
+        # It will compile once per value of policy_delay_indices
+        actor_updates = np.where(((self._n_updates + np.arange(gradient_steps) + 1) % self.policy_delay) == 0)[0]
+        if self.target_kl > 0.0 and len(actor_updates) > 1:
+            updates_indices = (actor_updates[:, np.newaxis] + np.arange(batch_size)).flatten()
+
+            old_log_prob[updates_indices], old_actions[updates_indices], self.key = self.predict_log_prob(
+                self.policy.actor_state, data.observations[updates_indices], self.key
+            )
+
         (
             self.policy.qf_state,
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
-            (actor_loss_value, qf_loss_value, ent_coef_loss_value, ent_coef_value),
+            (actor_loss_value, qf_loss_value, ent_coef_loss_value, ent_coef_value, mean_kl_div, new_lr),
         ) = self._train(
             self.gamma,
             self.tau,
@@ -233,6 +261,10 @@ class SAC(OffPolicyAlgorithmJax):
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
+            self.current_lr,
+            self.target_kl,
+            old_log_prob,
+            old_actions,
         )
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
@@ -240,6 +272,14 @@ class SAC(OffPolicyAlgorithmJax):
         self.logger.record("train/critic_loss", qf_loss_value.item())
         self.logger.record("train/ent_coef_loss", ent_coef_loss_value.item())
         self.logger.record("train/ent_coef", ent_coef_value.item())
+
+        self.current_lr = new_lr.item()
+        self.logger.record("train/learning_rate", self.current_lr)
+        self.logger.record("train/qf_learning_rate", self.policy.qf_state.opt_state.hyperparams["learning_rate"].item())
+
+        if self.target_kl > 0.0 and len(actor_updates) > 1:
+            # For some reasons, updating adaptive_lr inside the jitted methods doesn't work...
+            self.logger.record("train/approx_kl", mean_kl_div.item())
 
     @staticmethod
     @jax.jit
@@ -298,10 +338,16 @@ class SAC(OffPolicyAlgorithmJax):
         ent_coef_state: TrainState,
         observations: jax.Array,
         key: jax.Array,
+        mean_kl_div: ArrayLike,
+        n_actor_updates: int,
+        old_log_prob: ArrayLike,
+        old_actions: ArrayLike,
+        current_lr: ArrayLike,
+        target_kl: ArrayLike,
     ):
         key, dropout_key, noise_key = jax.random.split(key, 3)
 
-        def actor_loss(params: flax.core.FrozenDict) -> tuple[jax.Array, jax.Array]:
+        def actor_loss(params: flax.core.FrozenDict) -> tuple[jax.Array, tuple]:
             dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
@@ -316,12 +362,32 @@ class SAC(OffPolicyAlgorithmJax):
             min_qf_pi = jnp.min(qf_pi, axis=0)
             ent_coef_value = ent_coef_state.apply_fn({"params": ent_coef_state.params})
             actor_loss = (ent_coef_value * log_prob - min_qf_pi).mean()
-            return actor_loss, -log_prob.mean()
+            return actor_loss, (-log_prob.mean(), dist)
 
-        (actor_loss_value, entropy), grads = jax.value_and_grad(actor_loss, has_aux=True)(actor_state.params)
+        (actor_loss_value, (entropy, dist)), grads = jax.value_and_grad(actor_loss, has_aux=True)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=grads)
 
-        return actor_state, qf_state, actor_loss_value, key, entropy
+        # TODO: disable computation if target_kl==0.0
+        # To compute kl div, see PPO
+        new_log_prob = dist.log_prob(old_actions)
+        ratio = jnp.exp(new_log_prob - old_log_prob)
+        approx_kl_div = jnp.mean((ratio - 1.0) - jnp.log(ratio))
+        mean_kl_div += (approx_kl_div - mean_kl_div) / n_actor_updates
+
+        new_lr = adaptive_kl_lr(current_lr, target_kl, approx_kl_div)  # type: ignore[arg-type]
+
+        # The kl_div will always be zero during the first iteration
+        new_lr = jax.lax.select(  # type: ignore[assignment]
+            target_kl > 0.0 * n_actor_updates,  # type: ignore[operator]
+            # If True:
+            new_lr,
+            # If False:
+            current_lr,
+        )
+
+        actor_state.opt_state.hyperparams["learning_rate"] = new_lr
+
+        return actor_state, qf_state, actor_loss_value, key, entropy, mean_kl_div, new_lr
 
     @staticmethod
     @jax.jit
@@ -353,16 +419,28 @@ class SAC(OffPolicyAlgorithmJax):
         observations: jax.Array,
         target_entropy: ArrayLike,
         key: jax.Array,
+        mean_kl_div: ArrayLike,
+        n_actor_updates: int,
+        batch_old_log_prob: ArrayLike,
+        batch_old_actions: ArrayLike,
+        current_lr: ArrayLike,
+        target_kl: ArrayLike,
     ):
-        (actor_state, qf_state, actor_loss_value, key, entropy) = cls.update_actor(
+        (actor_state, qf_state, actor_loss_value, key, entropy, mean_kl_div, new_lr) = cls.update_actor(
             actor_state,
             qf_state,
             ent_coef_state,
             observations,
             key,
+            mean_kl_div,
+            n_actor_updates,
+            batch_old_log_prob,
+            batch_old_actions,
+            current_lr,
+            target_kl,
         )
         ent_coef_state, ent_coef_loss_value = cls.update_temperature(target_entropy, ent_coef_state, entropy)
-        return actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key
+        return actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key, mean_kl_div, new_lr
 
     @classmethod
     @partial(jax.jit, static_argnames=["cls", "gradient_steps", "policy_delay", "policy_delay_offset"])
@@ -379,6 +457,10 @@ class SAC(OffPolicyAlgorithmJax):
         actor_state: TrainState,
         ent_coef_state: TrainState,
         key: jax.Array,
+        current_lr: float,
+        target_kl: float,
+        old_log_prob: np.ndarray,
+        old_actions: np.ndarray,
     ):
         assert data.observations.shape[0] % gradient_steps == 0
         batch_size = data.observations.shape[0] // gradient_steps
@@ -388,11 +470,14 @@ class SAC(OffPolicyAlgorithmJax):
             "qf_state": qf_state,
             "ent_coef_state": ent_coef_state,
             "key": key,
+            "new_lr": jnp.array(current_lr),
             "info": {
                 "actor_loss": jnp.array(0.0),
                 "qf_loss": jnp.array(0.0),
                 "ent_coef_loss": jnp.array(0.0),
                 "ent_coef_value": jnp.array(0.0),
+                "mean_kl_div": jnp.array(0.0),
+                "n_actor_updates": 0,
             },
         }
 
@@ -409,6 +494,8 @@ class SAC(OffPolicyAlgorithmJax):
             batch_next_obs = jax.lax.dynamic_slice_in_dim(data.next_observations, i * batch_size, batch_size)
             batch_rew = jax.lax.dynamic_slice_in_dim(data.rewards, i * batch_size, batch_size)
             batch_done = jax.lax.dynamic_slice_in_dim(data.dones, i * batch_size, batch_size)
+            batch_old_log_prob = jax.lax.dynamic_slice_in_dim(old_log_prob, i * batch_size, batch_size)
+            batch_old_actions = jax.lax.dynamic_slice_in_dim(old_actions, i * batch_size, batch_size)
             (
                 qf_state,
                 (qf_loss_value, ent_coef_value),
@@ -426,32 +513,55 @@ class SAC(OffPolicyAlgorithmJax):
                 key,
             )
             qf_state = cls.soft_update(tau, qf_state)
+            n_actor_updates = info["n_actor_updates"] + ((policy_delay_offset + i) % policy_delay == 0)
 
-            (actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key) = jax.lax.cond(
-                (policy_delay_offset + i) % policy_delay == 0,
-                # If True:
-                cls.update_actor_and_temperature,
-                # If False:
-                lambda *_: (actor_state, qf_state, ent_coef_state, info["actor_loss"], info["ent_coef_loss"], key),
-                actor_state,
-                qf_state,
-                ent_coef_state,
-                batch_obs,
-                target_entropy,
-                key,
+            (actor_state, qf_state, ent_coef_state, actor_loss_value, ent_coef_loss_value, key, mean_kl_div, new_lr) = (
+                jax.lax.cond(
+                    (policy_delay_offset + i) % policy_delay == 0,
+                    # If True:
+                    cls.update_actor_and_temperature,
+                    # If False:
+                    lambda *_: (
+                        actor_state,
+                        qf_state,
+                        ent_coef_state,
+                        info["actor_loss"],
+                        info["ent_coef_loss"],
+                        key,
+                        info["mean_kl_div"],
+                        carry["new_lr"],
+                    ),
+                    actor_state,
+                    qf_state,
+                    ent_coef_state,
+                    batch_obs,
+                    target_entropy,
+                    key,
+                    info["mean_kl_div"],
+                    n_actor_updates,
+                    batch_old_log_prob,
+                    batch_old_actions,
+                    carry["new_lr"],
+                    target_kl,
+                )
             )
             info = {
                 "actor_loss": actor_loss_value,
                 "qf_loss": qf_loss_value,
                 "ent_coef_loss": ent_coef_loss_value,
                 "ent_coef_value": ent_coef_value,
+                "mean_kl_div": mean_kl_div,
+                "n_actor_updates": n_actor_updates,
             }
-
+            # Update critic lr too when using adaptive lr
+            current_qf_lr = qf_state.opt_state.hyperparams["learning_rate"]
+            qf_state.opt_state.hyperparams["learning_rate"] = new_lr * (target_kl > 0) + current_qf_lr * (target_kl <= 0)
             return {
                 "actor_state": actor_state,
                 "qf_state": qf_state,
                 "ent_coef_state": ent_coef_state,
                 "key": key,
+                "new_lr": new_lr,
                 "info": info,
             }
 
@@ -467,5 +577,7 @@ class SAC(OffPolicyAlgorithmJax):
                 update_carry["info"]["qf_loss"],
                 update_carry["info"]["ent_coef_loss"],
                 update_carry["info"]["ent_coef_value"],
+                update_carry["info"]["mean_kl_div"],
+                update_carry["new_lr"],
             ),
         )

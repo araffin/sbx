@@ -1,39 +1,65 @@
 from dataclasses import dataclass
 
-import numpy as np
-import optax
+import jax
+import jax.numpy as jnp
 
 
-def update_learning_rate(opt_state: optax.OptState, learning_rate: float) -> None:
-    """
-    Update the learning rate for a given optimizer.
-    Useful when doing linear schedule.
-
-    :param optimizer: Optax optimizer state
-    :param learning_rate: New learning rate value
-    """
-    # Note: the optimizer must have been defined with inject_hyperparams
-    opt_state.hyperparams["learning_rate"] = learning_rate
-
-
+# JIT compatible version
+@jax.tree_util.register_dataclass
 @dataclass
-class KlAdaptiveLR:
+class KLAdaptiveLR:
     """Adaptive lr schedule, see https://arxiv.org/abs/1707.02286"""
 
     # If set will trigger adaptive lr
     target_kl: float
-    current_adaptive_lr: float
+    initial_lr: float
     # Values taken from https://github.com/leggedrobotics/rsl_rl
     min_learning_rate: float = 1e-5
     max_learning_rate: float = 1e-2
     kl_margin: float = 2.0
     # Divide or multiple the lr by this factor
     adaptive_lr_factor: float = 1.5
+    current_adaptive_lr: float = 0.0
 
-    def update(self, kl_div: float) -> None:
-        if kl_div > self.target_kl * self.kl_margin:
-            self.current_adaptive_lr /= self.adaptive_lr_factor
-        elif kl_div < self.target_kl / self.kl_margin:
-            self.current_adaptive_lr *= self.adaptive_lr_factor
+    def __post_init__(self) -> None:
+        self.current_adaptive_lr = self.initial_lr
 
-        self.current_adaptive_lr = np.clip(self.current_adaptive_lr, self.min_learning_rate, self.max_learning_rate)
+    def update(self, kl_div: float) -> float:
+        self.current_adaptive_lr = jax.lax.select(  # type: ignore[assignment]
+            kl_div > self.target_kl * self.kl_margin,
+            # If True:
+            self.current_adaptive_lr / self.adaptive_lr_factor,
+            # If False:
+            self.current_adaptive_lr,
+        )
+
+        self.current_adaptive_lr = jax.lax.select(  # type: ignore[assignment]
+            kl_div < self.target_kl / self.kl_margin,
+            # If True:
+            self.current_adaptive_lr * self.adaptive_lr_factor,
+            # If False:
+            self.current_adaptive_lr,
+        )
+
+        self.current_adaptive_lr = jnp.clip(self.current_adaptive_lr, self.min_learning_rate, self.max_learning_rate)  # type: ignore[assignment]
+        return self.current_adaptive_lr
+
+
+@jax.jit
+def adaptive_kl_lr(
+    current_lr: float,
+    target_kl: float,
+    kl_div: float,
+    min_learning_rate: float = 1e-5,
+    max_learning_rate: float = 1e-2,
+    kl_margin: float = 2.0,
+    # Divide or multiple the lr by this factor
+    # adaptive_lr_factor: float = 1.5,
+    adaptive_lr_factor: float = 1.5,
+) -> jax.Array:
+
+    # See https://stackoverflow.com/questions/75071836/
+    branches = [lambda: current_lr / adaptive_lr_factor, lambda: current_lr * adaptive_lr_factor, lambda: current_lr]
+    conditions = jnp.array([kl_div > target_kl * kl_margin, kl_div < (target_kl / kl_margin), True])
+    new_lr = jax.lax.switch(jnp.argmax(conditions), branches)
+    return jnp.clip(new_lr, min_learning_rate, max_learning_rate)
