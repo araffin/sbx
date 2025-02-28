@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
@@ -18,30 +17,27 @@ def update_learning_rate(opt_state: optax.OptState, learning_rate: float) -> Non
     opt_state.hyperparams["learning_rate"] = learning_rate
 
 
-@jax.jit
 def kl_div_gaussian(
-    old_mean: jnp.ndarray,
     old_std: jnp.ndarray,
-    new_mean: jnp.ndarray,
+    old_mean: jnp.ndarray,
     new_std: jnp.ndarray,
+    new_mean: jnp.ndarray,
     eps: float = 1e-5,
-) -> jnp.ndarray:
+) -> float:
     # See https://stats.stackexchange.com/questions/7440/
     # We have independent Gaussian for each action dim
-    # TODO: double check dimensions
-    # return jnp.sum(
-    #     jnp.log(new_std / old_std + eps) + ((old_std) ** 2 + (old_mean - new_mean) ** 2) / (2.0 * (new_std) ** 2) - 0.5,
-    #     axis=-1,
-    # ).mean()
-    # Another approximation, mean over batch and action dim
-    old_mean, old_std, new_mean, new_std = old_mean.mean(), old_std.mean(), new_mean.mean(), new_std.mean()
-    return jnp.log(new_std / old_std + eps) + ((old_std) ** 2 + (old_mean - new_mean) ** 2) / (2.0 * (new_std) ** 2) - 0.5
+    return (
+        jnp.sum(
+            jnp.log(new_std / old_std + eps) + ((old_std) ** 2 + (old_mean - new_mean) ** 2) / (2.0 * (new_std) ** 2) - 0.5,
+            axis=-1,
+        )
+        .mean()
+        .item()
+    )
 
 
 @dataclass
 class KlAdaptiveLR:
-    """Adaptive learning rate schedule, see https://arxiv.org/abs/1707.02286"""
-
     # If set will trigger adaptive lr
     target_kl: float
     current_adaptive_lr: float
@@ -58,8 +54,4 @@ class KlAdaptiveLR:
         elif kl_div < self.target_kl / self.kl_margin:
             self.current_adaptive_lr *= self.adaptive_lr_factor
 
-        self.current_adaptive_lr = np.clip(
-            self.current_adaptive_lr,
-            self.min_learning_rate,
-            self.max_learning_rate,
-        )
+        self.current_adaptive_lr = np.clip(self.current_adaptive_lr, self.min_learning_rate, self.max_learning_rate)

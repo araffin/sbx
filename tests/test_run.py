@@ -192,6 +192,6 @@ def test_dqn(tmp_path) -> None:
 @pytest.mark.parametrize("replay_buffer_class", [None, HerReplayBuffer])
 def test_dict(replay_buffer_class: Optional[type[HerReplayBuffer]]) -> None:
     env = BitFlippingEnv(n_bits=2, continuous=True)
-    model = SAC("MultiInputPolicy", env, target_kl=0.01, replay_buffer_class=replay_buffer_class)
+    model = SAC("MultiInputPolicy", env, replay_buffer_class=replay_buffer_class)
 
-    model.learn(200, progress_bar=False)
+    model.learn(200, progress_bar=True)
