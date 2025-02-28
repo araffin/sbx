@@ -220,7 +220,7 @@ class PPO(OnPolicyAlgorithmJax):
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         def actor_loss(params):
-            dist, _, _ = actor_state.apply_fn(params, observations)
+            dist = actor_state.apply_fn(params, observations)
             log_prob = dist.log_prob(actions)
             entropy = dist.entropy()
 

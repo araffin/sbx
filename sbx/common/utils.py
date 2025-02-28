@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 
-import jax.numpy as jnp
 import numpy as np
 import optax
 
@@ -17,27 +16,10 @@ def update_learning_rate(opt_state: optax.OptState, learning_rate: float) -> Non
     opt_state.hyperparams["learning_rate"] = learning_rate
 
 
-def kl_div_gaussian(
-    old_std: jnp.ndarray,
-    old_mean: jnp.ndarray,
-    new_std: jnp.ndarray,
-    new_mean: jnp.ndarray,
-    eps: float = 1e-5,
-) -> float:
-    # See https://stats.stackexchange.com/questions/7440/
-    # We have independent Gaussian for each action dim
-    return (
-        jnp.sum(
-            jnp.log(new_std / old_std + eps) + ((old_std) ** 2 + (old_mean - new_mean) ** 2) / (2.0 * (new_std) ** 2) - 0.5,
-            axis=-1,
-        )
-        .mean()
-        .item()
-    )
-
-
 @dataclass
 class KlAdaptiveLR:
+    """Adaptive lr schedule, see https://arxiv.org/abs/1707.02286"""
+
     # If set will trigger adaptive lr
     target_kl: float
     current_adaptive_lr: float

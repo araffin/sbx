@@ -16,7 +16,6 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
-from sbx.common.utils import kl_div_gaussian
 from sbx.sac.policies import SACPolicy, SimbaSACPolicy
 
 
@@ -71,7 +70,6 @@ class SAC(OffPolicyAlgorithmJax):
         replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
         target_entropy: Union[Literal["auto"], float] = "auto",
-        target_kl: Optional[float] = None,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
@@ -115,8 +113,6 @@ class SAC(OffPolicyAlgorithmJax):
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
         self.target_entropy = target_entropy
-        self.old_mean: Optional[jnp.ndarray] = None
-        self.old_std: Optional[jnp.ndarray] = None
 
         if _init_setup_model:
             self._setup_model()
@@ -261,7 +257,7 @@ class SAC(OffPolicyAlgorithmJax):
     ):
         key, noise_key, dropout_key_target, dropout_key_current = jax.random.split(key, 4)
         # sample action from the actor
-        dist, _, _ = actor_state.apply_fn(actor_state.params, next_observations)
+        dist = actor_state.apply_fn(actor_state.params, next_observations)
         next_state_actions = dist.sample(seed=noise_key)
         next_log_prob = dist.log_prob(next_state_actions)
 
@@ -306,7 +302,7 @@ class SAC(OffPolicyAlgorithmJax):
         key, dropout_key, noise_key = jax.random.split(key, 3)
 
         def actor_loss(params: flax.core.FrozenDict) -> tuple[jax.Array, jax.Array]:
-            dist, _, _ = actor_state.apply_fn(params, observations)
+            dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
 
