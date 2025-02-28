@@ -17,7 +17,7 @@ class KLAdaptiveLR:
     min_learning_rate: float = 1e-5
     max_learning_rate: float = 1e-2
     kl_margin: float = 2.0
-    # Divide or multiple the lr by this factor
+    # Divide or multiply the lr by this factor
     adaptive_lr_factor: float = 1.5
     current_adaptive_lr: float = 0.0
 
@@ -52,9 +52,9 @@ def adaptive_kl_lr(
     kl_div: float,
     min_learning_rate: float = 1e-5,
     max_learning_rate: float = 1e-2,
+    # TODO: use percentage of target_kl instead of constant factor?
     kl_margin: float = 2.0,
-    # Divide or multiple the lr by this factor
-    # adaptive_lr_factor: float = 1.5,
+    # Divide or multiply the lr by this factor
     adaptive_lr_factor: float = 1.5,
 ) -> jax.Array:
 

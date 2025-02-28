@@ -370,6 +370,8 @@ class SAC(OffPolicyAlgorithmJax):
         # TODO: disable computation if target_kl==0.0
         # To compute kl div, see PPO
         new_log_prob = dist.log_prob(old_actions)
+        # NaNs values with SAC
+        # ratio = jnp.clip(jnp.exp(new_log_prob - old_log_prob), 0.0, 50.0)
         ratio = jnp.exp(new_log_prob - old_log_prob)
         approx_kl_div = jnp.mean((ratio - 1.0) - jnp.log(ratio))
         mean_kl_div += (approx_kl_div - mean_kl_div) / n_actor_updates
