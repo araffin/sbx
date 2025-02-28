@@ -437,12 +437,11 @@ class CrossQPolicy(BaseJaxPolicy):
     @staticmethod
     @jax.jit
     def select_action(actor_state, observations):
-        dist = actor_state.apply_fn(
+        return actor_state.apply_fn(
             {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
             observations,
             train=False,
-        )
-        return dist.mode()
+        ).mode()
 
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:

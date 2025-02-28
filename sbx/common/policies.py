@@ -45,8 +45,7 @@ class BaseJaxPolicy(BasePolicy):
     @staticmethod
     @jax.jit
     def select_action(actor_state, observations):
-        dist = actor_state.apply_fn(actor_state.params, observations)
-        return dist.mode()
+        return actor_state.apply_fn(actor_state.params, observations).mode()
 
     @no_type_check
     def predict(
