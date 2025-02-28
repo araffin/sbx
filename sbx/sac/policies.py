@@ -97,7 +97,7 @@ class SACPolicy(BaseJaxPolicy):
 
         # Inject hyperparameters to be able to modify it later
         # See https://stackoverflow.com/questions/78527164
-        actor_optimizer_class = optax.inject_hyperparams(self.optimizer_class)(
+        optimizer_class = optax.inject_hyperparams(self.optimizer_class)(
             learning_rate=lr_schedule(1),
             **self.optimizer_kwargs,
         )
@@ -105,7 +105,7 @@ class SACPolicy(BaseJaxPolicy):
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
-            tx=actor_optimizer_class,
+            tx=optimizer_class,
         )
 
         self.qf = self.vector_critic_class(
@@ -114,11 +114,6 @@ class SACPolicy(BaseJaxPolicy):
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
             activation_fn=self.activation_fn,
-        )
-
-        qf_optimizer_class = optax.inject_hyperparams(self.optimizer_class)(
-            learning_rate=qf_learning_rate,
-            **self.optimizer_kwargs,
         )
 
         self.qf_state = RLTrainState.create(
@@ -133,7 +128,7 @@ class SACPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=qf_optimizer_class,
+            tx=optimizer_class,
         )
 
         self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
