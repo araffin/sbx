@@ -4,6 +4,7 @@ from sbx.crossq import CrossQ
 from sbx.ddpg import DDPG
 from sbx.dqn import DQN
 from sbx.ppo import PPO
+from sbx.recurrent_ppo import RecurrentPPO
 from sbx.sac import SAC
 from sbx.td3 import TD3
 from sbx.tqc import TQC
@@ -26,6 +27,7 @@ __all__ = [
     "DDPG",
     "DQN",
     "PPO",
+    "RecurrentPPO"
     "SAC",
     "TD3",
     "TQC",
