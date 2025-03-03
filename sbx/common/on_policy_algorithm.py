@@ -13,7 +13,6 @@ from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from stable_baselines3.common.vec_env import VecEnv
 
-from sbx.common.utils import update_learning_rate
 from sbx.ppo.policies import Actor, Critic, PPOPolicy
 
 OnPolicyAlgorithmSelf = TypeVar("OnPolicyAlgorithmSelf", bound="OnPolicyAlgorithmJax")
@@ -95,7 +94,8 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         if not isinstance(optimizers, list):
             optimizers = [optimizers]
         for optimizer in optimizers:
-            update_learning_rate(optimizer, learning_rate)
+            # Note: the optimizer must have been defined with inject_hyperparams
+            optimizer.hyperparams["learning_rate"] = learning_rate
 
     def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
         super().set_random_seed(seed)

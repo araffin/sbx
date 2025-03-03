@@ -11,7 +11,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import explained_variance, get_schedule_fn
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
-from sbx.common.utils import KlAdaptiveLR
+from sbx.common.utils import KLAdaptiveLR
 from sbx.ppo.policies import PPOPolicy, SimbaPPOPolicy
 
 PPOSelf = TypeVar("PPOSelf", bound="PPO")
@@ -76,7 +76,7 @@ class PPO(OnPolicyAlgorithmJax):
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
     policy: PPOPolicy  # type: ignore[assignment]
-    adaptive_lr: KlAdaptiveLR
+    adaptive_lr: KLAdaptiveLR
 
     def __init__(
         self,
@@ -174,7 +174,7 @@ class PPO(OnPolicyAlgorithmJax):
         super()._setup_model()
 
         if self.target_kl is not None:
-            self.adaptive_lr = KlAdaptiveLR(self.target_kl, self.lr_schedule(1.0))
+            self.adaptive_lr = KLAdaptiveLR(self.target_kl, self.lr_schedule(1.0))
 
         if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
             self.policy = self.policy_class(  # type: ignore[assignment]

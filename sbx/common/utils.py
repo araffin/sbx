@@ -1,23 +1,10 @@
 from dataclasses import dataclass
 
 import numpy as np
-import optax
-
-
-def update_learning_rate(opt_state: optax.OptState, learning_rate: float) -> None:
-    """
-    Update the learning rate for a given optimizer.
-    Useful when doing linear schedule.
-
-    :param optimizer: Optax optimizer state
-    :param learning_rate: New learning rate value
-    """
-    # Note: the optimizer must have been defined with inject_hyperparams
-    opt_state.hyperparams["learning_rate"] = learning_rate
 
 
 @dataclass
-class KlAdaptiveLR:
+class KLAdaptiveLR:
     """Adaptive lr schedule, see https://arxiv.org/abs/1707.02286"""
 
     # If set will trigger adaptive lr
@@ -27,7 +14,7 @@ class KlAdaptiveLR:
     min_learning_rate: float = 1e-5
     max_learning_rate: float = 1e-2
     kl_margin: float = 2.0
-    # Divide or multiple the lr by this factor
+    # Divide or multiply the lr by this factor
     adaptive_lr_factor: float = 1.5
 
     def update(self, kl_div: float) -> None:
