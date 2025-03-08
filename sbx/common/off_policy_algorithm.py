@@ -146,3 +146,61 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         # Override replay buffer device to be always cpu for conversion to numpy
         assert self.replay_buffer is not None
         self.replay_buffer.device = get_device("cpu")
+
+    def _sample_action(
+        self,
+        learning_starts: int,
+        action_noise: Optional[ActionNoise] = None,
+        n_envs: int = 1,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Sample an action according to the exploration policy.
+        This is either done by sampling the probability distribution of the policy,
+        or sampling a random action (from a uniform distribution over the action space)
+        or by adding noise to the deterministic output.
+
+        :param action_noise: Action noise that will be used for exploration
+            Required for deterministic policy (e.g. TD3). This can also be used
+            in addition to the stochastic policy for SAC.
+        :param learning_starts: Number of steps before learning for the warm-up phase.
+        :param n_envs:
+        :return: action to take in the environment
+            and scaled action that will be stored in the replay buffer.
+            The two differs when the action space is not normalized (bounds are not [-1, 1]).
+        """
+        scaled_action = np.array([0.0])
+        # Select action randomly or according to policy
+        if self.num_timesteps < learning_starts and not (self.use_sde and self.use_sde_at_warmup):
+            # Warmup phase
+            action = np.array([self.action_space.sample() for _ in range(n_envs)])
+            if isinstance(self.action_space, spaces.Box):
+                scaled_action = self.policy.scale_action(action)
+        else:
+            assert self._last_obs is not None, "self._last_obs was not set"
+            obs_tensor, _ = self.policy.prepare_obs(self._last_obs)
+            action = np.array(self.policy._predict(obs_tensor, deterministic=False))
+            if self.policy.squash_output:
+                scaled_action = action
+
+        # Rescale the action from [low, high] to [-1, 1]
+        if isinstance(self.action_space, spaces.Box) and self.policy.squash_output:
+            # Add noise to the action (improve exploration)
+            if action_noise is not None:
+                scaled_action = np.clip(scaled_action + action_noise(), -1, 1)
+
+            # We store the scaled action in the buffer
+            buffer_action = scaled_action
+            action = self.policy.unscale_action(scaled_action)
+        elif isinstance(self.action_space, spaces.Box) and not self.policy.squash_output:
+            # Add noise to the action (improve exploration)
+            if action_noise is not None:
+                action = action + action_noise()
+
+            buffer_action = action
+            # Actions could be on arbitrary scale, so clip the actions to avoid
+            # out of bound error (e.g. if sampling from a Gaussian distribution)
+            action = np.clip(action, self.action_space.low, self.action_space.high)
+        else:
+            # Discrete case, no need to normalize or clip
+            buffer_action = action
+        return action, buffer_action

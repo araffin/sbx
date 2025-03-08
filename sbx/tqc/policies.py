@@ -12,9 +12,9 @@ from stable_baselines3.common.type_aliases import Schedule
 from sbx.common.policies import (
     BaseJaxPolicy,
     ContinuousCritic,
+    GaussianActor,
     SimbaContinuousCritic,
     SimbaSquashedGaussianActor,
-    SquashedGaussianActor,
 )
 from sbx.common.type_aliases import RLTrainState
 
@@ -46,7 +46,7 @@ class TQCPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: type[nn.Module] = SquashedGaussianActor,
+        actor_class: type[nn.Module] = GaussianActor,
         critic_class: type[nn.Module] = ContinuousCritic,
     ):
         super().__init__(

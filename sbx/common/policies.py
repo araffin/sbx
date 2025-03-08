@@ -236,14 +236,15 @@ class SimbaVectorCritic(nn.Module):
         return q_values
 
 
-class SquashedGaussianActor(nn.Module):
+class GaussianActor(nn.Module):
     net_arch: Sequence[int]
     action_dim: int
     log_std_min: float = -20
     log_std_max: float = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    squash_output: bool = True
     ortho_init: bool = False
-    log_std_init: float = -1.2  # log(0.3)
+    log_std_init: float = 0.0  # -1.2  # log(0.3)
 
     def get_std(self):
         # Make it work with gSDE
@@ -267,10 +268,15 @@ class SquashedGaussianActor(nn.Module):
         else:
             mean = nn.Dense(self.action_dim)(x)
             log_std = nn.Dense(self.action_dim)(x)
-        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        dist = TanhTransformedDistribution(
-            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-        )
+
+        if self.squash_output:
+            log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
+            dist = TanhTransformedDistribution(
+                tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
+            )
+        else:
+            log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
+            dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
         return dist
 
 
