@@ -246,6 +246,11 @@ class TQC(OffPolicyAlgorithmJax):
         self.logger.record("train/critic_loss", qf1_loss_value.item())
         self.logger.record("train/ent_coef_loss", ent_coef_loss_value.item())
         self.logger.record("train/ent_coef", ent_coef_value.item())
+        try:
+            log_std = self.policy.actor_state.params["params"]["log_std"]
+            self.logger.record("train/std", np.exp(log_std).mean().item())
+        except KeyError:
+            pass
 
     @staticmethod
     @partial(jax.jit, static_argnames=["n_target_quantiles"])
