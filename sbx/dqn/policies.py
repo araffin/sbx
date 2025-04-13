@@ -162,18 +162,7 @@ class MultiInputQNetwork(nn.Module):
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     def setup(self):
-        def layer(subspace):
-            if is_image_space(subspace):
-                return NatureCNN(
-                    n_actions=self.cnn_output_dim,
-                    n_units=self.n_units,
-                    activation_fn=self.activation_fn,
-                )
-            elif isinstance(subspace, spaces.Discrete):
-                return OneHot(num_classes=subspace.n)
-            return Flatten()
-
-        self.extractors = jax.tree_map(layer, self.observation_space.spaces)
+        self.extractors = jax.tree_map(self._layer, self.observation_space.spaces)
 
     @nn.compact
     def __call__(self, observations: dict[str, jnp.ndarray]) -> jnp.ndarray:
@@ -187,6 +176,17 @@ class MultiInputQNetwork(nn.Module):
         x = self.activation_fn(x)
         x = nn.Dense(self.n_actions)(x)
         return x
+
+    def _layer(self, subspace: spaces.Space) -> nn.Module:
+        if is_image_space(subspace):
+            return NatureCNN(
+                n_actions=self.cnn_output_dim,
+                n_units=self.n_units,
+                activation_fn=self.activation_fn,
+            )
+        elif isinstance(subspace, spaces.Discrete):
+            return OneHot(num_classes=int(subspace.n))
+        return Flatten()
 
 
 class MultiInputPolicy(DQNPolicy):

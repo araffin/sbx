@@ -94,6 +94,10 @@ class BaseJaxPolicy(BasePolicy):
         return actions, state
 
     def prepare_obs(self, observation: Union[np.ndarray, dict[str, np.ndarray]]) -> tuple[np.ndarray, bool]:
+        """
+        Prepare the observation for further processing by converting it into the expected format.
+        Override this method to handle specific cases, such as dictionary observation spaces.
+        """
         return self._prepare_obs(observation, self.observation_space)
 
     @staticmethod
