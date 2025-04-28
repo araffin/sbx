@@ -245,6 +245,7 @@ class GaussianActor(nn.Module):
     squash_output: bool = True
     ortho_init: bool = False
     log_std_init: float = 0.0  # -1.2  # log(0.3)
+    use_layer_norm: bool = False
 
     def get_std(self):
         # Make it work with gSDE
@@ -255,6 +256,8 @@ class GaussianActor(nn.Module):
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
+            if self.use_layer_norm:
+                x = nn.LayerNorm()(x)
             x = self.activation_fn(x)
 
         if self.ortho_init:
