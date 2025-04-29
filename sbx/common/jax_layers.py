@@ -1,5 +1,7 @@
-from typing import Any, Callable, Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
+from typing import Any, Callable, Optional, Union
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax.linen.module import Module, compact, merge_param
@@ -8,7 +10,7 @@ from jax.nn import initializers
 
 PRNGKey = Any
 Array = Any
-Shape = Tuple[int, ...]
+Shape = tuple[int, ...]
 Dtype = Any  # this could be a real type?
 Axes = Union[int, Sequence[int]]
 
@@ -204,3 +206,22 @@ class BatchRenorm(Module):
             self.bias_init,
             self.scale_init,
         )
+
+
+# Adapted from simba: https://github.com/SonyResearch/simba
+class SimbaResidualBlock(nn.Module):
+    hidden_dim: int
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+    # "the MLP is structured with an inverted bottleneck, where the hidden
+    # dimension is expanded to 4 *  hidden_dim"
+    scale_factor: int = 4
+    norm_layer: type[nn.Module] = nn.LayerNorm
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        residual = x
+        x = self.norm_layer()(x)
+        x = nn.Dense(self.hidden_dim * self.scale_factor, kernel_init=nn.initializers.he_normal())(x)
+        x = self.activation_fn(x)
+        x = nn.Dense(self.hidden_dim, kernel_init=nn.initializers.he_normal())(x)
+        return residual + x

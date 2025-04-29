@@ -1,5 +1,6 @@
+from collections.abc import Sequence
 from dataclasses import field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
 import gymnasium as gym
@@ -19,23 +20,23 @@ tfd = tfp.distributions
 
 
 class Critic(nn.Module):
-    n_units: int = 256
+    net_arch: Sequence[int]
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = Flatten()(x)
-        x = nn.Dense(self.n_units)(x)
-        x = self.activation_fn(x)
-        x = nn.Dense(self.n_units)(x)
-        x = self.activation_fn(x)
+        for n_units in self.net_arch:
+            x = nn.Dense(n_units)(x)
+            x = self.activation_fn(x)
+
         x = nn.Dense(1)(x)
         return x
 
 
 class Actor(nn.Module):
     action_dim: int
-    n_units: int = 256
+    net_arch: Sequence[int]
     log_std_init: float = 0.0
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
     # For Discrete, MultiDiscrete and MultiBinary actions
@@ -59,10 +60,11 @@ class Actor(nn.Module):
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
         x = Flatten()(x)
-        x = nn.Dense(self.n_units)(x)
-        x = self.activation_fn(x)
-        x = nn.Dense(self.n_units)(x)
-        x = self.activation_fn(x)
+
+        for n_units in self.net_arch:
+            x = nn.Dense(n_units)(x)
+            x = self.activation_fn(x)
+
         action_logits = nn.Dense(self.action_dim)(x)
         if self.num_discrete_choices is None:
             # Continuous actions
@@ -101,7 +103,7 @@ class PPOPolicy(BaseJaxPolicy):
         observation_space: gym.spaces.Space,
         action_space: gym.spaces.Space,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
         ortho_init: bool = False,
         log_std_init: float = 0.0,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh,
@@ -111,10 +113,10 @@ class PPOPolicy(BaseJaxPolicy):
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
         share_features_extractor: bool = False,
     ):
         if optimizer_kwargs is None:
@@ -130,18 +132,19 @@ class PPOPolicy(BaseJaxPolicy):
             features_extractor_kwargs,
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
-            squash_output=True,
+            squash_output=False,
         )
         self.log_std_init = log_std_init
         self.activation_fn = activation_fn
         if net_arch is not None:
             if isinstance(net_arch, list):
-                self.n_units = net_arch[0]
+                self.net_arch_pi = self.net_arch_vf = net_arch
             else:
                 assert isinstance(net_arch, dict)
-                self.n_units = net_arch["pi"][0]
+                self.net_arch_pi = net_arch["pi"]
+                self.net_arch_vf = net_arch["vf"]
         else:
-            self.n_units = 64
+            self.net_arch_pi = self.net_arch_vf = [64, 64]
         self.use_sde = use_sde
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
@@ -187,7 +190,7 @@ class PPOPolicy(BaseJaxPolicy):
             raise NotImplementedError(f"{self.action_space}")
 
         self.actor = Actor(
-            n_units=self.n_units,
+            net_arch=self.net_arch_pi,
             log_std_init=self.log_std_init,
             activation_fn=self.activation_fn,
             **actor_kwargs,  # type: ignore[arg-type]
@@ -207,7 +210,7 @@ class PPOPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.vf = Critic(n_units=self.n_units, activation_fn=self.activation_fn)
+        self.vf = Critic(net_arch=self.net_arch_vf, activation_fn=self.activation_fn)
 
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,

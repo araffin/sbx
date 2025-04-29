@@ -24,7 +24,6 @@ def DroQ(*args, **kwargs):
 
 
 __all__ = [
-    "CrossQ",
     "DDPG",
     "DQN",
     "PPO",
@@ -32,4 +31,5 @@ __all__ = [
     "SAC",
     "TD3",
     "TQC",
+    "CrossQ",
 ]

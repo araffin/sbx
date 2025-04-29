@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Optional, Union
 
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
@@ -9,7 +9,7 @@ from sbx.td3.td3 import TD3
 
 
 class DDPG(TD3):
-    policy_aliases: ClassVar[Dict[str, Type[TD3Policy]]] = {
+    policy_aliases: ClassVar[dict[str, type[TD3Policy]]] = {
         "MlpPolicy": TD3Policy,
     }
 
@@ -24,13 +24,13 @@ class DDPG(TD3):
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
-        train_freq: Union[int, Tuple[int, str]] = 1,
+        train_freq: Union[int, tuple[int, str]] = 1,
         gradient_steps: int = 1,
         action_noise: Optional[ActionNoise] = None,
-        replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
-        replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
+        replay_buffer_class: Optional[type[ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         tensorboard_log: Optional[str] = None,
-        policy_kwargs: Optional[Dict[str, Any]] = None,
+        policy_kwargs: Optional[dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",

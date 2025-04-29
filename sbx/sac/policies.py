@@ -1,46 +1,22 @@
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import tensorflow_probability.substrates.jax as tfp
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.distributions import TanhTransformedDistribution
-from sbx.common.policies import BaseJaxPolicy, Flatten, VectorCritic
+from sbx.common.policies import (
+    BaseJaxPolicy,
+    SimbaSquashedGaussianActor,
+    SimbaVectorCritic,
+    SquashedGaussianActor,
+    VectorCritic,
+)
 from sbx.common.type_aliases import RLTrainState
-
-tfd = tfp.distributions
-
-
-class Actor(nn.Module):
-    net_arch: Sequence[int]
-    action_dim: int
-    log_std_min: float = -20
-    log_std_max: float = 2
-    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-
-    def get_std(self):
-        # Make it work with gSDE
-        return jnp.array(0.0)
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
-        x = Flatten()(x)
-        for n_units in self.net_arch:
-            x = nn.Dense(n_units)(x)
-            x = self.activation_fn(x)
-        mean = nn.Dense(self.action_dim)(x)
-        log_std = nn.Dense(self.action_dim)(x)
-        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-        dist = TanhTransformedDistribution(
-            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-        )
-        return dist
 
 
 class SACPolicy(BaseJaxPolicy):
@@ -51,7 +27,7 @@ class SACPolicy(BaseJaxPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[List[int], Dict[str, List[int]]]] = None,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
@@ -62,12 +38,14 @@ class SACPolicy(BaseJaxPolicy):
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = SquashedGaussianActor,
+        vector_critic_class: type[nn.Module] = VectorCritic,
     ):
         super().__init__(
             observation_space,
@@ -91,6 +69,8 @@ class SACPolicy(BaseJaxPolicy):
         self.n_critics = n_critics
         self.use_sde = use_sde
         self.activation_fn = activation_fn
+        self.actor_class = actor_class
+        self.vector_critic_class = vector_critic_class
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -107,7 +87,7 @@ class SACPolicy(BaseJaxPolicy):
             obs = jnp.array([self.observation_space.sample()])
         action = jnp.array([self.action_space.sample()])
 
-        self.actor = Actor(
+        self.actor = self.actor_class(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
             activation_fn=self.activation_fn,
@@ -124,7 +104,7 @@ class SACPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.qf = VectorCritic(
+        self.qf = self.vector_critic_class(
             dropout_rate=self.dropout_rate,
             use_layer_norm=self.layer_norm,
             net_arch=self.net_arch_qf,
@@ -174,3 +154,52 @@ class SACPolicy(BaseJaxPolicy):
         if not self.use_sde:
             self.reset_noise()
         return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
+
+
+class SimbaSACPolicy(SACPolicy):
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        dropout_rate: float = 0,
+        layer_norm: bool = False,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
+        use_sde: bool = False,
+        log_std_init: float = -3,
+        use_expln: bool = False,
+        clip_mean: float = 2,
+        features_extractor_class=None,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        normalize_images: bool = True,
+        # AdamW for simba
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        n_critics: int = 2,
+        share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = SimbaSquashedGaussianActor,
+        vector_critic_class: type[nn.Module] = SimbaVectorCritic,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            dropout_rate,
+            layer_norm,
+            activation_fn,
+            use_sde,
+            log_std_init,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            n_critics,
+            share_features_extractor,
+            actor_class,
+            vector_critic_class,
+        )

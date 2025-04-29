@@ -1,6 +1,6 @@
 import warnings
 from functools import partial
-from typing import Any, ClassVar, Dict, Optional, Type, TypeVar, Union
+from typing import Any, ClassVar, Optional, TypeVar, Union
 
 import jax
 import jax.numpy as jnp
@@ -68,7 +68,7 @@ class PPO(OnPolicyAlgorithmJax):
     :param _init_setup_model: Whether or not to build the network at the creation of the instance
     """
 
-    policy_aliases: ClassVar[Dict[str, Type[PPOPolicy]]] = {  # type: ignore[assignment]
+    policy_aliases: ClassVar[dict[str, type[PPOPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": PPOPolicy,
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
@@ -77,7 +77,7 @@ class PPO(OnPolicyAlgorithmJax):
 
     def __init__(
         self,
-        policy: Union[str, Type[PPOPolicy]],
+        policy: Union[str, type[PPOPolicy]],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
         n_steps: int = 2048,
@@ -95,7 +95,7 @@ class PPO(OnPolicyAlgorithmJax):
         sde_sample_freq: int = -1,
         target_kl: Optional[float] = None,
         tensorboard_log: Optional[str] = None,
-        policy_kwargs: Optional[Dict[str, Any]] = None,
+        policy_kwargs: Optional[dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",
@@ -293,9 +293,11 @@ class PPO(OnPolicyAlgorithmJax):
         # self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/pg_loss", pg_loss.item())
         self.logger.record("train/explained_variance", explained_var)
-        # if hasattr(self.policy, "log_std"):
-        #     self.logger.record("train/std", th.exp(self.policy.log_std).mean().item())
-
+        try:
+            log_std = self.policy.actor_state.params["params"]["log_std"]
+            self.logger.record("train/std", np.exp(log_std).mean().item())
+        except KeyError:
+            pass
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/clip_range", clip_range)
         # if self.clip_range_vf is not None:

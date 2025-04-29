@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, ClassVar, Dict, Literal, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Literal, Optional, Union
 
 import flax
 import flax.linen as nn
@@ -16,7 +16,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
-from sbx.tqc.policies import TQCPolicy
+from sbx.tqc.policies import SimbaTQCPolicy, TQCPolicy
 
 
 class EntropyCoef(nn.Module):
@@ -40,8 +40,9 @@ class ConstantEntropyCoef(nn.Module):
 
 
 class TQC(OffPolicyAlgorithmJax):
-    policy_aliases: ClassVar[Dict[str, Type[TQCPolicy]]] = {  # type: ignore[assignment]
+    policy_aliases: ClassVar[dict[str, type[TQCPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": TQCPolicy,
+        "SimbaPolicy": SimbaTQCPolicy,
         # Minimal dict support using flatten()
         "MultiInputPolicy": TQCPolicy,
     }
@@ -60,20 +61,22 @@ class TQC(OffPolicyAlgorithmJax):
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
-        train_freq: Union[int, Tuple[int, str]] = 1,
+        train_freq: Union[int, tuple[int, str]] = 1,
         gradient_steps: int = 1,
         policy_delay: int = 1,
         top_quantiles_to_drop_per_net: int = 2,
         action_noise: Optional[ActionNoise] = None,
-        replay_buffer_class: Optional[Type[ReplayBuffer]] = None,
-        replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
+        replay_buffer_class: Optional[type[ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
         target_entropy: Union[Literal["auto"], float] = "auto",
         use_sde: bool = False,
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
+        stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
-        policy_kwargs: Optional[Dict[str, Any]] = None,
+        policy_kwargs: Optional[dict[str, Any]] = None,
+        param_resets: Optional[list[int]] = None,  # List of timesteps after which to reset the params
         verbose: int = 0,
         seed: Optional[int] = None,
         device: str = "auto",
@@ -97,7 +100,9 @@ class TQC(OffPolicyAlgorithmJax):
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
             use_sde_at_warmup=use_sde_at_warmup,
+            stats_window_size=stats_window_size,
             policy_kwargs=policy_kwargs,
+            param_resets=param_resets,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
@@ -194,6 +199,9 @@ class TQC(OffPolicyAlgorithmJax):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
 
+        # Maybe reset the parameters/optimizers fully
+        self._maybe_reset_params()
+
         if isinstance(data.observations, dict):
             keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
             obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
@@ -216,7 +224,7 @@ class TQC(OffPolicyAlgorithmJax):
             self.policy.actor_state,
             self.ent_coef_state,
             self.key,
-            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_value),
+            (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_loss_value, ent_coef_value),
         ) = self._train(
             self.gamma,
             self.tau,
@@ -236,6 +244,7 @@ class TQC(OffPolicyAlgorithmJax):
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/actor_loss", actor_loss_value.item())
         self.logger.record("train/critic_loss", qf1_loss_value.item())
+        self.logger.record("train/ent_coef_loss", ent_coef_loss_value.item())
         self.logger.record("train/ent_coef", ent_coef_value.item())
 
     @staticmethod
@@ -267,14 +276,12 @@ class TQC(OffPolicyAlgorithmJax):
             qf1_state.target_params,
             next_observations,
             next_state_actions,
-            True,
             rngs={"dropout": dropout_key_1},
         )
         qf2_next_quantiles = qf1_state.apply_fn(
             qf2_state.target_params,
             next_observations,
             next_state_actions,
-            True,
             rngs={"dropout": dropout_key_2},
         )
 
@@ -296,7 +303,7 @@ class TQC(OffPolicyAlgorithmJax):
 
         def huber_quantile_loss(params: flax.core.FrozenDict, dropout_key: jax.Array) -> jax.Array:
             # Compute huber quantile loss
-            current_quantiles = qf1_state.apply_fn(params, observations, actions, True, rngs={"dropout": dropout_key})
+            current_quantiles = qf1_state.apply_fn(params, observations, actions, rngs={"dropout": dropout_key})
             # convert to shape: (batch_size, n_quantiles, 1) for broadcast
             current_quantiles = jnp.expand_dims(current_quantiles, axis=-1)
 
@@ -337,7 +344,7 @@ class TQC(OffPolicyAlgorithmJax):
     ):
         key, dropout_key_1, dropout_key_2, noise_key = jax.random.split(key, 4)
 
-        def actor_loss(params: flax.core.FrozenDict) -> Tuple[jax.Array, jax.Array]:
+        def actor_loss(params: flax.core.FrozenDict) -> tuple[jax.Array, jax.Array]:
             dist = actor_state.apply_fn(params, observations)
             actor_actions = dist.sample(seed=noise_key)
             log_prob = dist.log_prob(actor_actions).reshape(-1, 1)
@@ -346,14 +353,12 @@ class TQC(OffPolicyAlgorithmJax):
                 qf1_state.params,
                 observations,
                 actor_actions,
-                True,
                 rngs={"dropout": dropout_key_1},
             )
             qf2_pi = qf1_state.apply_fn(
                 qf2_state.params,
                 observations,
                 actor_actions,
-                True,
                 rngs={"dropout": dropout_key_2},
             )
             qf1_pi = jnp.expand_dims(qf1_pi, axis=-1)
@@ -374,7 +379,7 @@ class TQC(OffPolicyAlgorithmJax):
 
     @staticmethod
     @jax.jit
-    def soft_update(tau: float, qf1_state: RLTrainState, qf2_state: RLTrainState) -> Tuple[RLTrainState, RLTrainState]:
+    def soft_update(tau: float, qf1_state: RLTrainState, qf2_state: RLTrainState) -> tuple[RLTrainState, RLTrainState]:
         qf1_state = qf1_state.replace(target_params=optax.incremental_update(qf1_state.params, qf1_state.target_params, tau))
         qf2_state = qf2_state.replace(target_params=optax.incremental_update(qf2_state.params, qf2_state.target_params, tau))
         return qf1_state, qf2_state
@@ -451,10 +456,11 @@ class TQC(OffPolicyAlgorithmJax):
                 "qf1_loss": jnp.array(0.0),
                 "qf2_loss": jnp.array(0.0),
                 "ent_coef_loss": jnp.array(0.0),
+                "ent_coef_value": jnp.array(0.0),
             },
         }
 
-        def one_update(i: int, carry: Dict[str, Any]) -> Dict[str, Any]:
+        def one_update(i: int, carry: dict[str, Any]) -> dict[str, Any]:
             # Note: this method must be defined inline because
             # `fori_loop` expect a signature fn(index, carry) -> carry
             actor_state = carry["actor_state"]
@@ -514,6 +520,7 @@ class TQC(OffPolicyAlgorithmJax):
                 "qf1_loss": qf1_loss_value,
                 "qf2_loss": qf2_loss_value,
                 "ent_coef_loss": ent_coef_loss_value,
+                "ent_coef_value": ent_coef_value,
             }
 
             return {
@@ -538,5 +545,6 @@ class TQC(OffPolicyAlgorithmJax):
                 update_carry["info"]["qf2_loss"],
                 update_carry["info"]["actor_loss"],
                 update_carry["info"]["ent_coef_loss"],
+                update_carry["info"]["ent_coef_value"],
             ),
         )
