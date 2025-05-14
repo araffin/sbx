@@ -84,7 +84,7 @@ class TQCPolicy(BaseJaxPolicy):
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
-    def build(self, key: jax.Array, lr_schedule: Schedule, qf_learning_rate: float, max_grad_norm: float = 100) -> jax.Array:
+    def build(self, key: jax.Array, lr_schedule: Schedule, qf_learning_rate: float) -> jax.Array:
         key, actor_key, qf1_key, qf2_key = jax.random.split(key, 4)
         key, dropout_key1, dropout_key2, self.key = jax.random.split(key, 4)
         # Initialize noise
@@ -116,7 +116,7 @@ class TQCPolicy(BaseJaxPolicy):
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
             tx=optax.chain(
-                optax.clip_by_global_norm(max_grad_norm),
+                # optax.clip_by_global_norm(max_grad_norm),
                 optimizer_class,
             ),
         )
@@ -146,7 +146,7 @@ class TQCPolicy(BaseJaxPolicy):
                 action,
             ),
             tx=optax.chain(
-                optax.clip_by_global_norm(max_grad_norm),
+                # optax.clip_by_global_norm(max_grad_norm),
                 optimizer_class_qf,
             ),
         )
@@ -163,7 +163,7 @@ class TQCPolicy(BaseJaxPolicy):
                 action,
             ),
             tx=optax.chain(
-                optax.clip_by_global_norm(max_grad_norm),
+                # optax.clip_by_global_norm(max_grad_norm),
                 optimizer_class_qf,
             ),
         )
