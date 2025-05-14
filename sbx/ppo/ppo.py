@@ -8,7 +8,7 @@ import numpy as np
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import explained_variance, FloatSchedule
+from stable_baselines3.common.utils import FloatSchedule, explained_variance
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
 from sbx.common.utils import KLAdaptiveLR

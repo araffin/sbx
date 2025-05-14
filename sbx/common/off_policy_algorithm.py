@@ -4,6 +4,7 @@ from typing import Any, Optional, Union
 
 import jax
 import numpy as np
+import optax
 from gymnasium import spaces
 from stable_baselines3 import HerReplayBuffer
 from stable_baselines3.common.buffers import DictReplayBuffer, ReplayBuffer
@@ -15,6 +16,8 @@ from stable_baselines3.common.utils import get_device
 
 
 class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
+    qf_learning_rate: float
+
     def __init__(
         self,
         policy: type[BasePolicy],
@@ -75,8 +78,8 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         )
         # Will be updated later
         self.key = jax.random.PRNGKey(0)
-        # Note: we do not allow schedule for it
-        self.qf_learning_rate = qf_learning_rate
+        # Note: we do not allow separate schedule for it
+        self.initial_qf_learning_rate = qf_learning_rate
         self.param_resets = param_resets
         self.reset_idx = 0
 
@@ -100,6 +103,29 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         excluded.remove("policy")
         return excluded
 
+    def _update_learning_rate(  # type: ignore[override]
+        self,
+        optimizers: Union[list[optax.OptState], optax.OptState],
+        learning_rate: float,
+        name: str = "learning_rate",
+    ) -> None:
+        """
+        Update the optimizers learning rate using the current learning rate schedule
+        and the current progress remaining (from 1 to 0).
+
+        :param optimizers: An optimizer or a list of optimizers.
+        :param learning_rate: The current learning rate to apply
+        :param name: (Optional) A custom name for the lr (for instance qf_learning_rate)
+        """
+        # Log the current learning rate
+        self.logger.record(f"train/{name}", learning_rate)
+
+        if not isinstance(optimizers, list):
+            optimizers = [optimizers]
+        for optimizer in optimizers:
+            # Note: the optimizer must have been defined with inject_hyperparams
+            optimizer.hyperparams["learning_rate"] = learning_rate
+
     def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
         super().set_random_seed(seed)
         if seed is None:
@@ -116,7 +142,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
 
         self._setup_lr_schedule()
         # By default qf_learning_rate = pi_learning_rate
-        self.qf_learning_rate = self.qf_learning_rate or self.lr_schedule(1)
+        self.qf_learning_rate = self.initial_qf_learning_rate or self.lr_schedule(1)
         self.set_random_seed(self.seed)
         # Make a local copy as we should not pickle
         # the environment when using HerReplayBuffer
