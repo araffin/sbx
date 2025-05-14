@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import get_linear_fn
+from stable_baselines3.common.utils import LinearSchedule
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
@@ -83,7 +83,7 @@ class DQN(OffPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
-        self.exploration_schedule = get_linear_fn(
+        self.exploration_schedule = LinearSchedule(
             self.exploration_initial_eps,
             self.exploration_final_eps,
             self.exploration_fraction,

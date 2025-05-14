@@ -8,7 +8,7 @@ import numpy as np
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import explained_variance, get_schedule_fn
+from stable_baselines3.common.utils import explained_variance, FloatSchedule
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
 from sbx.common.utils import KLAdaptiveLR
@@ -192,12 +192,12 @@ class PPO(OnPolicyAlgorithmJax):
             self.vf = self.policy.vf  # type: ignore[assignment]
 
         # Initialize schedules for policy/value clipping
-        self.clip_range_schedule = get_schedule_fn(self.clip_range)
+        self.clip_range_schedule = FloatSchedule(self.clip_range)
         # if self.clip_range_vf is not None:
         #     if isinstance(self.clip_range_vf, (float, int)):
         #         assert self.clip_range_vf > 0, "`clip_range_vf` must be positive, " "pass `None` to deactivate vf clipping"
         #
-        #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
+        #     self.clip_range_vf = FloatSchedule(self.clip_range_vf)
 
     @staticmethod
     @partial(jax.jit, static_argnames=["normalize_advantage"])
