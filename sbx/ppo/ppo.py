@@ -299,7 +299,7 @@ class PPO(OnPolicyAlgorithmJax):
                 # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
                 # and discussion in PR #419: https://github.com/DLR-RM/stable-baselines3/pull/419
                 # and Schulman blog: http://joschu.net/blog/kl-approx.html
-                eps = 1e-7 # Avoid NaN due to numerical instabilities
+                eps = 1e-7  # Avoid NaN due to numerical instabilities
                 approx_kl_div = jnp.mean((ratio - 1.0 + eps) - jnp.log(ratio + eps)).item()
                 clip_fraction = jnp.mean(jnp.abs(ratio - 1) > clip_range).item()
                 # Compute average
