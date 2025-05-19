@@ -3,6 +3,7 @@ from typing import Any, Optional, TypeVar, Union
 import gymnasium as gym
 import jax
 import numpy as np
+import optax
 import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.buffers import RolloutBuffer
@@ -74,6 +75,27 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         excluded = super()._excluded_save_params()
         excluded.remove("policy")
         return excluded
+
+    def _update_learning_rate(  # type: ignore[override]
+        self,
+        optimizers: Union[list[optax.OptState], optax.OptState],
+        learning_rate: float,
+    ) -> None:
+        """
+        Update the optimizers learning rate using the current learning rate schedule
+        and the current progress remaining (from 1 to 0).
+
+        :param optimizers:
+            An optimizer or a list of optimizers.
+        """
+        # Log the current learning rate
+        self.logger.record("train/learning_rate", learning_rate)
+
+        if not isinstance(optimizers, list):
+            optimizers = [optimizers]
+        for optimizer in optimizers:
+            # Note: the optimizer must have been defined with inject_hyperparams
+            optimizer.hyperparams["learning_rate"] = learning_rate
 
     def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
         super().set_random_seed(seed)
@@ -167,12 +189,8 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
 
             # Handle timeout by bootstraping with value function
             # see GitHub issue #633
-            for idx, done in enumerate(dones):
-                if (
-                    done
-                    and infos[idx].get("terminal_observation") is not None
-                    and infos[idx].get("TimeLimit.truncated", False)
-                ):
+            for idx in dones.nonzero()[0]:
+                if infos[idx].get("terminal_observation") is not None and infos[idx].get("TimeLimit.truncated", False):
                     terminal_obs = self.policy.prepare_obs(infos[idx]["terminal_observation"])[0]
                     terminal_value = np.array(
                         self.vf.apply(  # type: ignore[union-attr]

@@ -95,13 +95,14 @@ class SACPolicy(BaseJaxPolicy):
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
 
+        # Inject hyperparameters to be able to modify it later
+        # See https://stackoverflow.com/questions/78527164
+        optimizer_class = optax.inject_hyperparams(self.optimizer_class)(learning_rate=lr_schedule(1), **self.optimizer_kwargs)
+
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
-            tx=self.optimizer_class(
-                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                **self.optimizer_kwargs,
-            ),
+            tx=optimizer_class,
         )
 
         self.qf = self.vector_critic_class(
@@ -110,6 +111,10 @@ class SACPolicy(BaseJaxPolicy):
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
             activation_fn=self.activation_fn,
+        )
+
+        optimizer_class_qf = optax.inject_hyperparams(self.optimizer_class)(
+            learning_rate=qf_learning_rate, **self.optimizer_kwargs
         )
 
         self.qf_state = RLTrainState.create(
@@ -124,10 +129,7 @@ class SACPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=self.optimizer_class(
-                learning_rate=qf_learning_rate,  # type: ignore[call-arg]
-                **self.optimizer_kwargs,
-            ),
+            tx=optimizer_class_qf,
         )
 
         self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]

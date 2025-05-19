@@ -158,7 +158,7 @@ class CrossQ(OffPolicyAlgorithmJax):
                 apply_fn=self.ent_coef.apply,
                 params=self.ent_coef.init(ent_key)["params"],
                 tx=optax.adam(
-                    learning_rate=self.learning_rate,
+                    learning_rate=self.lr_schedule(1),
                 ),
             )
 
