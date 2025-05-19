@@ -12,7 +12,7 @@ from stable_baselines3.common.utils import FloatSchedule, explained_variance
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
 from sbx.common.utils import KLAdaptiveLR
-from sbx.ppo.policies import PPOPolicy
+from sbx.ppo.policies import PPOPolicy, SimbaPPOPolicy
 
 PPOSelf = TypeVar("PPOSelf", bound="PPO")
 
@@ -70,6 +70,8 @@ class PPO(OnPolicyAlgorithmJax):
 
     policy_aliases: ClassVar[dict[str, type[PPOPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": PPOPolicy,
+        # Residual net, from https://github.com/SonyResearch/simba
+        "SimbaPolicy": SimbaPPOPolicy,
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
