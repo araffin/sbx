@@ -163,7 +163,7 @@ class TQC(OffPolicyAlgorithmJax):
                 apply_fn=self.ent_coef.apply,
                 params=self.ent_coef.init(ent_key)["params"],
                 tx=optax.adam(
-                    learning_rate=self.learning_rate,
+                    learning_rate=self.lr_schedule(1),
                 ),
             )
 
@@ -199,6 +199,17 @@ class TQC(OffPolicyAlgorithmJax):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
 
+        self._update_learning_rate(
+            self.policy.actor_state.opt_state,
+            learning_rate=self.lr_schedule(self._current_progress_remaining),
+            name="learning_rate_actor",
+        )
+        # Note: for now same schedule for actor and critic unless qf_lr = cst
+        self._update_learning_rate(
+            [self.policy.qf1_state.opt_state, self.policy.qf2_state.opt_state],
+            learning_rate=self.initial_qf_learning_rate or self.lr_schedule(self._current_progress_remaining),
+            name="learning_rate_critic",
+        )
         # Maybe reset the parameters/optimizers fully
         self._maybe_reset_params()
 

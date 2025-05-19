@@ -44,6 +44,8 @@ class Actor(nn.Module):
     # For MultiDiscrete
     max_num_choices: int = 0
     split_indices: np.ndarray = field(default_factory=lambda: np.array([]))
+    # Last layer with small scale
+    ortho_init: bool = False
 
     def get_std(self) -> jnp.ndarray:
         # Make it work with gSDE
@@ -65,7 +67,15 @@ class Actor(nn.Module):
             x = nn.Dense(n_units)(x)
             x = self.activation_fn(x)
 
-        action_logits = nn.Dense(self.action_dim)(x)
+        if self.ortho_init:
+            orthogonal_init = nn.initializers.orthogonal(scale=0.01)
+            bias_init = nn.initializers.zeros
+            action_logits = nn.Dense(self.action_dim, kernel_init=orthogonal_init, bias_init=bias_init)(x)
+
+        else:
+            action_logits = nn.Dense(self.action_dim)(x)
+
+        log_std = jnp.zeros(1)
         if self.num_discrete_choices is None:
             # Continuous actions
             log_std = self.param("log_std", constant(self.log_std_init), (self.action_dim,))
@@ -118,6 +128,8 @@ class PPOPolicy(BaseJaxPolicy):
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
         optimizer_kwargs: Optional[dict[str, Any]] = None,
         share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = Actor,
+        critic_class: type[nn.Module] = Critic,
     ):
         if optimizer_kwargs is None:
             # Small values to avoid NaN in Adam optimizer
@@ -146,6 +158,9 @@ class PPOPolicy(BaseJaxPolicy):
         else:
             self.net_arch_pi = self.net_arch_vf = [64, 64]
         self.use_sde = use_sde
+        self.ortho_init = ortho_init
+        self.actor_class = actor_class
+        self.critic_class = critic_class
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -189,38 +204,38 @@ class PPOPolicy(BaseJaxPolicy):
         else:
             raise NotImplementedError(f"{self.action_space}")
 
-        self.actor = Actor(
+        self.actor = self.actor_class(
             net_arch=self.net_arch_pi,
             log_std_init=self.log_std_init,
             activation_fn=self.activation_fn,
+            ortho_init=self.ortho_init,
             **actor_kwargs,  # type: ignore[arg-type]
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
+
+        # Inject hyperparameters to be able to modify it later
+        # See https://stackoverflow.com/questions/78527164
+        # Note: eps=1e-5 for Adam
+        optimizer_class = optax.inject_hyperparams(self.optimizer_class)(learning_rate=lr_schedule(1), **self.optimizer_kwargs)
 
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
-                self.optimizer_class(
-                    learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                    **self.optimizer_kwargs,  # , eps=1e-5
-                ),
+                optimizer_class,
             ),
         )
 
-        self.vf = Critic(net_arch=self.net_arch_vf, activation_fn=self.activation_fn)
+        self.vf = self.critic_class(net_arch=self.net_arch_vf, activation_fn=self.activation_fn)
 
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
             params=self.vf.init({"params": vf_key}, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
-                self.optimizer_class(
-                    learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                    **self.optimizer_kwargs,  # , eps=1e-5
-                ),
+                optimizer_class,
             ),
         )
 

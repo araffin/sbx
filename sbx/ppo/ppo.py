@@ -8,9 +8,10 @@ import numpy as np
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import explained_variance, get_schedule_fn
+from stable_baselines3.common.utils import FloatSchedule, explained_variance
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
+from sbx.common.utils import KLAdaptiveLR
 from sbx.ppo.policies import PPOPolicy
 
 PPOSelf = TypeVar("PPOSelf", bound="PPO")
@@ -54,9 +55,8 @@ class PPO(OnPolicyAlgorithmJax):
         instead of action noise exploration (default: False)
     :param sde_sample_freq: Sample a new noise matrix every n steps when using gSDE
         Default: -1 (only sample at the beginning of the rollout)
-    :param target_kl: Limit the KL divergence between updates,
-        because the clipping is not enough to prevent large update
-        see issue #213 (cf https://github.com/hill-a/stable-baselines/issues/213)
+    :param target_kl: Update the learning rate based on a desired KL divergence (see https://arxiv.org/abs/1707.02286).
+        Note: this will overwrite any lr schedule.
         By default, there is no limit on the kl div.
     :param tensorboard_log: the log location for tensorboard (if None, no logging)
     :param policy_kwargs: additional arguments to be passed to the policy on creation
@@ -74,6 +74,7 @@ class PPO(OnPolicyAlgorithmJax):
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
     policy: PPOPolicy  # type: ignore[assignment]
+    adaptive_lr: KLAdaptiveLR
 
     def __init__(
         self,
@@ -159,13 +160,19 @@ class PPO(OnPolicyAlgorithmJax):
         self.clip_range = clip_range
         self.clip_range_vf = clip_range_vf
         self.normalize_advantage = normalize_advantage
+        # If set will trigger adaptive lr
         self.target_kl = target_kl
+        if target_kl is not None and self.verbose > 0:
+            print(f"Using adaptive learning rate with {target_kl=}, any other lr schedule will be skipped.")
 
         if _init_setup_model:
             self._setup_model()
 
     def _setup_model(self) -> None:
         super()._setup_model()
+
+        if self.target_kl is not None:
+            self.adaptive_lr = KLAdaptiveLR(self.target_kl, self.lr_schedule(1.0))
 
         if not hasattr(self, "policy") or self.policy is None:  # type: ignore[has-type]
             self.policy = self.policy_class(  # type: ignore[assignment]
@@ -179,16 +186,16 @@ class PPO(OnPolicyAlgorithmJax):
 
             self.key, ent_key = jax.random.split(self.key, 2)
 
-            self.actor = self.policy.actor
-            self.vf = self.policy.vf
+            self.actor = self.policy.actor  # type: ignore[assignment]
+            self.vf = self.policy.vf  # type: ignore[assignment]
 
         # Initialize schedules for policy/value clipping
-        self.clip_range_schedule = get_schedule_fn(self.clip_range)
+        self.clip_range_schedule = FloatSchedule(self.clip_range)
         # if self.clip_range_vf is not None:
         #     if isinstance(self.clip_range_vf, (float, int)):
         #         assert self.clip_range_vf > 0, "`clip_range_vf` must be positive, " "pass `None` to deactivate vf clipping"
         #
-        #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
+        #     self.clip_range_vf = FloatSchedule(self.clip_range_vf)
 
     @staticmethod
     @partial(jax.jit, static_argnames=["normalize_advantage"])
@@ -229,9 +236,9 @@ class PPO(OnPolicyAlgorithmJax):
             entropy_loss = -jnp.mean(entropy)
 
             total_policy_loss = policy_loss + ent_coef * entropy_loss
-            return total_policy_loss
+            return total_policy_loss, ratio
 
-        pg_loss_value, grads = jax.value_and_grad(actor_loss, has_aux=False)(actor_state.params)
+        (pg_loss_value, ratio), grads = jax.value_and_grad(actor_loss, has_aux=True)(actor_state.params)
         actor_state = actor_state.apply_gradients(grads=grads)
 
         def critic_loss(params):
@@ -243,28 +250,36 @@ class PPO(OnPolicyAlgorithmJax):
         vf_state = vf_state.apply_gradients(grads=grads)
 
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
-        return (actor_state, vf_state), (pg_loss_value, vf_loss_value)
+        return (actor_state, vf_state), (pg_loss_value, vf_loss_value, ratio)
 
     def train(self) -> None:
         """
         Update policy using the currently gathered rollout buffer.
         """
         # Update optimizer learning rate
-        # self._update_learning_rate(self.policy.optimizer)
+        if self.target_kl is None:
+            self._update_learning_rate(
+                [self.policy.actor_state.opt_state[1], self.policy.vf_state.opt_state[1]],
+                learning_rate=self.lr_schedule(self._current_progress_remaining),
+            )
         # Compute current clip range
         clip_range = self.clip_range_schedule(self._current_progress_remaining)
+        n_updates = 0
+        mean_clip_fraction = 0.0
+        mean_kl_div = 0.0
 
         # train for n_epochs epochs
         for _ in range(self.n_epochs):
             # JIT only one update
             for rollout_data in self.rollout_buffer.get(self.batch_size):  # type: ignore[attr-defined]
+                n_updates += 1
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to int
                     actions = rollout_data.actions.flatten().numpy().astype(np.int32)
                 else:
                     actions = rollout_data.actions.numpy()
 
-                (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss) = self._one_update(
+                (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss, ratio) = self._one_update(
                     actor_state=self.policy.actor_state,
                     vf_state=self.policy.vf_state,
                     observations=rollout_data.observations.numpy(),
@@ -278,6 +293,25 @@ class PPO(OnPolicyAlgorithmJax):
                     normalize_advantage=self.normalize_advantage,
                 )
 
+                # Calculate approximate form of reverse KL Divergence for adaptive lr
+                # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
+                # and discussion in PR #419: https://github.com/DLR-RM/stable-baselines3/pull/419
+                # and Schulman blog: http://joschu.net/blog/kl-approx.html
+                eps = 1e-7  # Avoid NaN due to numerical instabilities
+                approx_kl_div = jnp.mean((ratio - 1.0 + eps) - jnp.log(ratio + eps)).item()
+                clip_fraction = jnp.mean(jnp.abs(ratio - 1) > clip_range).item()
+                # Compute average
+                mean_clip_fraction += (clip_fraction - mean_clip_fraction) / n_updates
+                mean_kl_div += (approx_kl_div - mean_kl_div) / n_updates
+
+                # Adaptive lr schedule, see https://arxiv.org/abs/1707.02286
+                if self.target_kl is not None:
+                    self.adaptive_lr.update(approx_kl_div)
+
+                    self._update_learning_rate(
+                        [self.policy.actor_state.opt_state[1], self.policy.vf_state.opt_state[1]],
+                        learning_rate=self.adaptive_lr.current_adaptive_lr,
+                    )
         self._n_updates += self.n_epochs
         explained_var = explained_variance(
             self.rollout_buffer.values.flatten(),  # type: ignore[attr-defined]
@@ -289,8 +323,8 @@ class PPO(OnPolicyAlgorithmJax):
         # self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         # TODO: use mean instead of one point
         self.logger.record("train/value_loss", value_loss.item())
-        # self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
-        # self.logger.record("train/clip_fraction", np.mean(clip_fractions))
+        self.logger.record("train/approx_kl", mean_kl_div)
+        self.logger.record("train/clip_fraction", mean_clip_fraction)
         self.logger.record("train/pg_loss", pg_loss.item())
         self.logger.record("train/explained_variance", explained_var)
         try:

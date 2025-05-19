@@ -36,7 +36,7 @@ class TQCPolicy(BaseJaxPolicy):
         use_sde: bool = False,
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
-        log_std_init: float = -3,
+        log_std_init: float = 0.0,
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
@@ -79,6 +79,7 @@ class TQCPolicy(BaseJaxPolicy):
         self.activation_fn = activation_fn
         self.actor_class = actor_class
         self.critic_class = critic_class
+        self.log_std_init = log_std_init
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -103,13 +104,14 @@ class TQCPolicy(BaseJaxPolicy):
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
 
+        # Inject hyperparameters to be able to modify it later
+        # See https://stackoverflow.com/questions/78527164
+        optimizer_class = optax.inject_hyperparams(self.optimizer_class)(learning_rate=lr_schedule(1), **self.optimizer_kwargs)
+
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
-            tx=self.optimizer_class(
-                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                **self.optimizer_kwargs,
-            ),
+            tx=optimizer_class,
         )
 
         self.qf = self.critic_class(
@@ -118,6 +120,10 @@ class TQCPolicy(BaseJaxPolicy):
             net_arch=self.net_arch_qf,
             output_dim=self.n_quantiles,
             activation_fn=self.activation_fn,
+        )
+
+        optimizer_class_qf = optax.inject_hyperparams(self.optimizer_class)(
+            learning_rate=qf_learning_rate, **self.optimizer_kwargs
         )
 
         self.qf1_state = RLTrainState.create(
@@ -132,7 +138,7 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=optax.adam(learning_rate=qf_learning_rate),  # type: ignore[call-arg]
+            tx=optimizer_class_qf,
         )
         self.qf2_state = RLTrainState.create(
             apply_fn=self.qf.apply,
@@ -146,10 +152,7 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=self.optimizer_class(
-                learning_rate=qf_learning_rate,  # type: ignore[call-arg]
-                **self.optimizer_kwargs,
-            ),
+            tx=optimizer_class_qf,
         )
         self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
         self.qf.apply = jax.jit(  # type: ignore[method-assign]
@@ -190,7 +193,7 @@ class SimbaTQCPolicy(TQCPolicy):
         n_quantiles: int = 25,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
-        log_std_init: float = -3,
+        log_std_init: float = 0.0,
         use_expln: bool = False,
         clip_mean: float = 2,
         features_extractor_class=None,
