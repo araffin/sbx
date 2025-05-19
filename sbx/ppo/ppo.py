@@ -8,7 +8,7 @@ import numpy as np
 from flax.training.train_state import TrainState
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import explained_variance, get_schedule_fn
+from stable_baselines3.common.utils import FloatSchedule, explained_variance
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
 from sbx.common.utils import KLAdaptiveLR
@@ -55,7 +55,7 @@ class PPO(OnPolicyAlgorithmJax):
         instead of action noise exploration (default: False)
     :param sde_sample_freq: Sample a new noise matrix every n steps when using gSDE
         Default: -1 (only sample at the beginning of the rollout)
-    :param target_kl: Update the learning rate based on a desired KL divergence.
+    :param target_kl: Update the learning rate based on a desired KL divergence (see https://arxiv.org/abs/1707.02286).
         Note: this will overwrite any lr schedule.
         By default, there is no limit on the kl div.
     :param tensorboard_log: the log location for tensorboard (if None, no logging)
@@ -192,12 +192,12 @@ class PPO(OnPolicyAlgorithmJax):
             self.vf = self.policy.vf  # type: ignore[assignment]
 
         # Initialize schedules for policy/value clipping
-        self.clip_range_schedule = get_schedule_fn(self.clip_range)
+        self.clip_range_schedule = FloatSchedule(self.clip_range)
         # if self.clip_range_vf is not None:
         #     if isinstance(self.clip_range_vf, (float, int)):
         #         assert self.clip_range_vf > 0, "`clip_range_vf` must be positive, " "pass `None` to deactivate vf clipping"
         #
-        #     self.clip_range_vf = get_schedule_fn(self.clip_range_vf)
+        #     self.clip_range_vf = FloatSchedule(self.clip_range_vf)
 
     @staticmethod
     @partial(jax.jit, static_argnames=["normalize_advantage"])
@@ -299,7 +299,8 @@ class PPO(OnPolicyAlgorithmJax):
                 # see issue #417: https://github.com/DLR-RM/stable-baselines3/issues/417
                 # and discussion in PR #419: https://github.com/DLR-RM/stable-baselines3/pull/419
                 # and Schulman blog: http://joschu.net/blog/kl-approx.html
-                approx_kl_div = jnp.mean((ratio - 1.0) - jnp.log(ratio)).item()
+                eps = 1e-7  # Avoid NaN due to numerical instabilities
+                approx_kl_div = jnp.mean((ratio - 1.0 + eps) - jnp.log(ratio + eps)).item()
                 clip_fraction = jnp.mean(jnp.abs(ratio - 1) > clip_range).item()
                 # Compute average
                 mean_clip_fraction += (clip_fraction - mean_clip_fraction) / n_updates
