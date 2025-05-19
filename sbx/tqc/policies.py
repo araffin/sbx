@@ -37,7 +37,6 @@ class TQCPolicy(BaseJaxPolicy):
         # Note: most gSDE parameters are not used
         # this is to keep API consistent with SB3
         log_std_init: float = 0.0,
-        squash_output: bool = True,
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
@@ -57,7 +56,7 @@ class TQCPolicy(BaseJaxPolicy):
             features_extractor_kwargs,
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
-            squash_output=squash_output,
+            squash_output=True,
         )
         self.dropout_rate = dropout_rate
         self.layer_norm = layer_norm
@@ -195,7 +194,6 @@ class SimbaTQCPolicy(TQCPolicy):
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
         log_std_init: float = 0.0,
-        squash_output: bool = True,
         use_expln: bool = False,
         clip_mean: float = 2,
         features_extractor_class=None,
@@ -220,7 +218,6 @@ class SimbaTQCPolicy(TQCPolicy):
             activation_fn,
             use_sde,
             log_std_init,
-            squash_output,
             use_expln,
             clip_mean,
             features_extractor_class,

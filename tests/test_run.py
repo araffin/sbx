@@ -146,6 +146,7 @@ def test_policy_kwargs(model_class) -> None:
 
 @pytest.mark.parametrize("env_id", ["Pendulum-v1", "CartPole-v1"])
 def test_ppo(tmp_path, env_id: str) -> None:
+
     model = PPO(
         "MlpPolicy",
         env_id,
@@ -154,6 +155,7 @@ def test_ppo(tmp_path, env_id: str) -> None:
         batch_size=32,
         n_epochs=2,
         policy_kwargs=dict(activation_fn=nn.leaky_relu),
+        target_kl=0.04 if env_id == "Pendulum-v1" else None,
     )
     model.learn(64, progress_bar=True)
 
