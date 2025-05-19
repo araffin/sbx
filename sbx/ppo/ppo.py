@@ -55,7 +55,7 @@ class PPO(OnPolicyAlgorithmJax):
         instead of action noise exploration (default: False)
     :param sde_sample_freq: Sample a new noise matrix every n steps when using gSDE
         Default: -1 (only sample at the beginning of the rollout)
-    :param target_kl: Update the learning rate based on a desired KL divergence.
+    :param target_kl: Update the learning rate based on a desired KL divergence (see https://arxiv.org/abs/1707.02286).
         Note: this will overwrite any lr schedule.
         By default, there is no limit on the kl div.
     :param tensorboard_log: the log location for tensorboard (if None, no logging)
