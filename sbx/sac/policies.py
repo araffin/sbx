@@ -11,9 +11,9 @@ from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import (
     BaseJaxPolicy,
-    GaussianActor,
     SimbaSquashedGaussianActor,
     SimbaVectorCritic,
+    SquashedGaussianActor,
     VectorCritic,
 )
 from sbx.common.type_aliases import RLTrainState
@@ -32,9 +32,9 @@ class SACPolicy(BaseJaxPolicy):
         layer_norm: bool = False,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
-        log_std_init: float = 0.0,
-        squash_output: bool = True,
-        ortho_init: bool = False,
+        # Note: most gSDE parameters are not used
+        # this is to keep API consistent with SB3
+        log_std_init: float = -3,
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
@@ -44,7 +44,7 @@ class SACPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: type[nn.Module] = GaussianActor,
+        actor_class: type[nn.Module] = SquashedGaussianActor,
         vector_critic_class: type[nn.Module] = VectorCritic,
     ):
         super().__init__(
@@ -54,7 +54,7 @@ class SACPolicy(BaseJaxPolicy):
             features_extractor_kwargs,
             optimizer_class=optimizer_class,
             optimizer_kwargs=optimizer_kwargs,
-            squash_output=squash_output,
+            squash_output=True,
         )
         self.dropout_rate = dropout_rate
         self.layer_norm = layer_norm
@@ -71,8 +71,6 @@ class SACPolicy(BaseJaxPolicy):
         self.activation_fn = activation_fn
         self.actor_class = actor_class
         self.vector_critic_class = vector_critic_class
-        self.log_std_init = log_std_init
-        self.ortho_init = ortho_init
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -93,20 +91,18 @@ class SACPolicy(BaseJaxPolicy):
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
             activation_fn=self.activation_fn,
-            squash_output=self.squash_output,
-            log_std_init=self.log_std_init,
-            ortho_init=self.ortho_init,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
 
+        # Inject hyperparameters to be able to modify it later
+        # See https://stackoverflow.com/questions/78527164
+        optimizer_class = optax.inject_hyperparams(self.optimizer_class)(learning_rate=lr_schedule(1), **self.optimizer_kwargs)
+
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
-            tx=self.optimizer_class(
-                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
-                **self.optimizer_kwargs,
-            ),
+            tx=optimizer_class,
         )
 
         self.qf = self.vector_critic_class(
@@ -115,6 +111,10 @@ class SACPolicy(BaseJaxPolicy):
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
             activation_fn=self.activation_fn,
+        )
+
+        optimizer_class_qf = optax.inject_hyperparams(self.optimizer_class)(
+            learning_rate=qf_learning_rate, **self.optimizer_kwargs
         )
 
         self.qf_state = RLTrainState.create(
@@ -129,10 +129,7 @@ class SACPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=self.optimizer_class(
-                learning_rate=qf_learning_rate,  # type: ignore[call-arg]
-                **self.optimizer_kwargs,
-            ),
+            tx=optimizer_class_qf,
         )
 
         self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
@@ -172,9 +169,7 @@ class SimbaSACPolicy(SACPolicy):
         layer_norm: bool = False,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
-        log_std_init: float = 0.0,
-        squash_output: bool = True,
-        ortho_init: bool = False,
+        log_std_init: float = -3,
         use_expln: bool = False,
         clip_mean: float = 2,
         features_extractor_class=None,
@@ -198,8 +193,6 @@ class SimbaSACPolicy(SACPolicy):
             activation_fn,
             use_sde,
             log_std_init,
-            squash_output,
-            ortho_init,
             use_expln,
             clip_mean,
             features_extractor_class,

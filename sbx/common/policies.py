@@ -236,16 +236,12 @@ class SimbaVectorCritic(nn.Module):
         return q_values
 
 
-class GaussianActor(nn.Module):
+class SquashedGaussianActor(nn.Module):
     net_arch: Sequence[int]
     action_dim: int
     log_std_min: float = -20
     log_std_max: float = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-    squash_output: bool = True
-    ortho_init: bool = False
-    log_std_init: float = 0.0  # -1.2  # log(0.3)
-    use_layer_norm: bool = False
 
     def get_std(self):
         # Make it work with gSDE
@@ -256,30 +252,13 @@ class GaussianActor(nn.Module):
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
-            if self.use_layer_norm:
-                x = nn.LayerNorm()(x)
             x = self.activation_fn(x)
-
-        if self.ortho_init:
-            orthogonal_init = nn.initializers.orthogonal(scale=0.01)
-            # orthogonal_init = nn.initializers.uniform(scale=0.01)
-            # orthogonal_init = nn.initializers.normal(stddev=0.01)
-            bias_init = nn.initializers.zeros
-            mean = nn.Dense(self.action_dim, kernel_init=orthogonal_init, bias_init=bias_init)(x)
-            log_std = self.param("log_std", nn.initializers.constant(self.log_std_init), (self.action_dim,))
-            # log_std = nn.Dense(self.action_dim, kernel_init=orthogonal_init, bias_init=bias_init)(x)
-        else:
-            mean = nn.Dense(self.action_dim)(x)
-            log_std = nn.Dense(self.action_dim)(x)
-
-        if self.squash_output:
-            log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-            dist = TanhTransformedDistribution(
-                tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
-            )
-        else:
-            log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
-            dist = tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std))
+        mean = nn.Dense(self.action_dim)(x)
+        log_std = nn.Dense(self.action_dim)(x)
+        log_std = jnp.clip(log_std, self.log_std_min, self.log_std_max)
+        dist = TanhTransformedDistribution(
+            tfd.MultivariateNormalDiag(loc=mean, scale_diag=jnp.exp(log_std)),
+        )
         return dist
 
 

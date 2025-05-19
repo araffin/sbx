@@ -200,13 +200,13 @@ class TQC(OffPolicyAlgorithmJax):
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
 
         self._update_learning_rate(
-            self.policy.actor_state.opt_state[0],
+            self.policy.actor_state.opt_state,
             learning_rate=self.lr_schedule(self._current_progress_remaining),
             name="learning_rate_actor",
         )
         # Note: for now same schedule for actor and critic unless qf_lr = cst
         self._update_learning_rate(
-            [self.policy.qf1_state.opt_state[0], self.policy.qf2_state.opt_state[0]],
+            [self.policy.qf1_state.opt_state, self.policy.qf2_state.opt_state],
             learning_rate=self.initial_qf_learning_rate or self.lr_schedule(self._current_progress_remaining),
             name="learning_rate_critic",
         )
@@ -257,11 +257,6 @@ class TQC(OffPolicyAlgorithmJax):
         self.logger.record("train/critic_loss", qf1_loss_value.item())
         self.logger.record("train/ent_coef_loss", ent_coef_loss_value.item())
         self.logger.record("train/ent_coef", ent_coef_value.item())
-        try:
-            log_std = self.policy.actor_state.params["params"]["log_std"]
-            self.logger.record("train/std", np.exp(log_std).mean().item())
-        except KeyError:
-            pass
 
     @staticmethod
     @partial(jax.jit, static_argnames=["n_target_quantiles"])

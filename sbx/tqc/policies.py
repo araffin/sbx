@@ -12,9 +12,9 @@ from stable_baselines3.common.type_aliases import Schedule
 from sbx.common.policies import (
     BaseJaxPolicy,
     ContinuousCritic,
-    GaussianActor,
     SimbaContinuousCritic,
     SimbaSquashedGaussianActor,
+    SquashedGaussianActor,
 )
 from sbx.common.type_aliases import RLTrainState
 
@@ -34,9 +34,10 @@ class TQCPolicy(BaseJaxPolicy):
         n_quantiles: int = 25,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         use_sde: bool = False,
+        # Note: most gSDE parameters are not used
+        # this is to keep API consistent with SB3
         log_std_init: float = 0.0,
         squash_output: bool = True,
-        ortho_init: bool = False,
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
@@ -46,7 +47,7 @@ class TQCPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
-        actor_class: type[nn.Module] = GaussianActor,
+        actor_class: type[nn.Module] = SquashedGaussianActor,
         critic_class: type[nn.Module] = ContinuousCritic,
     ):
         super().__init__(
@@ -80,7 +81,6 @@ class TQCPolicy(BaseJaxPolicy):
         self.actor_class = actor_class
         self.critic_class = critic_class
         self.log_std_init = log_std_init
-        self.ortho_init = ortho_init
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
 
@@ -101,9 +101,6 @@ class TQCPolicy(BaseJaxPolicy):
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
             activation_fn=self.activation_fn,
-            squash_output=self.squash_output,
-            log_std_init=self.log_std_init,
-            ortho_init=self.ortho_init,
         )
         # Hack to make gSDE work without modifying internal SB3 code
         self.actor.reset_noise = self.reset_noise
@@ -115,10 +112,7 @@ class TQCPolicy(BaseJaxPolicy):
         self.actor_state = TrainState.create(
             apply_fn=self.actor.apply,
             params=self.actor.init(actor_key, obs),
-            tx=optax.chain(
-                # optax.clip_by_global_norm(max_grad_norm),
-                optimizer_class,
-            ),
+            tx=optimizer_class,
         )
 
         self.qf = self.critic_class(
@@ -145,10 +139,7 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=optax.chain(
-                # optax.clip_by_global_norm(max_grad_norm),
-                optimizer_class_qf,
-            ),
+            tx=optimizer_class_qf,
         )
         self.qf2_state = RLTrainState.create(
             apply_fn=self.qf.apply,
@@ -162,10 +153,7 @@ class TQCPolicy(BaseJaxPolicy):
                 obs,
                 action,
             ),
-            tx=optax.chain(
-                # optax.clip_by_global_norm(max_grad_norm),
-                optimizer_class_qf,
-            ),
+            tx=optimizer_class_qf,
         )
         self.actor.apply = jax.jit(self.actor.apply)  # type: ignore[method-assign]
         self.qf.apply = jax.jit(  # type: ignore[method-assign]
@@ -208,7 +196,6 @@ class SimbaTQCPolicy(TQCPolicy):
         use_sde: bool = False,
         log_std_init: float = 0.0,
         squash_output: bool = True,
-        ortho_init: bool = False,
         use_expln: bool = False,
         clip_mean: float = 2,
         features_extractor_class=None,
@@ -234,7 +221,6 @@ class SimbaTQCPolicy(TQCPolicy):
             use_sde,
             log_std_init,
             squash_output,
-            ortho_init,
             use_expln,
             clip_mean,
             features_extractor_class,

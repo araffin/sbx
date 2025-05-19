@@ -12,7 +12,7 @@ from stable_baselines3.common.utils import FloatSchedule, explained_variance
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
 from sbx.common.utils import KLAdaptiveLR
-from sbx.ppo.policies import PPOPolicy, SimbaPPOPolicy
+from sbx.ppo.policies import PPOPolicy
 
 PPOSelf = TypeVar("PPOSelf", bound="PPO")
 
@@ -55,7 +55,7 @@ class PPO(OnPolicyAlgorithmJax):
         instead of action noise exploration (default: False)
     :param sde_sample_freq: Sample a new noise matrix every n steps when using gSDE
         Default: -1 (only sample at the beginning of the rollout)
-    :param target_kl: Update the learning rate based on a desired KL divergence.
+    :param target_kl: Update the learning rate based on a desired KL divergence (see https://arxiv.org/abs/1707.02286).
         Note: this will overwrite any lr schedule.
         By default, there is no limit on the kl div.
     :param tensorboard_log: the log location for tensorboard (if None, no logging)
@@ -70,8 +70,6 @@ class PPO(OnPolicyAlgorithmJax):
 
     policy_aliases: ClassVar[dict[str, type[PPOPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": PPOPolicy,
-        # Residual net, from https://github.com/SonyResearch/simba
-        "SimbaPolicy": SimbaPPOPolicy,
         # "CnnPolicy": ActorCriticCnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
