@@ -162,11 +162,11 @@ class MultiInputQNetwork(nn.Module):
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     def setup(self):
-        self.extractors = jax.tree_map(self._layer, self.observation_space.spaces)
+        self.extractors = jax.tree.map(self._layer, self.observation_space.spaces)
 
     @nn.compact
     def __call__(self, observations: dict[str, jnp.ndarray]) -> jnp.ndarray:
-        encoded_tensors = jax.tree_map(lambda extractor, x: extractor(x), self.extractors, flax.core.freeze(observations))
+        encoded_tensors = jax.tree.map(lambda extractor, x: extractor(x), self.extractors, flax.core.freeze(observations))
 
         flattened, _ = jax.tree.flatten(encoded_tensors)
         x = jax.lax.concatenate(flattened, dimension=1)
