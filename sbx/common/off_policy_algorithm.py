@@ -7,7 +7,7 @@ import numpy as np
 import optax
 from gymnasium import spaces
 from stable_baselines3 import HerReplayBuffer
-from stable_baselines3.common.buffers import DictReplayBuffer, ReplayBuffer
+from stable_baselines3.common.buffers import DictReplayBuffer, NStepReplayBuffer, ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
@@ -35,6 +35,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         replay_buffer_class: Optional[type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         optimize_memory_usage: bool = False,
+        n_steps: int = 1,
         policy_kwargs: Optional[dict[str, Any]] = None,
         tensorboard_log: Optional[str] = None,
         verbose: int = 0,
@@ -63,6 +64,8 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
             gradient_steps=gradient_steps,
             replay_buffer_class=replay_buffer_class,
             replay_buffer_kwargs=replay_buffer_kwargs,
+            optimize_memory_usage=optimize_memory_usage,
+            n_steps=n_steps,
             action_noise=action_noise,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
@@ -137,6 +140,11 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         if self.replay_buffer_class is None:  # type: ignore[has-type]
             if isinstance(self.observation_space, spaces.Dict):
                 self.replay_buffer_class = DictReplayBuffer
+                assert self.n_steps == 1, "N-step returns are not supported for Dict observation spaces yet."
+            elif self.n_steps > 1:
+                self.replay_buffer_class = NStepReplayBuffer
+                # Add required arguments for computing n-step returns
+                self.replay_buffer_kwargs.update({"n_steps": self.n_steps, "gamma": self.gamma})
             else:
                 self.replay_buffer_class = ReplayBuffer
 
@@ -203,7 +211,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
                 scaled_action = self.policy.scale_action(action)
         else:
             assert self._last_obs is not None, "self._last_obs was not set"
-            obs_tensor, _ = self.policy.prepare_obs(self._last_obs)
+            obs_tensor, _ = self.policy.prepare_obs(self._last_obs)  # type: ignore[operator]
             action = np.array(self.policy._predict(obs_tensor, deterministic=False))
             if self.policy.squash_output:
                 scaled_action = action

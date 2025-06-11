@@ -68,6 +68,7 @@ class TQC(OffPolicyAlgorithmJax):
         action_noise: Optional[ActionNoise] = None,
         replay_buffer_class: Optional[type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[dict[str, Any]] = None,
+        n_steps: int = 1,
         ent_coef: Union[str, float] = "auto",
         target_entropy: Union[Literal["auto"], float] = "auto",
         use_sde: bool = False,
@@ -97,6 +98,7 @@ class TQC(OffPolicyAlgorithmJax):
             action_noise=action_noise,
             replay_buffer_class=replay_buffer_class,
             replay_buffer_kwargs=replay_buffer_kwargs,
+            n_steps=n_steps,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
             use_sde_at_warmup=use_sde_at_warmup,
@@ -221,6 +223,12 @@ class TQC(OffPolicyAlgorithmJax):
             obs = data.observations.numpy()
             next_obs = data.next_observations.numpy()
 
+        if data.discounts is None:
+            discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
+        else:
+            # For bootstrapping with n-step returns
+            discounts = data.discounts.numpy().flatten()
+
         # Convert to numpy
         data = ReplayBufferSamplesNp(  # type: ignore[assignment]
             obs,
@@ -228,6 +236,7 @@ class TQC(OffPolicyAlgorithmJax):
             next_obs,
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
+            discounts,
         )
         (
             self.policy.qf1_state,
@@ -237,7 +246,6 @@ class TQC(OffPolicyAlgorithmJax):
             self.key,
             (qf1_loss_value, qf2_loss_value, actor_loss_value, ent_coef_loss_value, ent_coef_value),
         ) = self._train(
-            self.gamma,
             self.tau,
             self.target_entropy,
             gradient_steps,
@@ -266,7 +274,6 @@ class TQC(OffPolicyAlgorithmJax):
     @staticmethod
     @partial(jax.jit, static_argnames=["n_target_quantiles"])
     def update_critic(
-        gamma: float,
         n_target_quantiles: int,
         actor_state: TrainState,
         qf1_state: RLTrainState,
@@ -277,6 +284,7 @@ class TQC(OffPolicyAlgorithmJax):
         next_observations: jax.Array,
         rewards: jax.Array,
         dones: jax.Array,
+        discounts: jax.Array,
         key: jax.Array,
     ):
         key, noise_key, dropout_key_1, dropout_key_2 = jax.random.split(key, 4)
@@ -311,8 +319,8 @@ class TQC(OffPolicyAlgorithmJax):
         next_target_quantiles = next_quantiles[:, :n_target_quantiles]
 
         # td error + entropy term
-        next_target_quantiles = next_target_quantiles - ent_coef_value * next_log_prob.reshape(-1, 1)
-        target_quantiles = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_target_quantiles
+        next_target_quantiles = next_target_quantiles - ent_coef_value * next_log_prob[:, None]
+        target_quantiles = rewards[:, None] + (1 - dones[:, None]) * discounts[:, None] * next_target_quantiles
 
         # Make target_quantiles broadcastable to (batch_size, n_quantiles, n_target_quantiles).
         target_quantiles = jnp.expand_dims(target_quantiles, axis=1)
@@ -444,7 +452,6 @@ class TQC(OffPolicyAlgorithmJax):
     )
     def _train(
         cls,
-        gamma: float,
         tau: float,
         target_entropy: ArrayLike,
         gradient_steps: int,
@@ -486,26 +493,27 @@ class TQC(OffPolicyAlgorithmJax):
             key = carry["key"]
             info = carry["info"]
             batch_obs = jax.lax.dynamic_slice_in_dim(data.observations, i * batch_size, batch_size)
-            batch_act = jax.lax.dynamic_slice_in_dim(data.actions, i * batch_size, batch_size)
+            batch_actions = jax.lax.dynamic_slice_in_dim(data.actions, i * batch_size, batch_size)
             batch_next_obs = jax.lax.dynamic_slice_in_dim(data.next_observations, i * batch_size, batch_size)
-            batch_rew = jax.lax.dynamic_slice_in_dim(data.rewards, i * batch_size, batch_size)
-            batch_done = jax.lax.dynamic_slice_in_dim(data.dones, i * batch_size, batch_size)
+            batch_rewards = jax.lax.dynamic_slice_in_dim(data.rewards, i * batch_size, batch_size)
+            batch_dones = jax.lax.dynamic_slice_in_dim(data.dones, i * batch_size, batch_size)
+            batch_discounts = jax.lax.dynamic_slice_in_dim(data.discounts, i * batch_size, batch_size)
             (
                 (qf1_state, qf2_state),
                 (qf1_loss_value, qf2_loss_value, ent_coef_value),
                 key,
             ) = cls.update_critic(
-                gamma,
                 n_target_quantiles,
                 actor_state,
                 qf1_state,
                 qf2_state,
                 ent_coef_state,
                 batch_obs,
-                batch_act,
+                batch_actions,
                 batch_next_obs,
-                batch_rew,
-                batch_done,
+                batch_rewards,
+                batch_dones,
+                batch_discounts,
                 key,
             )
             qf1_state, qf2_state = cls.soft_update(tau, qf1_state, qf2_state)
