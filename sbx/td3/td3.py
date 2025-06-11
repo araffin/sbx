@@ -45,6 +45,7 @@ class TD3(OffPolicyAlgorithmJax):
         action_noise: Optional[ActionNoise] = None,
         replay_buffer_class: Optional[type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[dict[str, Any]] = None,
+        n_steps: int = 1,
         tensorboard_log: Optional[str] = None,
         stats_window_size: int = 100,
         policy_kwargs: Optional[dict[str, Any]] = None,
@@ -69,6 +70,7 @@ class TD3(OffPolicyAlgorithmJax):
             action_noise=action_noise,
             replay_buffer_class=replay_buffer_class,
             replay_buffer_kwargs=replay_buffer_kwargs,
+            n_steps=n_steps,
             use_sde=False,
             stats_window_size=stats_window_size,
             policy_kwargs=policy_kwargs,
@@ -139,6 +141,12 @@ class TD3(OffPolicyAlgorithmJax):
             obs = data.observations.numpy()
             next_obs = data.next_observations.numpy()
 
+        if data.discounts is None:
+            discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
+        else:
+            # For bootstrapping with n-step returns
+            discounts = data.discounts.numpy().flatten()
+
         # Convert to numpy
         data = ReplayBufferSamplesNp(  # type: ignore[assignment]
             obs,
@@ -146,6 +154,7 @@ class TD3(OffPolicyAlgorithmJax):
             next_obs,
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
+            discounts,
         )
 
         (
@@ -154,7 +163,6 @@ class TD3(OffPolicyAlgorithmJax):
             self.key,
             (actor_loss_value, qf_loss_value),
         ) = self._train(
-            self.gamma,
             self.tau,
             gradient_steps,
             data,
@@ -174,7 +182,6 @@ class TD3(OffPolicyAlgorithmJax):
     @staticmethod
     @jax.jit
     def update_critic(
-        gamma: float,
         actor_state: RLTrainState,
         qf_state: RLTrainState,
         observations: jax.Array,
@@ -182,6 +189,7 @@ class TD3(OffPolicyAlgorithmJax):
         next_observations: jax.Array,
         rewards: jax.Array,
         dones: jax.Array,
+        discounts: jax.Array,
         target_policy_noise: float,
         target_noise_clip: float,
         key: jax.Array,
@@ -203,7 +211,7 @@ class TD3(OffPolicyAlgorithmJax):
 
         next_q_values = jnp.min(qf_next_values, axis=0)
         # shape is (batch_size, 1)
-        target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
+        target_q_values = rewards[:, None] + (1 - dones[:, None]) * discounts[:, None] * next_q_values
 
         def mse_loss(params: flax.core.FrozenDict, dropout_key: jax.Array) -> jax.Array:
             # shape is (n_critics, batch_size, 1)
@@ -261,7 +269,6 @@ class TD3(OffPolicyAlgorithmJax):
     @partial(jax.jit, static_argnames=["cls", "gradient_steps", "policy_delay", "policy_delay_offset"])
     def _train(
         cls,
-        gamma: float,
         tau: float,
         gradient_steps: int,
         data: ReplayBufferSamplesNp,
@@ -294,23 +301,24 @@ class TD3(OffPolicyAlgorithmJax):
             key = carry["key"]
             info = carry["info"]
             batch_obs = jax.lax.dynamic_slice_in_dim(data.observations, i * batch_size, batch_size)
-            batch_act = jax.lax.dynamic_slice_in_dim(data.actions, i * batch_size, batch_size)
+            batch_actions = jax.lax.dynamic_slice_in_dim(data.actions, i * batch_size, batch_size)
             batch_next_obs = jax.lax.dynamic_slice_in_dim(data.next_observations, i * batch_size, batch_size)
-            batch_rew = jax.lax.dynamic_slice_in_dim(data.rewards, i * batch_size, batch_size)
-            batch_done = jax.lax.dynamic_slice_in_dim(data.dones, i * batch_size, batch_size)
+            batch_rewards = jax.lax.dynamic_slice_in_dim(data.rewards, i * batch_size, batch_size)
+            batch_dones = jax.lax.dynamic_slice_in_dim(data.dones, i * batch_size, batch_size)
+            batch_discounts = jax.lax.dynamic_slice_in_dim(data.discounts, i * batch_size, batch_size)
             (
                 qf_state,
                 qf_loss_value,
                 key,
             ) = cls.update_critic(
-                gamma,
                 actor_state,
                 qf_state,
                 batch_obs,
-                batch_act,
+                batch_actions,
                 batch_next_obs,
-                batch_rew,
-                batch_done,
+                batch_rewards,
+                batch_dones,
+                batch_discounts,
                 target_policy_noise,
                 target_noise_clip,
                 key,
