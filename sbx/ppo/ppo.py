@@ -236,21 +236,23 @@ class PPO(OnPolicyAlgorithmJax):
             entropy_loss = -jnp.mean(entropy)
 
             total_policy_loss = policy_loss + ent_coef * entropy_loss
-            return total_policy_loss, ratio
+            return total_policy_loss, (ratio, policy_loss, entropy_loss)
 
-        (pg_loss_value, ratio), grads = jax.value_and_grad(actor_loss, has_aux=True)(actor_state.params)
+        (pg_loss_value, (ratio, policy_loss, entropy_loss)), grads = jax.value_and_grad(actor_loss, has_aux=True)(
+            actor_state.params
+        )
         actor_state = actor_state.apply_gradients(grads=grads)
 
         def critic_loss(params):
             # Value loss using the TD(gae_lambda) target
             vf_values = vf_state.apply_fn(params, observations).flatten()
-            return ((returns - vf_values) ** 2).mean()
+            return vf_coef * ((returns - vf_values) ** 2).mean()
 
         vf_loss_value, grads = jax.value_and_grad(critic_loss, has_aux=False)(vf_state.params)
         vf_state = vf_state.apply_gradients(grads=grads)
 
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
-        return (actor_state, vf_state), (pg_loss_value, vf_loss_value, ratio)
+        return (actor_state, vf_state), (pg_loss_value, policy_loss, entropy_loss, vf_loss_value, ratio)
 
     def train(self) -> None:
         """
@@ -279,18 +281,20 @@ class PPO(OnPolicyAlgorithmJax):
                 else:
                     actions = rollout_data.actions.numpy()
 
-                (self.policy.actor_state, self.policy.vf_state), (pg_loss, value_loss, ratio) = self._one_update(
-                    actor_state=self.policy.actor_state,
-                    vf_state=self.policy.vf_state,
-                    observations=rollout_data.observations.numpy(),
-                    actions=actions,
-                    advantages=rollout_data.advantages.numpy(),
-                    returns=rollout_data.returns.numpy(),
-                    old_log_prob=rollout_data.old_log_prob.numpy(),
-                    clip_range=clip_range,
-                    ent_coef=self.ent_coef,
-                    vf_coef=self.vf_coef,
-                    normalize_advantage=self.normalize_advantage,
+                (self.policy.actor_state, self.policy.vf_state), (pg_loss, policy_loss, entropy_loss, value_loss, ratio) = (
+                    self._one_update(
+                        actor_state=self.policy.actor_state,
+                        vf_state=self.policy.vf_state,
+                        observations=rollout_data.observations.numpy(),
+                        actions=actions,
+                        advantages=rollout_data.advantages.numpy(),
+                        returns=rollout_data.returns.numpy(),
+                        old_log_prob=rollout_data.old_log_prob.numpy(),
+                        clip_range=clip_range,
+                        ent_coef=self.ent_coef,
+                        vf_coef=self.vf_coef,
+                        normalize_advantage=self.normalize_advantage,
+                    )
                 )
 
                 # Calculate approximate form of reverse KL Divergence for adaptive lr
@@ -319,9 +323,9 @@ class PPO(OnPolicyAlgorithmJax):
         )
 
         # Logs
-        # self.logger.record("train/entropy_loss", np.mean(entropy_losses))
-        # self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
         # TODO: use mean instead of one point
+        self.logger.record("train/entropy_loss", entropy_loss.item())
+        self.logger.record("train/policy_gradient_loss", policy_loss.item())
         self.logger.record("train/value_loss", value_loss.item())
         self.logger.record("train/approx_kl", mean_kl_div)
         self.logger.record("train/clip_fraction", mean_clip_fraction)
