@@ -184,8 +184,6 @@ class PPO(OnPolicyAlgorithmJax):
 
             self.key = self.policy.build(self.key, self.lr_schedule, self.max_grad_norm)
 
-            self.key, ent_key = jax.random.split(self.key, 2)
-
             self.actor = self.policy.actor  # type: ignore[assignment]
             self.vf = self.policy.vf  # type: ignore[assignment]
 
