@@ -243,7 +243,7 @@ class PPOPolicy(BaseJaxPolicy):
             }
         elif isinstance(self.action_space, spaces.MultiDiscrete):
             assert self.action_space.nvec.ndim == 1, (
-                f"Only one-dimensional MultiDiscrete action spaces are supported, "
+                "Only one-dimensional MultiDiscrete action spaces are supported, "
                 f"but found MultiDiscrete({(self.action_space.nvec).tolist()})."
             )
             actor_kwargs = {
