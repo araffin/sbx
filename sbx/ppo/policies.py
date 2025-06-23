@@ -291,7 +291,7 @@ class PPOPolicy(BaseJaxPolicy):
 
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
-            params=self.vf.init({"params": vf_key}, obs),
+            params=self.vf.init(vf_key, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
                 optimizer_class,
