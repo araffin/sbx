@@ -163,6 +163,23 @@ def test_ppo(tmp_path, env_id: str) -> None:
     check_save_load(model, PPO, tmp_path)
 
 
+def test_simba_ppo(tmp_path) -> None:
+    model = PPO(
+        "SimbaPolicy",
+        "Pendulum-v1",
+        verbose=1,
+        n_steps=32,
+        batch_size=32,
+        n_epochs=2,
+        policy_kwargs=dict(activation_fn=nn.leaky_relu, net_arch=[64]),
+        # Test adaptive lr
+        target_kl=0.01,
+    )
+    model.learn(64, progress_bar=True)
+
+    check_save_load(model, PPO, tmp_path)
+
+
 def test_dqn(tmp_path) -> None:
     model = DQN(
         "MlpPolicy",
