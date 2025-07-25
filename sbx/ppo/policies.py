@@ -9,9 +9,9 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tensorflow_probability.substrates.jax as tfp
-from flax.linen.initializers import constant
 from flax.training.train_state import TrainState
 from gymnasium import spaces
+from jax.nn.initializers import constant
 from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import BaseJaxPolicy, Flatten
@@ -174,7 +174,7 @@ class PPOPolicy(BaseJaxPolicy):
         obs = jnp.array([self.observation_space.sample()])
 
         if isinstance(self.action_space, spaces.Box):
-            actor_kwargs = {
+            actor_kwargs: dict[str, Any] = {
                 "action_dim": int(np.prod(self.action_space.shape)),
             }
         elif isinstance(self.action_space, spaces.Discrete):
@@ -184,7 +184,7 @@ class PPOPolicy(BaseJaxPolicy):
             }
         elif isinstance(self.action_space, spaces.MultiDiscrete):
             assert self.action_space.nvec.ndim == 1, (
-                f"Only one-dimensional MultiDiscrete action spaces are supported, "
+                "Only one-dimensional MultiDiscrete action spaces are supported, "
                 f"but found MultiDiscrete({(self.action_space.nvec).tolist()})."
             )
             actor_kwargs = {
@@ -232,7 +232,7 @@ class PPOPolicy(BaseJaxPolicy):
 
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
-            params=self.vf.init({"params": vf_key}, obs),
+            params=self.vf.init(vf_key, obs),
             tx=optax.chain(
                 optax.clip_by_global_norm(max_grad_norm),
                 optimizer_class,
