@@ -97,6 +97,7 @@ def test_sac_td3(tmp_path, model_class) -> None:
         gradient_steps=1,
         learning_rate=1e-3,
         policy_kwargs=net_kwargs,
+        n_steps=3,
     )
     key_before_learn = model.key
     model.learn(110)

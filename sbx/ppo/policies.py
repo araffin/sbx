@@ -233,7 +233,7 @@ class PPOPolicy(BaseJaxPolicy):
         obs = jnp.array([self.observation_space.sample()])
 
         if isinstance(self.action_space, spaces.Box):
-            actor_kwargs = {
+            actor_kwargs: dict[str, Any] = {
                 "action_dim": int(np.prod(self.action_space.shape)),
             }
         elif isinstance(self.action_space, spaces.Discrete):
