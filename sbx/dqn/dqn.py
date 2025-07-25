@@ -12,13 +12,14 @@ from stable_baselines3.common.utils import LinearSchedule
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
-from sbx.dqn.policies import CNNPolicy, DQNPolicy
+from sbx.dqn.policies import CNNPolicy, DQNPolicy, MultiInputPolicy
 
 
 class DQN(OffPolicyAlgorithmJax):
     policy_aliases: ClassVar[dict[str, type[DQNPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": DQNPolicy,
         "CnnPolicy": CNNPolicy,
+        "MultiInputPolicy": MultiInputPolicy,
     }
     # Linear schedule will be defined in `_setup_model()`
     exploration_schedule: Schedule
@@ -149,10 +150,10 @@ class DQN(OffPolicyAlgorithmJax):
             discounts = data.discounts.numpy().flatten()
         # Convert to numpy
         data = ReplayBufferSamplesNp(
-            data.observations.numpy(),
+            jax.tree.map(lambda x: x.numpy(), data.observations),
             # Convert to int64
             data.actions.long().numpy(),
-            data.next_observations.numpy(),
+            jax.tree.map(lambda x: x.numpy(), data.next_observations),
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
             discounts,
@@ -279,9 +280,9 @@ class DQN(OffPolicyAlgorithmJax):
 
         qf_state, (qf_loss_value, qf_mean_value) = DQN.update_qnetwork(
             carry["qf_state"],
-            observations=data.observations[indices],
+            observations=jax.tree.map(lambda obs: obs[indices], data.observations),
             replay_actions=data.actions[indices],
-            next_observations=data.next_observations[indices],
+            next_observations=jax.tree.map(lambda obs: obs[indices], data.next_observations),
             rewards=data.rewards[indices],
             dones=data.dones[indices],
             discounts=data.discounts[indices],
