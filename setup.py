@@ -41,8 +41,8 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.6.1a1,<3.0",
-        "jax>=0.4.24",
+        "stable_baselines3>=2.7.0a1,<3.0",
+        "jax>=0.4.24,<0.7.0",  # tf probability not compatible yet with latest jax version
         "jaxlib",
         "flax",
         "optax",
@@ -62,7 +62,7 @@ setup(
             # Lint code
             "ruff>=0.3.1",
             # Reformat
-            "black>=24.2.0,<25",
+            "black>=25.1.0,<26",
         ],
     },
     description="Jax version of Stable Baselines, implementations of reinforcement learning algorithms.",

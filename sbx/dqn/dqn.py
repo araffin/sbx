@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import LinearSchedule
 
@@ -38,7 +39,10 @@ class DQN(OffPolicyAlgorithmJax):
         exploration_fraction: float = 0.1,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
-        optimize_memory_usage: bool = False,  # Note: unused but to match SB3 API
+        replay_buffer_class: Optional[type[ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[dict[str, Any]] = None,
+        optimize_memory_usage: bool = False,
+        n_steps: int = 1,
         # max_grad_norm: float = 10,
         train_freq: Union[int, tuple[int, str]] = 4,
         gradient_steps: int = 1,
@@ -60,6 +64,10 @@ class DQN(OffPolicyAlgorithmJax):
             gamma=gamma,
             train_freq=train_freq,
             gradient_steps=gradient_steps,
+            replay_buffer_class=replay_buffer_class,
+            replay_buffer_kwargs=replay_buffer_kwargs,
+            optimize_memory_usage=optimize_memory_usage,
+            n_steps=n_steps,
             policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
@@ -134,6 +142,12 @@ class DQN(OffPolicyAlgorithmJax):
     def train(self, batch_size, gradient_steps):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
+
+        if data.discounts is None:
+            discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
+        else:
+            # For bootstrapping with n-step returns
+            discounts = data.discounts.numpy().flatten()
         # Convert to numpy
         data = ReplayBufferSamplesNp(
             jax.tree.map(lambda x: x.numpy(), data.observations),
@@ -142,6 +156,7 @@ class DQN(OffPolicyAlgorithmJax):
             jax.tree.map(lambda x: x.numpy(), data.next_observations),
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
+            discounts,
         )
         # Pre compute the slice indices
         # otherwise jax will complain
@@ -149,7 +164,6 @@ class DQN(OffPolicyAlgorithmJax):
 
         update_carry = {
             "qf_state": self.policy.qf_state,
-            "gamma": self.gamma,
             "data": data,
             "indices": indices,
             "info": {
@@ -179,13 +193,13 @@ class DQN(OffPolicyAlgorithmJax):
     @staticmethod
     @jax.jit
     def update_qnetwork(
-        gamma: float,
         qf_state: RLTrainState,
         observations: np.ndarray,
         replay_actions: np.ndarray,
         next_observations: np.ndarray,
         rewards: np.ndarray,
         dones: np.ndarray,
+        discounts: np.ndarray,
     ):
         # Compute the next Q-values using the target network
         qf_next_values = qf_state.apply_fn(qf_state.target_params, next_observations)
@@ -193,10 +207,10 @@ class DQN(OffPolicyAlgorithmJax):
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
         # Avoid potential broadcast issue
-        next_q_values = next_q_values.reshape(-1, 1)
+        next_q_values = next_q_values[:, None]
 
         # shape is (batch_size, 1)
-        target_q_values = rewards.reshape(-1, 1) + (1 - dones.reshape(-1, 1)) * gamma * next_q_values
+        target_q_values = rewards[:, None] + (1 - dones[:, None]) * discounts[:, None] * next_q_values
 
         def huber_loss(params):
             # Get current Q-values estimates
@@ -265,13 +279,13 @@ class DQN(OffPolicyAlgorithmJax):
         data = carry["data"]
 
         qf_state, (qf_loss_value, qf_mean_value) = DQN.update_qnetwork(
-            carry["gamma"],
             carry["qf_state"],
             observations=jax.tree.map(lambda obs: obs[indices], data.observations),
             replay_actions=data.actions[indices],
             next_observations=jax.tree.map(lambda obs: obs[indices], data.next_observations),
             rewards=data.rewards[indices],
             dones=data.dones[indices],
+            discounts=data.discounts[indices],
         )
 
         carry["qf_state"] = qf_state
