@@ -199,7 +199,7 @@ class PPOPolicy(BaseJaxPolicy):
             # Handle binary action spaces as discrete action spaces with two choices.
             actor_kwargs = {
                 "action_dim": 2 * self.action_space.n,
-                "num_discrete_choices": 2 * np.ones(self.action_space.n, dtype=int),
+                "num_discrete_choices": 2 * np.ones(self.action_space.n, dtype=int),  # type: ignore[dict-item]
             }
         else:
             raise NotImplementedError(f"{self.action_space}")

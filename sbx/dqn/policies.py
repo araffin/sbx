@@ -1,14 +1,18 @@
+from collections import OrderedDict
 from typing import Any, Callable, Optional, Union
 
+import flax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 from gymnasium import spaces
+from stable_baselines3.common.preprocessing import is_image_space
 from stable_baselines3.common.type_aliases import Schedule
+from stable_baselines3.common.utils import is_vectorized_observation
 
-from sbx.common.policies import BaseJaxPolicy, Flatten
+from sbx.common.policies import BaseJaxPolicy, Flatten, OneHot
 from sbx.common.type_aliases import RLTrainState
 
 
@@ -148,3 +152,86 @@ class CNNPolicy(DQNPolicy):
         self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
 
         return key
+
+
+class MultiInputQNetwork(nn.Module):
+    observation_space: spaces.Space
+    n_actions: int
+    cnn_output_dim: int = 256
+    n_units: int = 256
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    def setup(self):
+        self.extractors = jax.tree.map(self._layer, self.observation_space.spaces)
+
+    @nn.compact
+    def __call__(self, observations: dict[str, jnp.ndarray]) -> jnp.ndarray:
+        encoded_tensors = jax.tree.map(lambda extractor, x: extractor(x), self.extractors, flax.core.freeze(observations))
+
+        flattened, _ = jax.tree.flatten(encoded_tensors)
+        x = jax.lax.concatenate(flattened, dimension=1)
+        x = nn.Dense(self.n_units)(x)
+        x = self.activation_fn(x)
+        x = nn.Dense(self.n_units)(x)
+        x = self.activation_fn(x)
+        x = nn.Dense(self.n_actions)(x)
+        return x
+
+    def _layer(self, subspace: spaces.Space) -> nn.Module:
+        if is_image_space(subspace):
+            return NatureCNN(
+                n_actions=self.cnn_output_dim,
+                n_units=self.n_units,
+                activation_fn=self.activation_fn,
+            )
+        elif isinstance(subspace, spaces.Discrete):
+            return OneHot(num_classes=int(subspace.n))
+        return Flatten()
+
+
+class MultiInputPolicy(DQNPolicy):
+    def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
+        key, qf_key = jax.random.split(key, 2)
+
+        # add batch dimension to the observation values.
+        obs = jax.tree.map(lambda x: np.array([x]), self.observation_space.sample())
+
+        self.qf = MultiInputQNetwork(
+            observation_space=self.observation_space,
+            n_actions=int(self.action_space.n),
+            n_units=self.n_units,
+            activation_fn=self.activation_fn,
+        )
+
+        self.qf_state = RLTrainState.create(
+            apply_fn=self.qf.apply,
+            params=self.qf.init({"params": qf_key}, obs),
+            target_params=self.qf.init({"params": qf_key}, obs),
+            tx=self.optimizer_class(
+                learning_rate=lr_schedule(1),  # type: ignore[call-arg]
+                **self.optimizer_kwargs,
+            ),
+        )
+
+        self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
+
+        return key
+
+    def prepare_obs(  # type: ignore[override]
+        self, observation: Union[np.ndarray, dict[str, np.ndarray]]
+    ) -> tuple[Union[np.ndarray, dict[str, np.ndarray]], bool]:
+        vectorized_env = False
+        if isinstance(observation, dict):
+            assert isinstance(
+                self.observation_space, spaces.Dict
+            ), f"The observation provided is a dict but the obs space is {self.observation_space}"
+
+            vectorized_env = is_vectorized_observation(observation, self.observation_space)  # type: ignore[arg-type]
+            observation = jax.tree.map(
+                lambda obs, obs_space: self._prepare_obs(obs, obs_space)[0],
+                OrderedDict(observation),
+                OrderedDict(self.observation_space.spaces),
+            )
+            return observation, vectorized_env
+
+        return super().prepare_obs(observation)
