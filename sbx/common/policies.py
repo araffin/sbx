@@ -135,10 +135,12 @@ class ContinuousCritic(nn.Module):
     dropout_rate: Optional[float] = None
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1
+    flatten: bool = True
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
-        x = Flatten()(x)
+        if self.flatten:
+            x = Flatten()(x)
         x = jnp.concatenate([x, action], -1)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)

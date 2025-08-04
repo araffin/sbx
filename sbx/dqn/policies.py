@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any, Callable, Optional, Union
 
 import flax.linen as nn
@@ -14,16 +15,15 @@ from sbx.common.type_aliases import RLTrainState
 
 class QNetwork(nn.Module):
     n_actions: int
-    n_units: int = 256
+    net_arch: Sequence[int]
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         x = Flatten()(x)
-        x = nn.Dense(self.n_units)(x)
-        x = self.activation_fn(x)
-        x = nn.Dense(self.n_units)(x)
-        x = self.activation_fn(x)
+        for n_units in self.net_arch:
+            x = nn.Dense(n_units)(x)
+            x = self.activation_fn(x)
         x = nn.Dense(self.n_actions)(x)
         return x
 
@@ -81,9 +81,13 @@ class DQNPolicy(BaseJaxPolicy):
 
         if net_arch is not None:
             assert isinstance(net_arch, list)
+            self.net_arch = net_arch
+            # For CNN policy
             self.n_units = net_arch[0]
         else:
-            self.n_units = 256
+            self.net_arch = [256, 256]
+            # For CNN policy
+            self.n_units = 512
         self.activation_fn = activation_fn
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
@@ -93,7 +97,7 @@ class DQNPolicy(BaseJaxPolicy):
 
         self.qf: nn.Module = QNetwork(
             n_actions=int(self.action_space.n),
-            n_units=self.n_units,
+            net_arch=self.net_arch,
             activation_fn=self.activation_fn,
         )
 

@@ -8,7 +8,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.envs import BitFlippingEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ
+from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ, SampleDQN
 
 
 def check_save_load(model, model_class, tmp_path):
@@ -173,6 +173,16 @@ def test_dqn(tmp_path) -> None:
     )
     model.learn(128)
     check_save_load(model, DQN, tmp_path)
+
+
+def test_sample_dqn(tmp_path) -> None:
+    model = SampleDQN(
+        "MlpPolicy",
+        "Pendulum-v1",
+        verbose=1,
+    )
+    model.learn(128)
+    check_save_load(model, SampleDQN, tmp_path)
 
 
 @pytest.mark.parametrize("replay_buffer_class", [None, HerReplayBuffer])
