@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
@@ -32,6 +33,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         tau: float = 0.005,
         gamma: float = 0.99,
         n_sampled_actions: int = 10,
+        action_noise: Optional[ActionNoise] = None,
         # target_update_interval: int = 1000,
         replay_buffer_class: Optional[type[ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[dict[str, Any]] = None,
@@ -58,6 +60,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
             gamma=gamma,
             train_freq=train_freq,
             gradient_steps=gradient_steps,
+            action_noise=action_noise,
             replay_buffer_class=replay_buffer_class,
             replay_buffer_kwargs=replay_buffer_kwargs,
             optimize_memory_usage=optimize_memory_usage,
