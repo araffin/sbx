@@ -71,8 +71,7 @@ class SACPolicy(BaseJaxPolicy):
         self.activation_fn = activation_fn
         self.actor_class = actor_class
         self.vector_critic_class = vector_critic_class
-
-        self.key = self.noise_key = jax.random.PRNGKey(0)
+        self.noise_key = jax.random.PRNGKey(0)
 
     def build(self, key: jax.Array, lr_schedule: Schedule, qf_learning_rate: float) -> jax.Array:
         key, actor_key, qf_key, dropout_key = jax.random.split(key, 4)
