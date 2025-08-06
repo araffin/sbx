@@ -86,12 +86,17 @@ class SampleDQNPolicy(BaseJaxPolicy):
     @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
     def select_action(qf_state, observations, key, n_sampled_actions: int, action_dim: int):
         # Uniform sampling
-        actions = jax.random.uniform(
-            key,
-            shape=(observations.shape[0], n_sampled_actions, action_dim),
-            minval=-1.0,
-            maxval=1.0,
-        )
+        # actions = jax.random.uniform(
+        #     key,
+        #     shape=(observations.shape[0], n_sampled_actions, action_dim),
+        #     minval=-1.0,
+        #     maxval=1.0,
+        # )
+        # Gaussian dist
+        scale = 1.0
+        actions = scale * jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
+        actions = jnp.clip(actions, -1.0, 1.0)
+
         repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
         qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, actions)
 

@@ -187,6 +187,11 @@ class SampleDQN(OffPolicyAlgorithmJax):
             minval=-1.0,
             maxval=1.0,
         )
+        # Gaussian dist
+        # scale = 1.0
+        # next_actions = scale * jax.random.normal(key, shape=(observations.shape[0], sampled_actions.shape[0], replay_actions.shape[-1]))
+        # next_actions = jnp.clip(next_actions, -1.0, 1.0)
+
         repeated_next_obs = jnp.repeat(jnp.expand_dims(next_observations, axis=1), sampled_actions.shape[0], axis=1)
 
         # Compute the next Q-values using the target network
