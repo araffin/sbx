@@ -32,7 +32,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         batch_size: int = 32,
         tau: float = 0.005,
         gamma: float = 0.99,
-        n_sampled_actions: int = 10,
+        n_sampled_actions: int = 100,
         action_noise: Optional[ActionNoise] = None,
         # target_update_interval: int = 1000,
         replay_buffer_class: Optional[type[ReplayBuffer]] = None,
@@ -189,13 +189,18 @@ class SampleDQN(OffPolicyAlgorithmJax):
         )
         # Gaussian dist
         # scale = 1.0
-        # next_actions = scale * jax.random.normal(key, shape=(observations.shape[0], sampled_actions.shape[0], replay_actions.shape[-1]))
+        # next_actions = scale * jax.random.normal(
+        #     key,
+        #     shape=(observations.shape[0], sampled_actions.shape[0], replay_actions.shape[-1]),
+        # )
         # next_actions = jnp.clip(next_actions, -1.0, 1.0)
 
         repeated_next_obs = jnp.repeat(jnp.expand_dims(next_observations, axis=1), sampled_actions.shape[0], axis=1)
 
         # Compute the next Q-values using the target network
         qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_next_obs, next_actions)
+        # Twin network: take the min between q-networks
+        qf_next_values = jnp.min(qf_next_values, axis=0)
 
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
@@ -205,13 +210,16 @@ class SampleDQN(OffPolicyAlgorithmJax):
         # shape is (batch_size, 1)
         target_q_values = rewards[:, None] + (1 - dones[:, None]) * discounts[:, None] * next_q_values
 
-        def huber_loss(params):
+        def critic_loss(params):
             # Retrieve the q-values for the actions from the replay buffer
+            # shape is (n_critics, batch_size, 1)
             current_q_values = qf_state.apply_fn(params, observations, replay_actions)
             # Compute Huber loss (less sensitive to outliers)
-            return optax.huber_loss(current_q_values, target_q_values).mean(), current_q_values.mean()
+            # return optax.huber_loss(current_q_values, target_q_values).mean(axis=1).sum(), current_q_values.mean()
+            # Reduction: mean over batch, sum over critics
+            return 0.5 * ((target_q_values - current_q_values) ** 2).mean(axis=1).sum(), current_q_values.mean()
 
-        (qf_loss_value, qf_mean_value), grads = jax.value_and_grad(huber_loss, has_aux=True)(qf_state.params)
+        (qf_loss_value, qf_mean_value), grads = jax.value_and_grad(critic_loss, has_aux=True)(qf_state.params)
         qf_state = qf_state.apply_gradients(grads=grads)
 
         return qf_state, (qf_loss_value, qf_mean_value)

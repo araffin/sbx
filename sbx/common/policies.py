@@ -185,6 +185,7 @@ class VectorCritic(nn.Module):
     n_critics: int = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1
+    flatten: bool = True
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
@@ -204,6 +205,7 @@ class VectorCritic(nn.Module):
             net_arch=self.net_arch,
             activation_fn=self.activation_fn,
             output_dim=self.output_dim,
+            flatten=self.flatten,
         )(obs, action)
         return q_values
 

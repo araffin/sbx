@@ -9,7 +9,7 @@ import optax
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
-from sbx.common.policies import BaseJaxPolicy, ContinuousCritic
+from sbx.common.policies import BaseJaxPolicy, VectorCritic
 from sbx.common.type_aliases import RLTrainState
 
 
@@ -22,13 +22,17 @@ class SampleDQNPolicy(BaseJaxPolicy):
         action_space: spaces.Box,
         lr_schedule: Schedule,
         net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        dropout_rate: float = 0.0,
+        layer_norm: bool = False,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
         features_extractor_class=None,
         features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
         optimizer_kwargs: Optional[dict[str, Any]] = None,
-        n_sampled_actions: int = 10,
+        n_critics: int = 2,
+        n_sampled_actions: int = 100,
+        vector_critic_class: type[nn.Module] = VectorCritic,
     ):
         super().__init__(
             observation_space,
@@ -39,7 +43,8 @@ class SampleDQNPolicy(BaseJaxPolicy):
             optimizer_kwargs=optimizer_kwargs,
             squash_output=True,
         )
-
+        self.dropout_rate = dropout_rate
+        self.layer_norm = layer_norm
         if net_arch is not None:
             assert isinstance(net_arch, list)
             self.net_arch = net_arch
@@ -49,6 +54,8 @@ class SampleDQNPolicy(BaseJaxPolicy):
         self.activation_fn = activation_fn
         self.n_sampled_actions = n_sampled_actions
         self.action_dim = int(np.prod(self.action_space.shape))
+        self.n_critics = n_critics
+        self.vector_critic_class = vector_critic_class
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key = jax.random.split(key, 2)
@@ -60,12 +67,17 @@ class SampleDQNPolicy(BaseJaxPolicy):
         obs = jnp.array([self.observation_space.sample()])
         action = jnp.array([self.action_space.sample()])
 
-        self.qf: nn.Module = ContinuousCritic(
+        self.qf = self.vector_critic_class(
+            dropout_rate=self.dropout_rate,
+            use_layer_norm=self.layer_norm,
             net_arch=self.net_arch,
+            n_critics=self.n_critics,
             activation_fn=self.activation_fn,
+            # No flatten layer because we repeat actions for sampling
             flatten=False,
         )
 
+        # TODO: enable dropout?
         self.qf_state = RLTrainState.create(
             apply_fn=self.qf.apply,
             params=self.qf.init({"params": qf_key}, obs, action),
@@ -76,7 +88,10 @@ class SampleDQNPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.qf.apply = jax.jit(self.qf.apply)  # type: ignore[method-assign]
+        self.qf.apply = jax.jit(  # type: ignore[method-assign]
+            self.qf.apply,
+            static_argnames=("dropout_rate", "use_layer_norm"),
+        )
         return key
 
     def forward(self, obs: np.ndarray, deterministic: bool = False) -> np.ndarray:
@@ -95,10 +110,14 @@ class SampleDQNPolicy(BaseJaxPolicy):
         # Gaussian dist
         scale = 1.0
         actions = scale * jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
+        # Note: we could also use tanh
         actions = jnp.clip(actions, -1.0, 1.0)
 
         repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
+        # Shape is (n_critics, batch_size, n_repeated_actions, 1)
         qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, actions)
+        # Twin network: take the min between q-networks
+        qf_values = jnp.min(qf_values, axis=0)
 
         actions_indices = jnp.argmax(qf_values, axis=1)
 
