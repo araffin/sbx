@@ -25,7 +25,6 @@ class SampleDQNPolicy(BaseJaxPolicy):
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
-        use_sde: bool = False,
         features_extractor_class=None,
         features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
@@ -57,7 +56,6 @@ class SampleDQNPolicy(BaseJaxPolicy):
         self.action_dim = int(np.prod(self.action_space.shape))
         self.n_critics = n_critics
         self.vector_critic_class = vector_critic_class
-        self.use_sde = use_sde
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key = jax.random.split(key, 2)
@@ -128,24 +126,12 @@ class SampleDQNPolicy(BaseJaxPolicy):
         best_actions = best_actions.squeeze(axis=1)  # shape (batch_size, action_dim)
         return best_actions
 
-    def get_std(self):
-        # Make it work with gSDE
-        return jnp.array(0.0)
-
-    def reset_noise(self, batch_size: int = 1) -> None:
-        """
-        For interface compatibility when using gSDE.
-        """
-        self.update_sampling_key()
-
     def update_sampling_key(self) -> None:
         self.key, self.sampling_key = jax.random.split(self.key, 2)
 
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         # Note: deterministic is currently not properly handled
-        # Trick to use gSDE: repeat sampled actions by using the same noise key
-        if not self.use_sde:
-            self.update_sampling_key()
+        self.update_sampling_key()
         return SampleDQNPolicy.select_action(
             self.qf_state,
             observation,

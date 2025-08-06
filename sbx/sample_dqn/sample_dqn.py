@@ -39,9 +39,6 @@ class SampleDQN(OffPolicyAlgorithmJax):
         replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         optimize_memory_usage: bool = False,
         n_steps: int = 1,
-        use_sde: bool = False,
-        sde_sample_freq: int = -1,
-        use_sde_at_warmup: bool = False,
         # max_grad_norm: float = 10,
         train_freq: Union[int, tuple[int, str]] = 1,
         gradient_steps: int = 1,
@@ -68,19 +65,15 @@ class SampleDQN(OffPolicyAlgorithmJax):
             replay_buffer_kwargs=replay_buffer_kwargs,
             optimize_memory_usage=optimize_memory_usage,
             n_steps=n_steps,
-            use_sde=use_sde,
-            sde_sample_freq=sde_sample_freq,
-            use_sde_at_warmup=use_sde_at_warmup,
             policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             seed=seed,
-            sde_support=True,
+            sde_support=False,
             supported_action_spaces=(gym.spaces.Box,),
             support_multi_env=True,
         )
 
-        self.use_sde = use_sde
         self.n_sampled_actions = n_sampled_actions
         if _init_setup_model:
             self._setup_model()
@@ -99,8 +92,6 @@ class SampleDQN(OffPolicyAlgorithmJax):
 
             self.key = self.policy.build(self.key, self.lr_schedule)
             self.qf = self.policy.qf
-            # For compat with gSDE sampling
-            self.actor = self.policy
 
     def learn(
         self,
