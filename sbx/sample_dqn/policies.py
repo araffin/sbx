@@ -20,8 +20,8 @@ def find_best_actions_cem(
     key,
     n_sampled_actions: int,
     action_dim: int,
-    n_top: int = 10,
-    n_iterations: int = 20,
+    n_top: int = 6,
+    n_iterations: int = 2,
 ):
     """
     Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -30,7 +30,7 @@ def find_best_actions_cem(
     See https://github.com/Stable-Baselines-Team/stable-baselines3-contrib/pull/62
     """
     initial_variance = 1.0**2
-    extra_noise_std = 0.01
+    extra_noise_std = 0.001
     best_actions = jnp.zeros((observations.shape[0], action_dim))
     best_actions_cov = jnp.ones_like(best_actions) * initial_variance
     extra_variance = jnp.ones_like(best_actions_cov) * extra_noise_std**2
@@ -39,11 +39,14 @@ def find_best_actions_cem(
         "best_actions": best_actions,
         "best_actions_cov": best_actions_cov,
         "top_one_actions": best_actions,
+        "key": key,
     }
 
     def one_update(i: int, carry: dict[str, Any]) -> dict[str, Any]:
         best_actions = carry["best_actions"]
         best_actions_cov = carry["best_actions_cov"]
+        key = carry["key"]
+        key, new_key = jax.random.split(key, 2)
 
         # Sample using only the diagonal of the covariance matrix (+ extra noise)
         # TODO: try with full covariance?
@@ -70,6 +73,7 @@ def find_best_actions_cem(
             "top_one_actions": best_actions[:, :1, :].squeeze(axis=1),
             "best_actions": best_actions.mean(axis=1),
             "best_actions_cov": best_actions.var(axis=1),
+            "key": new_key,
         }
 
     update_carry = jax.lax.fori_loop(0, n_iterations, one_update, carry)
