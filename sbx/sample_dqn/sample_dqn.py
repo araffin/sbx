@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Any, ClassVar, Optional, Union
 
 import gymnasium as gym
@@ -168,6 +169,70 @@ class SampleDQN(OffPolicyAlgorithmJax):
         self.logger.record("train/qf_mean_value", qf_mean_value.item())
 
     @staticmethod
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
+    def find_max_target_q_cem(
+        qf_state,
+        observations,
+        key,
+        n_sampled_actions: int,
+        action_dim: int,
+        n_top: int = 5,
+        n_iterations: int = 2,
+    ):
+        """
+        Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
+        "Learning Tetris Using the Noisy Cross-Entropy Method"
+
+        See https://github.com/Stable-Baselines-Team/stable-baselines3-contrib/pull/62
+        """
+        initial_variance = 1.0**2
+        extra_noise_std = 0.01
+        best_actions = jnp.zeros((observations.shape[0], action_dim))
+        best_actions_cov = jnp.ones_like(best_actions) * initial_variance
+        extra_variance = jnp.ones_like(best_actions_cov) * extra_noise_std**2
+
+        carry = {
+            "best_actions": best_actions,
+            "best_actions_cov": best_actions_cov,
+            "next_q_values": jnp.zeros((observations.shape[0], 1)),
+        }
+
+        def one_update(i: int, carry: dict[str, Any]) -> dict[str, Any]:
+            best_actions = carry["best_actions"]
+            best_actions_cov = carry["best_actions_cov"]
+
+            # Sample using only the diagonal of the covariance matrix (+ extra noise)
+            # TODO: try with full covariance?
+            deltas = jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
+            actions = jnp.expand_dims(best_actions, axis=1) + deltas * jnp.expand_dims(
+                jnp.sqrt(best_actions_cov + extra_variance), axis=1
+            )
+            actions = jnp.clip(actions, -1.0, 1.0)
+
+            repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
+            # Shape is (n_critics, batch_size, n_repeated_actions, 1)
+            qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_obs, actions)
+            # Twin network: take the min between q-networks
+            qf_next_values = jnp.min(qf_next_values, axis=0)
+
+            # Keep only the top performing candidates for update
+            # Shape is (batch_size, n_top, 1)
+            actions_indices = jnp.argsort(qf_next_values, axis=1, descending=True)[:, :n_top, :]
+            # Shape (batch_size, n_top, action_dim)
+            best_actions = jnp.take_along_axis(actions, actions_indices, axis=1)
+
+            # Update centroid: barycenter of the best candidates
+            return {
+                "best_actions": best_actions.mean(axis=1),
+                "best_actions_cov": best_actions.var(axis=1),
+                "next_q_values": qf_next_values.max(axis=1),
+            }
+
+        update_carry = jax.lax.fori_loop(0, n_iterations, one_update, carry)
+        # shape (batch_size, 1)
+        return update_carry["next_q_values"]
+
+    @staticmethod
     @jax.jit
     def update_qnetwork(
         qf_state: RLTrainState,
@@ -204,8 +269,14 @@ class SampleDQN(OffPolicyAlgorithmJax):
 
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
-        # Avoid potential broadcast issue
-        # next_q_values = next_q_values[:, None]
+
+        # next_q_values = SampleDQN.find_max_target_q_cem(
+        #     qf_state,
+        #     observations,
+        #     key,
+        #     n_sampled_actions=sampled_actions.shape[0],
+        #     action_dim=replay_actions.shape[-1],
+        # )
 
         # shape is (batch_size, 1)
         target_q_values = rewards[:, None] + (1 - dones[:, None]) * discounts[:, None] * next_q_values

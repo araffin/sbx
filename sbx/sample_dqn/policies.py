@@ -14,14 +14,14 @@ from sbx.common.type_aliases import RLTrainState
 
 
 @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
-def cem(
+def find_best_actions_cem(
     qf_state,
     observations,
     key,
     n_sampled_actions: int,
     action_dim: int,
-    n_top: int = 6,
-    n_iterations: int = 2,
+    n_top: int = 10,
+    n_iterations: int = 20,
 ):
     """
     Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -29,8 +29,8 @@ def cem(
 
     See https://github.com/Stable-Baselines-Team/stable-baselines3-contrib/pull/62
     """
-    initial_variance = 0.5**2
-    extra_noise_std = 0.05
+    initial_variance = 1.0**2
+    extra_noise_std = 0.01
     best_actions = jnp.zeros((observations.shape[0], action_dim))
     best_actions_cov = jnp.ones_like(best_actions) * initial_variance
     extra_variance = jnp.ones_like(best_actions_cov) * extra_noise_std**2
@@ -62,7 +62,8 @@ def cem(
         # Keep only the top performing candidates for update
         # Shape is (batch_size, n_top, 1)
         actions_indices = jnp.argsort(qf_values, axis=1, descending=True)[:, :n_top, :]
-        best_actions = jnp.take_along_axis(actions, actions_indices, axis=1)  # shape (batch_size, n_top, action_dim)
+        # Shape (batch_size, n_top, action_dim)
+        best_actions = jnp.take_along_axis(actions, actions_indices, axis=1)
 
         # Update centroid: barycenter of the best candidates
         return {
@@ -167,7 +168,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
     @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
     def select_action(qf_state, observations, key, n_sampled_actions: int, action_dim: int):
         # CEM
-        return cem(qf_state, observations, key, n_sampled_actions, action_dim)
+        return find_best_actions_cem(qf_state, observations, key, n_sampled_actions, action_dim)
 
         # # Uniform sampling
         # # actions = jax.random.uniform(
