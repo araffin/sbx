@@ -13,6 +13,72 @@ from sbx.common.policies import BaseJaxPolicy, VectorCritic
 from sbx.common.type_aliases import RLTrainState
 
 
+@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
+def cem(
+    qf_state,
+    observations,
+    key,
+    n_sampled_actions: int,
+    action_dim: int,
+    n_top: int = 6,
+    n_iterations: int = 2,
+):
+    """
+    Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
+    "Learning Tetris Using the Noisy Cross-Entropy Method"
+
+    See https://github.com/Stable-Baselines-Team/stable-baselines3-contrib/pull/62
+    """
+    initial_variance = 0.5**2
+    extra_noise_std = 0.05
+    best_actions = jnp.zeros((observations.shape[0], action_dim))
+    best_actions_cov = jnp.ones_like(best_actions) * initial_variance
+    extra_variance = jnp.ones_like(best_actions_cov) * extra_noise_std**2
+
+    carry = {
+        "best_actions": best_actions,
+        "best_actions_cov": best_actions_cov,
+        "top_one_actions": best_actions,
+    }
+
+    def one_update(i: int, carry: dict[str, Any]) -> dict[str, Any]:
+        best_actions = carry["best_actions"]
+        best_actions_cov = carry["best_actions_cov"]
+
+        # Sample using only the diagonal of the covariance matrix (+ extra noise)
+        # TODO: try with full covariance?
+        deltas = jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
+        actions = jnp.expand_dims(best_actions, axis=1) + deltas * jnp.expand_dims(
+            jnp.sqrt(best_actions_cov + extra_variance), axis=1
+        )
+        actions = jnp.clip(actions, -1.0, 1.0)
+
+        repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
+        # Shape is (n_critics, batch_size, n_repeated_actions, 1)
+        qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, actions)
+        # Twin network: take the min between q-networks
+        qf_values = jnp.min(qf_values, axis=0)
+
+        # Keep only the top performing candidates for update
+        # Shape is (batch_size, n_top, 1)
+        actions_indices = jnp.argsort(qf_values, axis=1, descending=True)[:, :n_top, :]
+        best_actions = jnp.take_along_axis(actions, actions_indices, axis=1)  # shape (batch_size, n_top, action_dim)
+
+        # Update centroid: barycenter of the best candidates
+        return {
+            "top_one_actions": best_actions[:, :1, :].squeeze(axis=1),
+            "best_actions": best_actions.mean(axis=1),
+            "best_actions_cov": best_actions.var(axis=1),
+        }
+
+    update_carry = jax.lax.fori_loop(0, n_iterations, one_update, carry)
+    # best_actions = update_carry["best_actions"]
+    best_actions = update_carry["top_one_actions"]
+
+    # shape (batch_size, action_dim)
+    return best_actions
+
+
 class SampleDQNPolicy(BaseJaxPolicy):
     action_space: spaces.Box  # type: ignore[assignment]
 
@@ -100,31 +166,35 @@ class SampleDQNPolicy(BaseJaxPolicy):
     @staticmethod
     @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
     def select_action(qf_state, observations, key, n_sampled_actions: int, action_dim: int):
-        # Uniform sampling
-        # actions = jax.random.uniform(
-        #     key,
-        #     shape=(observations.shape[0], n_sampled_actions, action_dim),
-        #     minval=-1.0,
-        #     maxval=1.0,
-        # )
-        # Gaussian dist
-        scale = 1.0
-        actions = scale * jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
-        # Note: we could also use tanh
-        actions = jnp.clip(actions, -1.0, 1.0)
+        # CEM
+        return cem(qf_state, observations, key, n_sampled_actions, action_dim)
 
-        repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
-        # Shape is (n_critics, batch_size, n_repeated_actions, 1)
-        qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, actions)
-        # Twin network: take the min between q-networks
-        qf_values = jnp.min(qf_values, axis=0)
+        # # Uniform sampling
+        # # actions = jax.random.uniform(
+        # #     key,
+        # #     shape=(observations.shape[0], n_sampled_actions, action_dim),
+        # #     minval=-1.0,
+        # #     maxval=1.0,
+        # # )
+        # # Gaussian dist
+        # scale = 1.0
+        # actions = scale * jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
+        # actions = jnp.clip(actions, -1.0, 1.0)
+        # # Note: we could also use tanh, but doesn't work
+        # # actions = jnp.tanh(actions)
 
-        actions_indices = jnp.argmax(qf_values, axis=1)
+        # repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
+        # # Shape is (n_critics, batch_size, n_repeated_actions, 1)
+        # qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, actions)
+        # # Twin network: take the min between q-networks
+        # qf_values = jnp.min(qf_values, axis=0)
 
-        indices_expanded = jnp.expand_dims(actions_indices, axis=-1)  # shape (batch_size, 1, 1)
-        best_actions = jnp.take_along_axis(actions, indices_expanded, axis=1)  # shape (batch_size, 1, action_dim)
-        best_actions = best_actions.squeeze(axis=1)  # shape (batch_size, action_dim)
-        return best_actions
+        # actions_indices = jnp.argmax(qf_values, axis=1)
+
+        # indices_expanded = jnp.expand_dims(actions_indices, axis=-1)  # shape (batch_size, 1, 1)
+        # best_actions = jnp.take_along_axis(actions, indices_expanded, axis=1)  # shape (batch_size, 1, action_dim)
+        # best_actions = best_actions.squeeze(axis=1)  # shape (batch_size, action_dim)
+        # return best_actions
 
     def update_sampling_key(self) -> None:
         self.key, self.sampling_key = jax.random.split(self.key, 2)
