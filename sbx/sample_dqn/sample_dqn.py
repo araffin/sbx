@@ -75,6 +75,9 @@ class SampleDQN(OffPolicyAlgorithmJax):
             support_multi_env=True,
         )
 
+        # "epsilon" for the epsilon-greedy exploration
+        self.exploration_rate = 0.00
+
         self.n_sampled_actions = n_sampled_actions
         if _init_setup_model:
             self._setup_model()
@@ -186,10 +189,12 @@ class SampleDQN(OffPolicyAlgorithmJax):
         See https://github.com/Stable-Baselines-Team/stable-baselines3-contrib/pull/62
         """
         initial_variance = 1.0**2
-        extra_noise_std = 0.001
+        extra_noise_std = 0.1
         best_actions = jnp.zeros((observations.shape[0], action_dim))
         best_actions_cov = jnp.ones_like(best_actions) * initial_variance
         extra_variance = jnp.ones_like(best_actions_cov) * extra_noise_std**2
+        # Decay the extra noise in half the iterations
+        extra_var_decay_time = n_iterations / 2.0
 
         carry = {
             "best_actions": best_actions,
@@ -204,19 +209,23 @@ class SampleDQN(OffPolicyAlgorithmJax):
             key = carry["key"]
             key, new_key = jax.random.split(key, 2)
 
+            # Reduce extra variance over time
+            extra_var_multiplier = jnp.max(jnp.array([(1.0 - i / extra_var_decay_time), 0]))
             # Sample using only the diagonal of the covariance matrix (+ extra noise)
             # TODO: try with full covariance?
             deltas = jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
             actions = jnp.expand_dims(best_actions, axis=1) + deltas * jnp.expand_dims(
-                jnp.sqrt(best_actions_cov + extra_variance), axis=1
+                jnp.sqrt(best_actions_cov + extra_variance * extra_var_multiplier), axis=1
             )
-            actions = jnp.clip(actions, -1.0, 1.0)
+            # actions = jnp.clip(actions, -1.0, 1.0)
 
             repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
             # Shape is (n_critics, batch_size, n_repeated_actions, 1)
-            qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_obs, actions)
+            qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_obs, jnp.clip(actions, -1.0, 1.0))
             # Twin network: take the min between q-networks
-            qf_next_values = jnp.min(qf_next_values, axis=0)
+            # qf_next_values = jnp.min(qf_next_values, axis=0)
+            # More optimistic alternative
+            qf_next_values = jnp.mean(qf_next_values, axis=0)
 
             # Keep only the top performing candidates for update
             # Shape is (batch_size, n_top, 1)
@@ -269,7 +278,9 @@ class SampleDQN(OffPolicyAlgorithmJax):
         # Compute the next Q-values using the target network
         qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_next_obs, next_actions)
         # Twin network: take the min between q-networks
-        qf_next_values = jnp.min(qf_next_values, axis=0)
+        # qf_next_values = jnp.min(qf_next_values, axis=0)
+        # More optimistic alternative
+        qf_next_values = jnp.mean(qf_next_values, axis=0)
 
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
@@ -329,3 +340,33 @@ class SampleDQN(OffPolicyAlgorithmJax):
         carry["info"]["qf_mean_value"] += qf_mean_value
 
         return carry, None
+
+    def predict(
+        self,
+        observation: Union[np.ndarray, dict[str, np.ndarray]],
+        state: Optional[tuple[np.ndarray, ...]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> tuple[np.ndarray, Optional[tuple[np.ndarray, ...]]]:
+        """
+        Overrides the base_class predict function to include epsilon-greedy exploration.
+
+        :param observation: the input observation
+        :param state: The last states (can be None, used in recurrent policies)
+        :param episode_start: The last masks (can be None, used in recurrent policies)
+        :param deterministic: Whether or not to return deterministic actions.
+        :return: the model's action and the next state
+            (used in recurrent policies)
+        """
+        if not deterministic and np.random.rand() < self.exploration_rate:
+            if self.policy.is_vectorized_observation(observation):
+                if isinstance(observation, dict):
+                    n_batch = observation[next(iter(observation.keys()))].shape[0]
+                else:
+                    n_batch = observation.shape[0]
+                action = np.array([self.action_space.sample() for _ in range(n_batch)])
+            else:
+                action = np.array(self.action_space.sample())
+        else:
+            action, state = self.policy.predict(observation, state, episode_start, deterministic)
+        return action, state
