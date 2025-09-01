@@ -17,9 +17,16 @@ from sbx.sample_dqn.policies import SampleDQNPolicy
 
 
 class SamplingStrategy(Enum):
-    UNIFORM = "uniform"
-    GAUSSIAN = "gaussian"
-    CEM = "cem"
+    UNIFORM = 0
+    GAUSSIAN = 1
+    CEM = 1
+
+
+NAME_TO_SAMPLING_STRATEGY = {
+    "uniform": SamplingStrategy.UNIFORM,
+    "gaussian": SamplingStrategy.GAUSSIAN,
+    "cem": SamplingStrategy.CEM,
+}
 
 
 class SampleDQN(OffPolicyAlgorithmJax):
@@ -47,6 +54,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         replay_buffer_kwargs: Optional[dict[str, Any]] = None,
         optimize_memory_usage: bool = False,
         n_steps: int = 1,
+        train_sampling_strategy: Union[SamplingStrategy, str] = SamplingStrategy.UNIFORM,
         # max_grad_norm: float = 10,
         train_freq: Union[int, tuple[int, str]] = 1,
         gradient_steps: int = 1,
@@ -85,6 +93,10 @@ class SampleDQN(OffPolicyAlgorithmJax):
         # "epsilon" for the epsilon-greedy exploration
         self.exploration_rate = 0.00
 
+        # TODO: handle error cases
+        if isinstance(train_sampling_strategy, str):
+            train_sampling_strategy = NAME_TO_SAMPLING_STRATEGY[train_sampling_strategy]
+        self.train_sampling_strategy = train_sampling_strategy
         self.n_sampled_actions = n_sampled_actions
         if _init_setup_model:
             self._setup_model()
@@ -149,6 +161,8 @@ class SampleDQN(OffPolicyAlgorithmJax):
             "key": self.key,
             # To give the right shape and avoid JIT errors
             "sampled_actions": jnp.ones(self.n_sampled_actions),
+            # "sampling_strategy": jnp.array([self.train_sampling_strategy.value]),
+            "sampling_strategy": self.train_sampling_strategy.value,
             "tau": self.tau,
             "qf_state": self.policy.qf_state,
             "data": data,
@@ -313,36 +327,22 @@ class SampleDQN(OffPolicyAlgorithmJax):
         discounts: jax.Array,
         key: jax.Array,
         sampled_actions: jax.Array,
-        sampling_strategy: SamplingStrategy = SamplingStrategy.UNIFORM,
+        sampling_strategy: int = SamplingStrategy.UNIFORM.value,
     ):
+        # Reduce number of sampled action compared to exploration
         n_sampled_actions = sampled_actions.shape[0] // 2
+        action_dim = replay_actions.shape[-1]
 
-        next_q_values = {
-            SamplingStrategy.UNIFORM: SampleDQN.find_max_target_uniform,
-            SamplingStrategy.CEM: SampleDQN.find_max_target_q_cem,
-        }[sampling_strategy](
+        next_q_values = jax.lax.cond(
+            sampling_strategy == SamplingStrategy.UNIFORM.value,
+            # If True:
+            partial(SampleDQN.find_max_target_uniform, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
+            # If False:
+            partial(SampleDQN.find_max_target_q_cem, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
             qf_state,
             next_observations,
             key,
-            n_sampled_actions=n_sampled_actions,
-            action_dim=replay_actions.shape[-1],
         )
-
-        # next_q_values = SampleDQN.find_max_target_uniform(
-        #     qf_state,
-        #     next_observations,
-        #     key,
-        #     n_sampled_actions=n_sampled_actions,
-        #     action_dim=replay_actions.shape[-1],
-        # )
-
-        # next_q_values = SampleDQN.find_max_target_q_cem(
-        #     qf_state,
-        #     next_observations,
-        #     key,
-        #     n_sampled_actions=n_sampled_actions,
-        #     action_dim=replay_actions.shape[-1],
-        # )
 
         # shape is (batch_size, 1)
         target_q_values = rewards[:, None] + (1 - dones[:, None]) * discounts[:, None] * next_q_values
@@ -383,6 +383,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
             discounts=data.discounts[indices],
             key=key,
             sampled_actions=carry["sampled_actions"],
+            sampling_strategy=carry["sampling_strategy"],
         )
         qf_state = SampleDQN.soft_update(carry["tau"], qf_state)
 
