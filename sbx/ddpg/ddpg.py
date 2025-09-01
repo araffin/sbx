@@ -2,7 +2,7 @@ from typing import Any, ClassVar, Optional, Union
 
 from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
-from stable_baselines3.common.type_aliases import GymEnv, Schedule
+from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
 from sbx.td3.policies import TD3Policy
 from sbx.td3.td3 import TD3
@@ -72,3 +72,21 @@ class DDPG(TD3):
 
         if _init_setup_model:
             self._setup_model()
+
+    def learn(
+        self,
+        total_timesteps: int,
+        callback: MaybeCallback = None,
+        log_interval: int = 4,
+        tb_log_name: str = "DDPG",
+        reset_num_timesteps: bool = True,
+        progress_bar: bool = False,
+    ):
+        return super().learn(
+            total_timesteps=total_timesteps,
+            callback=callback,
+            log_interval=log_interval,
+            tb_log_name=tb_log_name,
+            reset_num_timesteps=reset_num_timesteps,
+            progress_bar=progress_bar,
+        )
