@@ -33,7 +33,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         batch_size: int = 32,
         tau: float = 0.005,
         gamma: float = 0.99,
-        n_sampled_actions: int = 100,
+        n_sampled_actions: int = 25,
         action_noise: Optional[ActionNoise] = None,
         # target_update_interval: int = 1000,
         replay_buffer_class: Optional[type[ReplayBuffer]] = None,
@@ -220,8 +220,19 @@ class SampleDQN(OffPolicyAlgorithmJax):
             # actions = jnp.clip(actions, -1.0, 1.0)
 
             repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
+
+            # TD3 trick: note would not fully work here without re-eval the target
+            # Select action according to target net and add clipped noise
+            # target_policy_noise = 0.2
+            # target_noise_clip = 0.5
+            # noise = jax.random.normal(key, actions.shape) * target_policy_noise
+            # noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
+            # next_state_actions = jnp.clip(actions + noise, -1.0, 1.0)
+
+            next_state_actions = jnp.clip(actions, -1.0, 1.0)
+
             # Shape is (n_critics, batch_size, n_repeated_actions, 1)
-            qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_obs, jnp.clip(actions, -1.0, 1.0))
+            qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_obs, next_state_actions)
             # Twin network: take the min between q-networks
             # qf_next_values = jnp.min(qf_next_values, axis=0)
             # More optimistic alternative
@@ -258,10 +269,11 @@ class SampleDQN(OffPolicyAlgorithmJax):
         key: jax.Array,
         sampled_actions: jax.Array,
     ):
+        n_sampled_actions = sampled_actions.shape[0] // 2
         # Uniform sampling
         next_actions = jax.random.uniform(
             key,
-            shape=(observations.shape[0], sampled_actions.shape[0], replay_actions.shape[-1]),
+            shape=(observations.shape[0], n_sampled_actions, replay_actions.shape[-1]),
             minval=-1.0,
             maxval=1.0,
         )
@@ -269,11 +281,11 @@ class SampleDQN(OffPolicyAlgorithmJax):
         # scale = 1.0
         # next_actions = scale * jax.random.normal(
         #     key,
-        #     shape=(observations.shape[0], sampled_actions.shape[0], replay_actions.shape[-1]),
+        #     shape=(observations.shape[0], n_sampled_actions, replay_actions.shape[-1]),
         # )
         # next_actions = jnp.clip(next_actions, -1.0, 1.0)
 
-        repeated_next_obs = jnp.repeat(jnp.expand_dims(next_observations, axis=1), sampled_actions.shape[0], axis=1)
+        repeated_next_obs = jnp.repeat(jnp.expand_dims(next_observations, axis=1), n_sampled_actions, axis=1)
 
         # Compute the next Q-values using the target network
         qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_next_obs, next_actions)
@@ -289,7 +301,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         #     qf_state,
         #     observations,
         #     key,
-        #     n_sampled_actions=sampled_actions.shape[0],
+        #     n_sampled_actions=n_sampled_actions,
         #     action_dim=replay_actions.shape[-1],
         # )
 

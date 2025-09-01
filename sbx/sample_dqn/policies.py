@@ -21,7 +21,7 @@ def find_best_actions_cem(
     n_sampled_actions: int,
     action_dim: int,
     n_top: int = 6,
-    n_iterations: int = 5,
+    n_iterations: int = 10,
 ):
     """
     Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
