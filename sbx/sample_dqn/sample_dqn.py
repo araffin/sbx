@@ -170,7 +170,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
 
         self.policy.qf_state = update_carry["qf_state"]
         self.key = update_carry["key"]
-        qf_loss_value = update_carry["info"]["critic_loss"]
+        qf_loss_value = update_carry["info"]["critic_loss"] / gradient_steps
         qf_mean_value = update_carry["info"]["qf_mean_value"] / gradient_steps
 
         self._n_updates += gradient_steps
