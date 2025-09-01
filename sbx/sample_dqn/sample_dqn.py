@@ -1,4 +1,3 @@
-from enum import Enum
 from functools import partial
 from typing import Any, ClassVar, Optional, Union
 
@@ -13,20 +12,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
-from sbx.sample_dqn.policies import SampleDQNPolicy
-
-
-class SamplingStrategy(Enum):
-    UNIFORM = 0
-    GAUSSIAN = 1
-    CEM = 1
-
-
-NAME_TO_SAMPLING_STRATEGY = {
-    "uniform": SamplingStrategy.UNIFORM,
-    "gaussian": SamplingStrategy.GAUSSIAN,
-    "cem": SamplingStrategy.CEM,
-}
+from sbx.sample_dqn.policies import NAME_TO_SAMPLING_STRATEGY, SampleDQNPolicy, SamplingStrategy
 
 
 class SampleDQN(OffPolicyAlgorithmJax):
@@ -202,6 +188,8 @@ class SampleDQN(OffPolicyAlgorithmJax):
         action_dim: int,
         n_top: int = 6,
         n_iterations: int = 2,
+        initial_variance: float = 1.0**2,
+        extra_noise_std: float = 0.1,
     ):
         """
         Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -209,8 +197,6 @@ class SampleDQN(OffPolicyAlgorithmJax):
 
         See https://github.com/Stable-Baselines-Team/stable-baselines3-contrib/pull/62
         """
-        initial_variance = 1.0**2
-        extra_noise_std = 0.1
         best_actions = jnp.zeros((next_observations.shape[0], action_dim))
         best_actions_cov = jnp.ones_like(best_actions) * initial_variance
         extra_variance = jnp.ones_like(best_actions_cov) * extra_noise_std**2

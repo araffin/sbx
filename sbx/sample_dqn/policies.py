@@ -1,3 +1,4 @@
+from enum import Enum
 from functools import partial
 from typing import Any, Callable, Optional, Union
 
@@ -13,6 +14,19 @@ from sbx.common.policies import BaseJaxPolicy, VectorCritic
 from sbx.common.type_aliases import RLTrainState
 
 
+class SamplingStrategy(Enum):
+    UNIFORM = 0
+    GAUSSIAN = 1
+    CEM = 1
+
+
+NAME_TO_SAMPLING_STRATEGY = {
+    "uniform": SamplingStrategy.UNIFORM,
+    "gaussian": SamplingStrategy.GAUSSIAN,
+    "cem": SamplingStrategy.CEM,
+}
+
+
 @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
 def find_best_actions_cem(
     qf_state,
@@ -22,6 +36,8 @@ def find_best_actions_cem(
     action_dim: int,
     n_top: int = 6,
     n_iterations: int = 10,
+    initial_variance: float = 1.0**2,
+    extra_noise_std: float = 0.1,
 ):
     """
     Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -29,8 +45,6 @@ def find_best_actions_cem(
 
     See https://github.com/Stable-Baselines-Team/stable-baselines3-contrib/pull/62
     """
-    initial_variance = 1.0**2
-    extra_noise_std = 0.1
     best_actions = jnp.zeros((observations.shape[0], action_dim))
     best_actions_cov = jnp.ones_like(best_actions) * initial_variance
     extra_variance = jnp.ones_like(best_actions_cov) * extra_noise_std**2
@@ -90,6 +104,45 @@ def find_best_actions_cem(
     return jnp.clip(best_actions, -1.0, 1.0)
 
 
+@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "gaussian_dist"])
+def find_best_actions_sample_dist(
+    qf_state,
+    observations,
+    key,
+    n_sampled_actions: int,
+    action_dim: int,
+    gaussian_dist: bool = True,
+):
+    # Gaussian distribution
+    if gaussian_dist:
+        scale = 1.0
+        actions = scale * jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
+        actions = jnp.clip(actions, -1.0, 1.0)
+        # Note: we could also use tanh, but doesn't work
+        # actions = jnp.tanh(actions)
+    else:
+        # Uniform sampling
+        actions = jax.random.uniform(
+            key,
+            shape=(observations.shape[0], n_sampled_actions, action_dim),
+            minval=-1.0,
+            maxval=1.0,
+        )
+
+    repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
+    # Shape is (n_critics, batch_size, n_repeated_actions, 1)
+    qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, actions)
+    # Twin network: take the min between q-networks
+    qf_values = jnp.min(qf_values, axis=0)
+
+    actions_indices = jnp.argmax(qf_values, axis=1)
+
+    indices_expanded = jnp.expand_dims(actions_indices, axis=-1)  # shape (batch_size, 1, 1)
+    best_actions = jnp.take_along_axis(actions, indices_expanded, axis=1)  # shape (batch_size, 1, action_dim)
+    best_actions = best_actions.squeeze(axis=1)  # shape (batch_size, action_dim)
+    return best_actions
+
+
 class SampleDQNPolicy(BaseJaxPolicy):
     action_space: spaces.Box  # type: ignore[assignment]
 
@@ -109,6 +162,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
         n_sampled_actions: int = 100,
+        sampling_strategy: Union[str, SamplingStrategy] = SamplingStrategy.CEM,
         vector_critic_class: type[nn.Module] = VectorCritic,
     ):
         super().__init__(
@@ -133,6 +187,9 @@ class SampleDQNPolicy(BaseJaxPolicy):
         self.action_dim = int(np.prod(self.action_space.shape))
         self.n_critics = n_critics
         self.vector_critic_class = vector_critic_class
+        if isinstance(sampling_strategy, str):
+            sampling_strategy = NAME_TO_SAMPLING_STRATEGY[sampling_strategy]
+        self.sampling_strategy = sampling_strategy
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key = jax.random.split(key, 2)
@@ -176,36 +233,24 @@ class SampleDQNPolicy(BaseJaxPolicy):
 
     @staticmethod
     @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
-    def select_action(qf_state, observations, key, n_sampled_actions: int, action_dim: int):
-        # CEM
-        return find_best_actions_cem(qf_state, observations, key, n_sampled_actions, action_dim)
-
-        # Uniform sampling
-        # actions = jax.random.uniform(
-        #     key,
-        #     shape=(observations.shape[0], n_sampled_actions, action_dim),
-        #     minval=-1.0,
-        #     maxval=1.0,
-        # )
-        # Gaussian dist
-        scale = 1.0
-        actions = scale * jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
-        actions = jnp.clip(actions, -1.0, 1.0)
-        # Note: we could also use tanh, but doesn't work
-        # actions = jnp.tanh(actions)
-
-        repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
-        # Shape is (n_critics, batch_size, n_repeated_actions, 1)
-        qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, actions)
-        # Twin network: take the min between q-networks
-        qf_values = jnp.min(qf_values, axis=0)
-
-        actions_indices = jnp.argmax(qf_values, axis=1)
-
-        indices_expanded = jnp.expand_dims(actions_indices, axis=-1)  # shape (batch_size, 1, 1)
-        best_actions = jnp.take_along_axis(actions, indices_expanded, axis=1)  # shape (batch_size, 1, action_dim)
-        best_actions = best_actions.squeeze(axis=1)  # shape (batch_size, action_dim)
-        return best_actions
+    def select_action(
+        qf_state,
+        observations,
+        key,
+        n_sampled_actions: int,
+        action_dim: int,
+        sampling_strategy: int = SamplingStrategy.CEM.value,
+    ):
+        return jax.lax.cond(
+            sampling_strategy == SamplingStrategy.CEM.value,
+            # If True: CEM
+            partial(find_best_actions_cem, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
+            # If False: Gaussian/Uniform sampling
+            partial(find_best_actions_sample_dist, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
+            qf_state,
+            observations,
+            key,
+        )
 
     def update_sampling_key(self) -> None:
         self.key, self.sampling_key = jax.random.split(self.key, 2)
@@ -220,6 +265,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
             # Increate search budget at test time
             2 * self.n_sampled_actions if deterministic else self.n_sampled_actions,
             self.action_dim,
+            sampling_strategy=self.sampling_strategy.value,
         )
         # if deterministic:
         #     return SampleDQNPolicy.select_action(self.qf_state, observation, self.sampling_key)
