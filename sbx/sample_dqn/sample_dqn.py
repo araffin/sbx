@@ -1,3 +1,4 @@
+from enum import Enum
 from functools import partial
 from typing import Any, ClassVar, Optional, Union
 
@@ -13,6 +14,12 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
 from sbx.sample_dqn.policies import SampleDQNPolicy
+
+
+class SamplingStrategy(Enum):
+    UNIFORM = "uniform"
+    GAUSSIAN = "gaussian"
+    CEM = "cem"
 
 
 class SampleDQN(OffPolicyAlgorithmJax):
@@ -175,7 +182,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
     @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
     def find_max_target_q_cem(
         qf_state,
-        observations,
+        next_observations,
         key,
         n_sampled_actions: int,
         action_dim: int,
@@ -190,7 +197,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         """
         initial_variance = 1.0**2
         extra_noise_std = 0.1
-        best_actions = jnp.zeros((observations.shape[0], action_dim))
+        best_actions = jnp.zeros((next_observations.shape[0], action_dim))
         best_actions_cov = jnp.ones_like(best_actions) * initial_variance
         extra_variance = jnp.ones_like(best_actions_cov) * extra_noise_std**2
         # Decay the extra noise in half the iterations
@@ -199,7 +206,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         carry = {
             "best_actions": best_actions,
             "best_actions_cov": best_actions_cov,
-            "next_q_values": jnp.zeros((observations.shape[0], 1)),
+            "next_q_values": jnp.zeros((next_observations.shape[0], 1)),
             "key": key,
         }
 
@@ -213,13 +220,13 @@ class SampleDQN(OffPolicyAlgorithmJax):
             extra_var_multiplier = jnp.max(jnp.array([(1.0 - i / extra_var_decay_time), 0]))
             # Sample using only the diagonal of the covariance matrix (+ extra noise)
             # TODO: try with full covariance?
-            deltas = jax.random.normal(key, shape=(observations.shape[0], n_sampled_actions, action_dim))
+            deltas = jax.random.normal(key, shape=(next_observations.shape[0], n_sampled_actions, action_dim))
             actions = jnp.expand_dims(best_actions, axis=1) + deltas * jnp.expand_dims(
                 jnp.sqrt(best_actions_cov + extra_variance * extra_var_multiplier), axis=1
             )
             # actions = jnp.clip(actions, -1.0, 1.0)
 
-            repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
+            repeated_next_obs = jnp.repeat(jnp.expand_dims(next_observations, axis=1), n_sampled_actions, axis=1)
 
             # TD3 trick: note would not fully work here without re-eval the target
             # Select action according to target net and add clipped noise
@@ -232,7 +239,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
             next_state_actions = jnp.clip(actions, -1.0, 1.0)
 
             # Shape is (n_critics, batch_size, n_repeated_actions, 1)
-            qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_obs, next_state_actions)
+            qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_next_obs, next_state_actions)
             # Twin network: take the min between q-networks
             # qf_next_values = jnp.min(qf_next_values, axis=0)
             # More optimistic alternative
@@ -257,23 +264,18 @@ class SampleDQN(OffPolicyAlgorithmJax):
         return update_carry["next_q_values"]
 
     @staticmethod
-    @jax.jit
-    def update_qnetwork(
-        qf_state: RLTrainState,
-        observations: jax.Array,
-        replay_actions: jax.Array,
-        next_observations: jax.Array,
-        rewards: jax.Array,
-        dones: jax.Array,
-        discounts: jax.Array,
-        key: jax.Array,
-        sampled_actions: jax.Array,
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
+    def find_max_target_uniform(
+        qf_state,
+        next_observations,
+        key,
+        n_sampled_actions: int,
+        action_dim: int,
     ):
-        n_sampled_actions = sampled_actions.shape[0] // 2
         # Uniform sampling
         next_actions = jax.random.uniform(
             key,
-            shape=(observations.shape[0], n_sampled_actions, replay_actions.shape[-1]),
+            shape=(next_observations.shape[0], n_sampled_actions, action_dim),
             minval=-1.0,
             maxval=1.0,
         )
@@ -297,9 +299,46 @@ class SampleDQN(OffPolicyAlgorithmJax):
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
 
+        return next_q_values
+
+    @staticmethod
+    @jax.jit
+    def update_qnetwork(
+        qf_state: RLTrainState,
+        observations: jax.Array,
+        replay_actions: jax.Array,
+        next_observations: jax.Array,
+        rewards: jax.Array,
+        dones: jax.Array,
+        discounts: jax.Array,
+        key: jax.Array,
+        sampled_actions: jax.Array,
+        sampling_strategy: SamplingStrategy = SamplingStrategy.UNIFORM,
+    ):
+        n_sampled_actions = sampled_actions.shape[0] // 2
+
+        next_q_values = {
+            SamplingStrategy.UNIFORM: SampleDQN.find_max_target_uniform,
+            SamplingStrategy.CEM: SampleDQN.find_max_target_q_cem,
+        }[sampling_strategy](
+            qf_state,
+            next_observations,
+            key,
+            n_sampled_actions=n_sampled_actions,
+            action_dim=replay_actions.shape[-1],
+        )
+
+        # next_q_values = SampleDQN.find_max_target_uniform(
+        #     qf_state,
+        #     next_observations,
+        #     key,
+        #     n_sampled_actions=n_sampled_actions,
+        #     action_dim=replay_actions.shape[-1],
+        # )
+
         # next_q_values = SampleDQN.find_max_target_q_cem(
         #     qf_state,
-        #     observations,
+        #     next_observations,
         #     key,
         #     n_sampled_actions=n_sampled_actions,
         #     action_dim=replay_actions.shape[-1],
