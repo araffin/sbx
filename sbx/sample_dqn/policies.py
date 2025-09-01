@@ -161,7 +161,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
         optimizer_kwargs: Optional[dict[str, Any]] = None,
         n_critics: int = 2,
-        n_sampled_actions: int = 100,
+        n_sampled_actions: int = 25,
         sampling_strategy: Union[str, SamplingStrategy] = SamplingStrategy.CEM,
         vector_critic_class: type[nn.Module] = VectorCritic,
     ):
