@@ -272,3 +272,40 @@ class PPOPolicy(BaseJaxPolicy):
         log_probs = dist.log_prob(actions)
         values = vf_state.apply_fn(vf_state.params, observations).flatten()
         return actions, log_probs, values
+
+class ActorCriticCNN(nn.Module):
+    n_actions: int
+    n_units: int = 512
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray):
+        x = jnp.transpose(x, (0, 2, 3, 1))
+        x = x.astype(jnp.float32) / 255.0
+        
+        x = nn.Conv(32, kernel_size=(8, 8), strides=(4, 4), padding="VALID")(x)
+        x = self.activation_fn(x)
+        x = nn.Conv(64, kernel_size=(4, 4), strides=(2, 2), padding="VALID")(x)
+        x = self.activation_fn(x)
+        x = nn.Conv(64, kernel_size=(3, 3), strides=(1, 1), padding="VALID")(x)
+        x = self.activation_fn(x)
+        x = x.reshape((x.shape[0], -1))
+        
+        shared_net = nn.Dense(self.n_units)(x)
+        shared_net = self.activation_fn(shared_net)
+
+        action_logits = nn.Dense(self.n_actions)(shared_net)
+        
+        state_value = nn.Dense(1)(shared_net)
+        
+        return action_logits, state_value
+
+
+class CnnPolicy(PPOPolicy):
+    def build_network(self) -> None:
+        self.network = ActorCriticCNN(
+            n_actions=self.action_space.n,
+            n_units=self.net_arch[0] if self.net_arch else 512,
+            activation_fn=self.activation_fn,
+        )
+
