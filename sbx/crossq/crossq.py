@@ -261,7 +261,7 @@ class CrossQ(OffPolicyAlgorithmJax):
         discounts: jax.Array,
         key: jax.Array,
     ):
-        key, noise_key, _dropout_key_target, dropout_key_current = jax.random.split(key, 4)
+        key, noise_key, dropout_key_current = jax.random.split(key, 3)
         # sample action from the actor
         dist = actor_state.apply_fn(
             {"params": actor_state.params, "batch_stats": actor_state.batch_stats},
