@@ -158,7 +158,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
                 # Always sample new stochastic action
                 self.policy.reset_noise()
 
-            obs_tensor, _ = self.policy.prepare_obs(self._last_obs)  # type: ignore[has-type]
+            obs_tensor, _ = self.policy.prepare_obs(self._last_obs)  # type: ignore[has-type, arg-type]
             actions, log_probs, values = self.policy.predict_all(obs_tensor, self.policy.noise_key)
 
             actions = np.array(actions)
