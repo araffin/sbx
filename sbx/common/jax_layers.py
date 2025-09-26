@@ -225,3 +225,26 @@ class SimbaResidualBlock(nn.Module):
         x = self.activation_fn(x)
         x = nn.Dense(self.hidden_dim, kernel_init=nn.initializers.he_normal())(x)
         return residual + x
+
+
+# CNN policy from DQN paper
+class NatureCNN(nn.Module):
+    n_features: int = 512
+    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        # Convert from channel-first (PyTorch) to channel-last (Jax)
+        x = jnp.transpose(x, (0, 2, 3, 1))
+        # Convert to float and normalize the image
+        x = x.astype(jnp.float32) / 255.0
+        x = nn.Conv(32, kernel_size=(8, 8), strides=(4, 4), padding="VALID")(x)
+        x = self.activation_fn(x)
+        x = nn.Conv(64, kernel_size=(4, 4), strides=(2, 2), padding="VALID")(x)
+        x = self.activation_fn(x)
+        x = nn.Conv(64, kernel_size=(3, 3), strides=(1, 1), padding="VALID")(x)
+        x = self.activation_fn(x)
+        # Flatten
+        x = x.reshape((x.shape[0], -1))
+        x = nn.Dense(self.n_features)(x)
+        return self.activation_fn(x)
