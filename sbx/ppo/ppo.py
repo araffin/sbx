@@ -300,6 +300,8 @@ class PPO(OnPolicyAlgorithmJax):
                         ent_coef=self.ent_coef,
                         vf_coef=self.vf_coef,
                         normalize_advantage=self.normalize_advantage,
+                        # Sharing the CNN between actor and critic has a great impact on performance
+                        # for Atari games
                         share_features_extractor=isinstance(self.policy, CnnPolicy),
                     )
                 )

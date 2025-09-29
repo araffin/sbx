@@ -28,7 +28,6 @@ class Critic(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        # Note: we are using separate CNN for actor and critic
         if self.features_extractor is not None:
             x = self.features_extractor(self.features_dim, self.activation_fn)(x)
 
@@ -70,7 +69,6 @@ class Actor(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
-        # Note: we are using separate CNN for actor and critic
         if self.features_extractor is not None:
             x = self.features_extractor(self.features_dim, self.activation_fn)(x)
 
