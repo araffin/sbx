@@ -22,7 +22,16 @@ def test_cnn_dqn(tmp_path, model_class):
             "n_epochs": 2,
         }
 
-    model = model_class("CnnPolicy", env, policy_kwargs=dict(net_arch=[64]), verbose=1, **kwargs)
+    model = model_class(
+        "CnnPolicy",
+        env,
+        policy_kwargs=dict(
+            net_arch=[64],
+            features_extractor_kwargs=dict(features_dim=64),
+        ),
+        verbose=1,
+        **kwargs
+    )
     model.learn(total_timesteps=250)
 
     obs, _ = env.reset()
