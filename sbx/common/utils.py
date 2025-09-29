@@ -46,17 +46,17 @@ def mask_from_prefix(params: FrozenDict, prefix: str = "NatureCNN_") -> dict:
     return _traverse(params)  # type: ignore[return-value]
 
 
-def align_pytree(params1: FrozenDict, params2: FrozenDict) -> dict:
+def align_params(params1: FrozenDict, params2: FrozenDict) -> dict:
     """
-    Return a pytree with the *exact* structure of `params2`. For every leaf in `params2`,
+    Return a dict with the *exact* structure of `params2`. For every leaf in `params2`,
     use the corresponding leaf from `params1` if it exists; otherwise use `params2`'s leaf.
-    This guarantees the two pytrees have identical structure for tree_map.
+    This guarantees the two dict have identical structure for tree_map.
     """
     if isinstance(params2, dict):
         out = {}
         for key, params2_sub in params2.items():
             params1_sub = params1[key] if (isinstance(params1, dict) and key in params1) else None
-            out[key] = align_pytree(params1_sub, params2_sub)  # type: ignore[arg-type]
+            out[key] = align_params(params1_sub, params2_sub)  # type: ignore[arg-type]
         return out
     # leaf-case: if params1 value exists (not None and same shape) use it, else use params2 leaf
     return params1 if (params1 is not None and params1.shape == params2.shape) else params2  # type: ignore[attr-defined, return-value]
@@ -84,7 +84,7 @@ def copy_naturecnn_params(state1: TrainState, state2: TrainState) -> TrainState:
     It is useful when sharing features extractor parameters between actor and critic.
     """
     # Ensure same structure
-    aligned_params = align_pytree(state1.params, state2.params)
+    aligned_params = align_params(state1.params, state2.params)
     mask = mask_from_prefix(state2.params, prefix="NatureCNN_")
     new_params = masked_copy(aligned_params, state2.params, mask)
 
