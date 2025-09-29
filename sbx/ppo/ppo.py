@@ -11,8 +11,8 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import FloatSchedule, explained_variance
 
 from sbx.common.on_policy_algorithm import OnPolicyAlgorithmJax
-from sbx.common.utils import KLAdaptiveLR
-from sbx.ppo.policies import PPOPolicy
+from sbx.common.utils import KLAdaptiveLR, copy_naturecnn_params
+from sbx.ppo.policies import CnnPolicy, PPOPolicy
 
 PPOSelf = TypeVar("PPOSelf", bound="PPO")
 
@@ -70,7 +70,7 @@ class PPO(OnPolicyAlgorithmJax):
 
     policy_aliases: ClassVar[dict[str, type[PPOPolicy]]] = {  # type: ignore[assignment]
         "MlpPolicy": PPOPolicy,
-        # "CnnPolicy": ActorCriticCnnPolicy,
+        "CnnPolicy": CnnPolicy,
         # "MultiInputPolicy": MultiInputActorCriticPolicy,
     }
     policy: PPOPolicy  # type: ignore[assignment]
@@ -196,7 +196,7 @@ class PPO(OnPolicyAlgorithmJax):
         #     self.clip_range_vf = FloatSchedule(self.clip_range_vf)
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["normalize_advantage"])
+    @partial(jax.jit, static_argnames=["normalize_advantage", "share_features_extractor"])
     def _one_update(
         actor_state: TrainState,
         vf_state: TrainState,
@@ -209,6 +209,7 @@ class PPO(OnPolicyAlgorithmJax):
         ent_coef: float,
         vf_coef: float,
         normalize_advantage: bool = True,
+        share_features_extractor: bool = False,
     ):
         # Normalize advantage
         # Normalization does not make sense if mini batchsize == 1, see GH issue #325
@@ -241,6 +242,10 @@ class PPO(OnPolicyAlgorithmJax):
         )
         actor_state = actor_state.apply_gradients(grads=grads)
 
+        if share_features_extractor:
+            # Hack: selective copy to share features extractor when using CNN
+            vf_state = copy_naturecnn_params(actor_state, vf_state)
+
         def critic_loss(params):
             # Value loss using the TD(gae_lambda) target
             vf_values = vf_state.apply_fn(params, observations).flatten()
@@ -248,6 +253,9 @@ class PPO(OnPolicyAlgorithmJax):
 
         vf_loss_value, grads = jax.value_and_grad(critic_loss, has_aux=False)(vf_state.params)
         vf_state = vf_state.apply_gradients(grads=grads)
+
+        if share_features_extractor:
+            actor_state = copy_naturecnn_params(vf_state, actor_state)
 
         # loss = policy_loss + ent_coef * entropy_loss + vf_coef * value_loss
         return (actor_state, vf_state), (pg_loss_value, policy_loss, entropy_loss, vf_loss_value, ratio)
@@ -292,6 +300,9 @@ class PPO(OnPolicyAlgorithmJax):
                         ent_coef=self.ent_coef,
                         vf_coef=self.vf_coef,
                         normalize_advantage=self.normalize_advantage,
+                        # Sharing the CNN between actor and critic has a great impact on performance
+                        # for Atari games
+                        share_features_extractor=isinstance(self.policy, CnnPolicy),
                     )
                 )
 
