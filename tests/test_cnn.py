@@ -6,7 +6,7 @@ from sbx import DQN, PPO
 
 
 @pytest.mark.parametrize("model_class", [DQN, PPO])
-def test_cnn_dqn(tmp_path, model_class):
+def test_cnn(tmp_path, model_class):
     SAVE_NAME = "cnn_model.zip"
     # Fake grayscale with frameskip
     # Atari after preprocessing: 84x84x1, here we are using lower resolution
