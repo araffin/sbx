@@ -14,6 +14,7 @@ from gymnasium import spaces
 from jax.nn.initializers import constant
 from stable_baselines3.common.type_aliases import Schedule
 
+from sbx.common.jax_layers import NatureCNN
 from sbx.common.policies import BaseJaxPolicy, Flatten
 
 tfd = tfp.distributions
@@ -22,9 +23,14 @@ tfd = tfp.distributions
 class Critic(nn.Module):
     net_arch: Sequence[int]
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
+    features_extractor: Optional[type[NatureCNN]] = None
+    features_dim: int = 512
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        if self.features_extractor is not None:
+            x = self.features_extractor(self.features_dim, self.activation_fn)(x)
+
         x = Flatten()(x)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
@@ -46,6 +52,8 @@ class Actor(nn.Module):
     split_indices: np.ndarray = field(default_factory=lambda: np.array([]))
     # Last layer with small scale
     ortho_init: bool = False
+    features_extractor: Optional[type[NatureCNN]] = None
+    features_dim: int = 512
 
     def get_std(self) -> jnp.ndarray:
         # Make it work with gSDE
@@ -61,6 +69,9 @@ class Actor(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> tfd.Distribution:  # type: ignore[name-defined]
+        if self.features_extractor is not None:
+            x = self.features_extractor(self.features_dim, self.activation_fn)(x)
+
         x = Flatten()(x)
 
         for n_units in self.net_arch:
@@ -122,7 +133,7 @@ class PPOPolicy(BaseJaxPolicy):
         # this is to keep API consistent with SB3
         use_expln: bool = False,
         clip_mean: float = 2.0,
-        features_extractor_class=None,
+        features_extractor_class: Optional[type[NatureCNN]] = None,
         features_extractor_kwargs: Optional[dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
@@ -156,7 +167,12 @@ class PPOPolicy(BaseJaxPolicy):
                 self.net_arch_pi = net_arch["pi"]
                 self.net_arch_vf = net_arch["vf"]
         else:
-            self.net_arch_pi = self.net_arch_vf = [64, 64]
+            if features_extractor_class == NatureCNN:
+                # Just a linear layer after the CNN
+                net_arch = []
+            else:
+                net_arch = [64, 64]
+            self.net_arch_pi = self.net_arch_vf = net_arch
         self.use_sde = use_sde
         self.ortho_init = ortho_init
         self.actor_class = actor_class
@@ -204,11 +220,14 @@ class PPOPolicy(BaseJaxPolicy):
         else:
             raise NotImplementedError(f"{self.action_space}")
 
+        actor_kwargs.update(self.features_extractor_kwargs)
+
         self.actor = self.actor_class(
             net_arch=self.net_arch_pi,
             log_std_init=self.log_std_init,
             activation_fn=self.activation_fn,
             ortho_init=self.ortho_init,
+            features_extractor=self.features_extractor_class,
             **actor_kwargs,  # type: ignore[arg-type]
         )
         # Hack to make gSDE work without modifying internal SB3 code
@@ -228,7 +247,12 @@ class PPOPolicy(BaseJaxPolicy):
             ),
         )
 
-        self.vf = self.critic_class(net_arch=self.net_arch_vf, activation_fn=self.activation_fn)
+        self.vf = self.critic_class(
+            net_arch=self.net_arch_vf,
+            activation_fn=self.activation_fn,
+            features_extractor=self.features_extractor_class,
+            **self.features_extractor_kwargs,
+        )
 
         self.vf_state = TrainState.create(
             apply_fn=self.vf.apply,
@@ -272,3 +296,48 @@ class PPOPolicy(BaseJaxPolicy):
         log_probs = dist.log_prob(actions)
         values = vf_state.apply_fn(vf_state.params, observations).flatten()
         return actions, log_probs, values
+
+
+class CnnPolicy(PPOPolicy):
+    def __init__(
+        self,
+        observation_space: gym.spaces.Space,
+        action_space: gym.spaces.Space,
+        lr_schedule: Schedule,
+        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        ortho_init: bool = False,
+        log_std_init: float = 0,
+        # ReLU for NatureCNN
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
+        use_sde: bool = False,
+        use_expln: bool = False,
+        clip_mean: float = 2,
+        features_extractor_class: Optional[type[NatureCNN]] = NatureCNN,
+        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
+        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = Actor,
+        critic_class: type[nn.Module] = Critic,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            ortho_init,
+            log_std_init,
+            activation_fn,
+            use_sde,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            share_features_extractor,
+            actor_class,
+            critic_class,
+        )

@@ -9,6 +9,7 @@ import optax
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import Schedule
 
+from sbx.common.jax_layers import NatureCNN
 from sbx.common.policies import BaseJaxPolicy, Flatten
 from sbx.common.type_aliases import RLTrainState
 
@@ -28,28 +29,14 @@ class QNetwork(nn.Module):
         return x
 
 
-# Add CNN policy from DQN paper
-class NatureCNN(nn.Module):
+class CnnQNetwork(nn.Module):
     n_actions: int
     n_units: int = 512
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        # Convert from channel-first (PyTorch) to channel-last (Jax)
-        x = jnp.transpose(x, (0, 2, 3, 1))
-        # Convert to float and normalize the image
-        x = x.astype(jnp.float32) / 255.0
-        x = nn.Conv(32, kernel_size=(8, 8), strides=(4, 4), padding="VALID")(x)
-        x = self.activation_fn(x)
-        x = nn.Conv(64, kernel_size=(4, 4), strides=(2, 2), padding="VALID")(x)
-        x = self.activation_fn(x)
-        x = nn.Conv(64, kernel_size=(3, 3), strides=(1, 1), padding="VALID")(x)
-        x = self.activation_fn(x)
-        # Flatten
-        x = x.reshape((x.shape[0], -1))
-        x = nn.Dense(self.n_units)(x)
-        x = self.activation_fn(x)
+        x = NatureCNN(self.n_units, self.activation_fn)(x)
         x = nn.Dense(self.n_actions)(x)
         return x
 
@@ -134,7 +121,7 @@ class CNNPolicy(DQNPolicy):
 
         obs = jnp.array([self.observation_space.sample()])
 
-        self.qf = NatureCNN(
+        self.qf = CnnQNetwork(
             n_actions=int(self.action_space.n),
             n_units=self.n_units,
             activation_fn=self.activation_fn,
