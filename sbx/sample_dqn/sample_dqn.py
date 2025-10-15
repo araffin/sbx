@@ -91,11 +91,14 @@ class SampleDQN(OffPolicyAlgorithmJax):
         super()._setup_model()
 
         if not hasattr(self, "policy") or self.policy is None:
+            # Allow to have different n_sampled_actions before exploration and training
+            if "n_sampled_actions" not in self.policy_kwargs:
+                self.policy_kwargs["n_sampled_actions"] = self.n_sampled_actions
+
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
                 self.action_space,
                 self.lr_schedule,
-                n_sampled_actions=self.n_sampled_actions,
                 **self.policy_kwargs,
             )
 
@@ -271,21 +274,34 @@ class SampleDQN(OffPolicyAlgorithmJax):
         key,
         n_sampled_actions: int,
         action_dim: int,
+        sampling_strategy: int = SamplingStrategy.UNIFORM.value,
     ):
-        # Uniform sampling
-        next_actions = jax.random.uniform(
+
+        def uniform_sampling(key):
+            return jax.random.uniform(
+                key,
+                shape=(next_observations.shape[0], n_sampled_actions, action_dim),
+                minval=-1.0,
+                maxval=1.0,
+            )
+
+        def gaussian_sampling(key):
+            # Gaussian dist
+            scale = 1.0
+            next_actions = scale * jax.random.normal(
+                key,
+                shape=(next_observations.shape[0], n_sampled_actions, action_dim),
+            )
+            return jnp.clip(next_actions, -1.0, 1.0)
+
+        next_actions = jax.lax.cond(
+            sampling_strategy == SamplingStrategy.UNIFORM.value,
+            # If True:
+            uniform_sampling,
+            # If False:
+            gaussian_sampling,
             key,
-            shape=(next_observations.shape[0], n_sampled_actions, action_dim),
-            minval=-1.0,
-            maxval=1.0,
         )
-        # Gaussian dist
-        # scale = 1.0
-        # next_actions = scale * jax.random.normal(
-        #     key,
-        #     shape=(observations.shape[0], n_sampled_actions, replay_actions.shape[-1]),
-        # )
-        # next_actions = jnp.clip(next_actions, -1.0, 1.0)
 
         repeated_next_obs = jnp.repeat(jnp.expand_dims(next_observations, axis=1), n_sampled_actions, axis=1)
 
@@ -316,15 +332,21 @@ class SampleDQN(OffPolicyAlgorithmJax):
         sampling_strategy: int = SamplingStrategy.UNIFORM.value,
     ):
         # Reduce number of sampled action compared to exploration
-        n_sampled_actions = sampled_actions.shape[0] // 2
+        # n_sampled_actions = sampled_actions.shape[0] // 2
+        n_sampled_actions = sampled_actions.shape[0]
         action_dim = replay_actions.shape[-1]
 
         next_q_values = jax.lax.cond(
-            sampling_strategy == SamplingStrategy.UNIFORM.value,
+            sampling_strategy == SamplingStrategy.CEM.value,
             # If True:
-            partial(SampleDQN.find_max_target_uniform, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
-            # If False:
             partial(SampleDQN.find_max_target_q_cem, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
+            # If False:
+            partial(
+                SampleDQN.find_max_target_uniform,
+                n_sampled_actions=n_sampled_actions,
+                action_dim=action_dim,
+                sampling_strategy=sampling_strategy,
+            ),
             qf_state,
             next_observations,
             key,

@@ -232,7 +232,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         return self._predict(obs, deterministic=deterministic)
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "sampling_strategy"])
     def select_action(
         qf_state,
         observations,
@@ -246,7 +246,12 @@ class SampleDQNPolicy(BaseJaxPolicy):
             # If True: CEM
             partial(find_best_actions_cem, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
             # If False: Gaussian/Uniform sampling
-            partial(find_best_actions_sample_dist, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
+            partial(
+                find_best_actions_sample_dist,
+                n_sampled_actions=n_sampled_actions,
+                action_dim=action_dim,
+                gaussian_dist=sampling_strategy == SamplingStrategy.GAUSSIAN.value,
+            ),
             qf_state,
             observations,
             key,
