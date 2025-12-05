@@ -1,7 +1,6 @@
 # import copy
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import no_type_check
-from collections.abc import Callable
 
 import flax.linen as nn
 import jax

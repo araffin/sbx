@@ -1,7 +1,6 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import field
 from typing import Any
-from collections.abc import Callable
 
 import flax.linen as nn
 import gymnasium as gym

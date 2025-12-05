@@ -1,4 +1,3 @@
-
 import flax.linen as nn
 import numpy as np
 import pytest
