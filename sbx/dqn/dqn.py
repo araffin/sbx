@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, ClassVar
 
 import gymnasium as gym
 import jax
@@ -27,8 +27,8 @@ class DQN(OffPolicyAlgorithmJax):
     def __init__(
         self,
         policy,
-        env: Union[GymEnv, str],
-        learning_rate: Union[float, Schedule] = 1e-4,
+        env: GymEnv | str,
+        learning_rate: float | Schedule = 1e-4,
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
         batch_size: int = 32,
@@ -38,17 +38,17 @@ class DQN(OffPolicyAlgorithmJax):
         exploration_fraction: float = 0.1,
         exploration_initial_eps: float = 1.0,
         exploration_final_eps: float = 0.05,
-        replay_buffer_class: Optional[type[ReplayBuffer]] = None,
-        replay_buffer_kwargs: Optional[dict[str, Any]] = None,
+        replay_buffer_class: type[ReplayBuffer] | None = None,
+        replay_buffer_kwargs: dict[str, Any] | None = None,
         optimize_memory_usage: bool = False,
         n_steps: int = 1,
         # max_grad_norm: float = 10,
-        train_freq: Union[int, tuple[int, str]] = 4,
+        train_freq: int | tuple[int, str] = 4,
         gradient_steps: int = 1,
-        tensorboard_log: Optional[str] = None,
-        policy_kwargs: Optional[dict[str, Any]] = None,
+        tensorboard_log: str | None = None,
+        policy_kwargs: dict[str, Any] | None = None,
         verbose: int = 0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
         device: str = "auto",
         _init_setup_model: bool = True,
     ) -> None:
@@ -244,11 +244,11 @@ class DQN(OffPolicyAlgorithmJax):
 
     def predict(
         self,
-        observation: Union[np.ndarray, dict[str, np.ndarray]],
-        state: Optional[tuple[np.ndarray, ...]] = None,
-        episode_start: Optional[np.ndarray] = None,
+        observation: np.ndarray | dict[str, np.ndarray],
+        state: tuple[np.ndarray, ...] | None = None,
+        episode_start: np.ndarray | None = None,
         deterministic: bool = False,
-    ) -> tuple[np.ndarray, Optional[tuple[np.ndarray, ...]]]:
+    ) -> tuple[np.ndarray, tuple[np.ndarray, ...] | None]:
         """
         Overrides the base_class predict function to include epsilon-greedy exploration.
 

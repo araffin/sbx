@@ -1,6 +1,7 @@
 # import copy
 from collections.abc import Sequence
-from typing import Callable, Optional, Union, no_type_check
+from typing import no_type_check
+from collections.abc import Callable
 
 import flax.linen as nn
 import jax
@@ -50,11 +51,11 @@ class BaseJaxPolicy(BasePolicy):
     @no_type_check
     def predict(
         self,
-        observation: Union[np.ndarray, dict[str, np.ndarray]],
-        state: Optional[tuple[np.ndarray, ...]] = None,
-        episode_start: Optional[np.ndarray] = None,
+        observation: np.ndarray | dict[str, np.ndarray],
+        state: tuple[np.ndarray, ...] | None = None,
+        episode_start: np.ndarray | None = None,
         deterministic: bool = False,
-    ) -> tuple[np.ndarray, Optional[tuple[np.ndarray, ...]]]:
+    ) -> tuple[np.ndarray, tuple[np.ndarray, ...] | None]:
         # self.set_training_mode(False)
 
         observation, vectorized_env = self.prepare_obs(observation)
@@ -81,7 +82,7 @@ class BaseJaxPolicy(BasePolicy):
 
         return actions, state
 
-    def prepare_obs(self, observation: Union[np.ndarray, dict[str, np.ndarray]]) -> tuple[np.ndarray, bool]:
+    def prepare_obs(self, observation: np.ndarray | dict[str, np.ndarray]) -> tuple[np.ndarray, bool]:
         vectorized_env = False
         if isinstance(observation, dict):
             assert isinstance(self.observation_space, spaces.Dict)
@@ -132,7 +133,7 @@ class BaseJaxPolicy(BasePolicy):
 class ContinuousCritic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
-    dropout_rate: Optional[float] = None
+    dropout_rate: float | None = None
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1
 
@@ -154,7 +155,7 @@ class ContinuousCritic(nn.Module):
 class SimbaContinuousCritic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False  # for consistency, not used
-    dropout_rate: Optional[float] = None
+    dropout_rate: float | None = None
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1
     scale_factor: int = 4
@@ -179,7 +180,7 @@ class SimbaContinuousCritic(nn.Module):
 class VectorCritic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
-    dropout_rate: Optional[float] = None
+    dropout_rate: float | None = None
     n_critics: int = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1
@@ -210,7 +211,7 @@ class SimbaVectorCritic(nn.Module):
     net_arch: Sequence[int]
     # Note: we have use_layer_norm for consistency but it is not used (always on)
     use_layer_norm: bool = True
-    dropout_rate: Optional[float] = None
+    dropout_rate: float | None = None
     n_critics: int = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1

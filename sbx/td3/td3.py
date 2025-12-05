@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, ClassVar, Optional, Union
+from typing import Any, ClassVar
 
 import flax
 import jax
@@ -29,29 +29,29 @@ class TD3(OffPolicyAlgorithmJax):
     def __init__(
         self,
         policy,
-        env: Union[GymEnv, str],
-        learning_rate: Union[float, Schedule] = 3e-4,
-        qf_learning_rate: Optional[float] = None,
+        env: GymEnv | str,
+        learning_rate: float | Schedule = 3e-4,
+        qf_learning_rate: float | None = None,
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
-        train_freq: Union[int, tuple[int, str]] = 1,
+        train_freq: int | tuple[int, str] = 1,
         gradient_steps: int = 1,
         policy_delay: int = 2,
         target_policy_noise: float = 0.2,
         target_noise_clip: float = 0.5,
-        action_noise: Optional[ActionNoise] = None,
-        replay_buffer_class: Optional[type[ReplayBuffer]] = None,
-        replay_buffer_kwargs: Optional[dict[str, Any]] = None,
+        action_noise: ActionNoise | None = None,
+        replay_buffer_class: type[ReplayBuffer] | None = None,
+        replay_buffer_kwargs: dict[str, Any] | None = None,
         n_steps: int = 1,
-        tensorboard_log: Optional[str] = None,
+        tensorboard_log: str | None = None,
         stats_window_size: int = 100,
-        policy_kwargs: Optional[dict[str, Any]] = None,
-        param_resets: Optional[list[int]] = None,  # List of timesteps after which to reset the params
+        policy_kwargs: dict[str, Any] | None = None,
+        param_resets: list[int] | None = None,  # List of timesteps after which to reset the params
         verbose: int = 0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
         device: str = "auto",
         _init_setup_model: bool = True,
     ) -> None:

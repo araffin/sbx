@@ -1,4 +1,5 @@
-from typing import Any, Callable, Optional, Union
+from typing import Any
+from collections.abc import Callable
 
 import flax.linen as nn
 import jax
@@ -27,7 +28,7 @@ class SACPolicy(BaseJaxPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        net_arch: list[int] | dict[str, list[int]] | None = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
@@ -38,10 +39,10 @@ class SACPolicy(BaseJaxPolicy):
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        features_extractor_kwargs: dict[str, Any] | None = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
         actor_class: type[nn.Module] = SquashedGaussianActor,
@@ -164,7 +165,7 @@ class SimbaSACPolicy(SACPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        net_arch: list[int] | dict[str, list[int]] | None = None,
         dropout_rate: float = 0,
         layer_norm: bool = False,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
@@ -173,11 +174,11 @@ class SimbaSACPolicy(SACPolicy):
         use_expln: bool = False,
         clip_mean: float = 2,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        features_extractor_kwargs: dict[str, Any] | None = None,
         normalize_images: bool = True,
         # AdamW for simba
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
-        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
         actor_class: type[nn.Module] = SimbaSquashedGaussianActor,

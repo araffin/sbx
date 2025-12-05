@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import field
-from typing import Any, Callable, Optional, Union
+from typing import Any
+from collections.abc import Callable
 
 import flax.linen as nn
 import gymnasium as gym
@@ -23,7 +24,7 @@ tfd = tfp.distributions
 class Critic(nn.Module):
     net_arch: Sequence[int]
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
-    features_extractor: Optional[type[NatureCNN]] = None
+    features_extractor: type[NatureCNN] | None = None
     features_dim: int = 512
 
     @nn.compact
@@ -46,13 +47,13 @@ class Actor(nn.Module):
     log_std_init: float = 0.0
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh
     # For Discrete, MultiDiscrete and MultiBinary actions
-    num_discrete_choices: Optional[Union[int, Sequence[int]]] = None
+    num_discrete_choices: int | Sequence[int] | None = None
     # For MultiDiscrete
     max_num_choices: int = 0
     split_indices: np.ndarray = field(default_factory=lambda: np.array([]))
     # Last layer with small scale
     ortho_init: bool = False
-    features_extractor: Optional[type[NatureCNN]] = None
+    features_extractor: type[NatureCNN] | None = None
     features_dim: int = 512
 
     def get_std(self) -> jnp.ndarray:
@@ -124,7 +125,7 @@ class PPOPolicy(BaseJaxPolicy):
         observation_space: gym.spaces.Space,
         action_space: gym.spaces.Space,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        net_arch: list[int] | dict[str, list[int]] | None = None,
         ortho_init: bool = False,
         log_std_init: float = 0.0,
         activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.tanh,
@@ -133,11 +134,11 @@ class PPOPolicy(BaseJaxPolicy):
         # this is to keep API consistent with SB3
         use_expln: bool = False,
         clip_mean: float = 2.0,
-        features_extractor_class: Optional[type[NatureCNN]] = None,
-        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        features_extractor_class: type[NatureCNN] | None = None,
+        features_extractor_kwargs: dict[str, Any] | None = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
         share_features_extractor: bool = False,
         actor_class: type[nn.Module] = Actor,
         critic_class: type[nn.Module] = Critic,
@@ -304,7 +305,7 @@ class CnnPolicy(PPOPolicy):
         observation_space: gym.spaces.Space,
         action_space: gym.spaces.Space,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        net_arch: list[int] | dict[str, list[int]] | None = None,
         ortho_init: bool = False,
         log_std_init: float = 0,
         # ReLU for NatureCNN
@@ -312,11 +313,11 @@ class CnnPolicy(PPOPolicy):
         use_sde: bool = False,
         use_expln: bool = False,
         clip_mean: float = 2,
-        features_extractor_class: Optional[type[NatureCNN]] = NatureCNN,
-        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        features_extractor_class: type[NatureCNN] | None = NatureCNN,
+        features_extractor_kwargs: dict[str, Any] | None = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
         share_features_extractor: bool = False,
         actor_class: type[nn.Module] = Actor,
         critic_class: type[nn.Module] = Critic,

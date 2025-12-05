@@ -1,5 +1,6 @@
 from collections.abc import Sequence
-from typing import Any, Callable, Optional, Union
+from typing import Any, Union
+from collections.abc import Callable
 
 import flax.linen as nn
 import jax
@@ -12,7 +13,7 @@ PRNGKey = Any
 Array = Any
 Shape = tuple[int, ...]
 Dtype = Any  # this could be a real type?
-Axes = Union[int, Sequence[int]]
+Axes = Union[int, Sequence[int]]  # noqa: UP007
 
 
 class BatchRenorm(Module):
@@ -78,18 +79,18 @@ class BatchRenorm(Module):
         calculation for the variance.
     """
 
-    use_running_average: Optional[bool] = None
+    use_running_average: bool | None = None
     axis: int = -1
     momentum: float = 0.99
     epsilon: float = 0.001
     warmup_steps: int = 100_000
-    dtype: Optional[Dtype] = None
+    dtype: Dtype | None = None
     param_dtype: Dtype = jnp.float32
     use_bias: bool = True
     use_scale: bool = True
     bias_init: Callable[[PRNGKey, Shape, Dtype], Array] = initializers.zeros
     scale_init: Callable[[PRNGKey, Shape, Dtype], Array] = initializers.ones
-    axis_name: Optional[str] = None
+    axis_name: str | None = None
     axis_index_groups: Any = None
     # This parameter was added in flax.linen 0.7.2 (08/2023)
     # commented out to be compatible with a wider range of jax versions
@@ -97,7 +98,7 @@ class BatchRenorm(Module):
     # use_fast_variance: bool = True
 
     @compact
-    def __call__(self, x, use_running_average: Optional[bool] = None):
+    def __call__(self, x, use_running_average: bool | None = None):
         """Normalizes the input using batch statistics.
 
         NOTE:
