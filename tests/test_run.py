@@ -1,5 +1,3 @@
-from typing import Optional
-
 import flax.linen as nn
 import numpy as np
 import pytest
@@ -176,7 +174,7 @@ def test_dqn(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("replay_buffer_class", [None, HerReplayBuffer])
-def test_dict(replay_buffer_class: Optional[type[HerReplayBuffer]]) -> None:
+def test_dict(replay_buffer_class: type[HerReplayBuffer] | None) -> None:
     env = BitFlippingEnv(n_bits=2, continuous=True)
     model = SAC("MultiInputPolicy", env, replay_buffer_class=replay_buffer_class)
 

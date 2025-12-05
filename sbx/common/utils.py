@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Union
 
 import jax
 import jax.numpy as jnp
@@ -37,7 +36,7 @@ def mask_from_prefix(params: FrozenDict, prefix: str = "NatureCNN_") -> dict:
     if the top-level module name starts with `prefix`.
     """
 
-    def _traverse(tree: FrozenDict, path: tuple[str, ...] = ()) -> Union[dict, bool]:
+    def _traverse(tree: FrozenDict, path: tuple[str, ...] = ()) -> dict | bool:
         if isinstance(tree, dict):
             return {key: _traverse(value, (*path, key)) for key, value in tree.items()}
         # leaf

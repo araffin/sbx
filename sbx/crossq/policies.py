@@ -1,6 +1,6 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import partial
-from typing import Any, Callable, Optional, Union
+from typing import Any
 
 import flax.linen as nn
 import jax
@@ -23,7 +23,7 @@ class Critic(nn.Module):
     net_arch: Sequence[int]
     use_layer_norm: bool = False
     use_batch_norm: bool = True
-    dropout_rate: Optional[float] = None
+    dropout_rate: float | None = None
     batch_norm_momentum: float = 0.99
     renorm_warmup_steps: int = 100_000
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
@@ -62,7 +62,7 @@ class Critic(nn.Module):
 
 class SimbaCritic(nn.Module):
     net_arch: Sequence[int]
-    dropout_rate: Optional[float] = None
+    dropout_rate: float | None = None
     batch_norm_momentum: float = 0.99
     renorm_warmup_steps: int = 100_000
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
@@ -102,7 +102,7 @@ class VectorCritic(nn.Module):
     use_batch_norm: bool = True
     batch_norm_momentum: float = 0.99
     renorm_warmup_steps: int = 100_000
-    dropout_rate: Optional[float] = None
+    dropout_rate: float | None = None
     n_critics: int = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
 
@@ -136,7 +136,7 @@ class SimbaVectorCritic(nn.Module):
     use_batch_norm: bool = True
     batch_norm_momentum: float = 0.99
     renorm_warmup_steps: int = 100_000
-    dropout_rate: Optional[float] = None
+    dropout_rate: float | None = None
     n_critics: int = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     scale_factor: int = 4
@@ -265,7 +265,7 @@ class CrossQPolicy(BaseJaxPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        net_arch: list[int] | dict[str, list[int]] | None = None,
         dropout_rate: float = 0.0,
         layer_norm: bool = False,
         batch_norm: bool = True,  # for critic
@@ -280,10 +280,10 @@ class CrossQPolicy(BaseJaxPolicy):
         use_expln: bool = False,
         clip_mean: float = 2.0,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        features_extractor_kwargs: dict[str, Any] | None = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adam,
-        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
         actor_class: type[nn.Module] = Actor,
@@ -458,7 +458,7 @@ class SimbaCrossQPolicy(CrossQPolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        net_arch: Optional[Union[list[int], dict[str, list[int]]]] = None,
+        net_arch: list[int] | dict[str, list[int]] | None = None,
         dropout_rate: float = 0,
         layer_norm: bool = False,
         batch_norm: bool = True,
@@ -471,10 +471,10 @@ class SimbaCrossQPolicy(CrossQPolicy):
         use_expln: bool = False,
         clip_mean: float = 2,
         features_extractor_class=None,
-        features_extractor_kwargs: Optional[dict[str, Any]] = None,
+        features_extractor_kwargs: dict[str, Any] | None = None,
         normalize_images: bool = True,
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
-        optimizer_kwargs: Optional[dict[str, Any]] = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
         n_critics: int = 2,
         share_features_extractor: bool = False,
         actor_class: type[nn.Module] = SimbaActor,

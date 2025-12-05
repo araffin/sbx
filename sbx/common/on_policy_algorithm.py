@@ -1,4 +1,4 @@
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, TypeVar
 
 import gymnasium as gym
 import jax
@@ -25,9 +25,9 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
 
     def __init__(
         self,
-        policy: Union[str, type[BasePolicy]],
-        env: Union[GymEnv, str],
-        learning_rate: Union[float, Schedule],
+        policy: str | type[BasePolicy],
+        env: GymEnv | str,
+        learning_rate: float | Schedule,
         n_steps: int,
         gamma: float,
         gae_lambda: float,
@@ -36,14 +36,14 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         max_grad_norm: float,
         use_sde: bool,
         sde_sample_freq: int,
-        tensorboard_log: Optional[str] = None,
+        tensorboard_log: str | None = None,
         monitor_wrapper: bool = True,
-        policy_kwargs: Optional[dict[str, Any]] = None,
+        policy_kwargs: dict[str, Any] | None = None,
         verbose: int = 0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
         device: str = "auto",
         _init_setup_model: bool = True,
-        supported_action_spaces: Optional[tuple[type[spaces.Space], ...]] = None,
+        supported_action_spaces: tuple[type[spaces.Space], ...] | None = None,
     ):
         super().__init__(
             policy=policy,  # type: ignore[arg-type]
@@ -78,7 +78,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
 
     def _update_learning_rate(  # type: ignore[override]
         self,
-        optimizers: Union[list[optax.OptState], optax.OptState],
+        optimizers: list[optax.OptState] | optax.OptState,
         learning_rate: float,
     ) -> None:
         """
@@ -97,7 +97,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             # Note: the optimizer must have been defined with inject_hyperparams
             optimizer.hyperparams["learning_rate"] = learning_rate
 
-    def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
+    def set_random_seed(self, seed: int | None) -> None:  # type: ignore[override]
         super().set_random_seed(seed)
         if seed is None:
             # Sample random seed

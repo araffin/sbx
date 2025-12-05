@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import jax.numpy as jnp
 import tensorflow_probability.substrates.jax as tfp
@@ -19,7 +19,7 @@ class TanhTransformedDistribution(tfd.TransformedDistribution):  # type: ignore[
         return self.bijector.forward(self.distribution.mode())
 
     @classmethod
-    def _parameter_properties(cls, dtype: Optional[Any], num_classes=None):
+    def _parameter_properties(cls, dtype: Any | None, num_classes=None):
         td_properties = super()._parameter_properties(dtype, num_classes=num_classes)
         del td_properties["bijector"]
         return td_properties
