@@ -1,6 +1,6 @@
 import io
 import pathlib
-from typing import Any, Optional, Union
+from typing import Any
 
 import jax
 import numpy as np
@@ -21,35 +21,35 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
     def __init__(
         self,
         policy: type[BasePolicy],
-        env: Union[GymEnv, str],
-        learning_rate: Union[float, Schedule],
-        qf_learning_rate: Optional[float] = None,
+        env: GymEnv | str,
+        learning_rate: float | Schedule,
+        qf_learning_rate: float | None = None,
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 100,
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
-        train_freq: Union[int, tuple[int, str]] = (1, "step"),
+        train_freq: int | tuple[int, str] = (1, "step"),
         gradient_steps: int = 1,
-        action_noise: Optional[ActionNoise] = None,
-        replay_buffer_class: Optional[type[ReplayBuffer]] = None,
-        replay_buffer_kwargs: Optional[dict[str, Any]] = None,
+        action_noise: ActionNoise | None = None,
+        replay_buffer_class: type[ReplayBuffer] | None = None,
+        replay_buffer_kwargs: dict[str, Any] | None = None,
         optimize_memory_usage: bool = False,
         n_steps: int = 1,
-        policy_kwargs: Optional[dict[str, Any]] = None,
-        tensorboard_log: Optional[str] = None,
+        policy_kwargs: dict[str, Any] | None = None,
+        tensorboard_log: str | None = None,
         verbose: int = 0,
         device: str = "auto",
         support_multi_env: bool = False,
         monitor_wrapper: bool = True,
-        seed: Optional[int] = None,
+        seed: int | None = None,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
         use_sde_at_warmup: bool = False,
         sde_support: bool = True,
         stats_window_size: int = 100,
-        param_resets: Optional[list[int]] = None,
-        supported_action_spaces: Optional[tuple[type[spaces.Space], ...]] = None,
+        param_resets: list[int] | None = None,
+        supported_action_spaces: tuple[type[spaces.Space], ...] | None = None,
     ):
         super().__init__(
             policy=policy,
@@ -108,7 +108,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
 
     def _update_learning_rate(  # type: ignore[override]
         self,
-        optimizers: Union[list[optax.OptState], optax.OptState],
+        optimizers: list[optax.OptState] | optax.OptState,
         learning_rate: float,
         name: str = "learning_rate",
     ) -> None:
@@ -129,7 +129,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
             # Note: the optimizer must have been defined with inject_hyperparams
             optimizer.hyperparams["learning_rate"] = learning_rate
 
-    def set_random_seed(self, seed: Optional[int]) -> None:  # type: ignore[override]
+    def set_random_seed(self, seed: int | None) -> None:  # type: ignore[override]
         super().set_random_seed(seed)
         if seed is None:
             # Sample random seed
@@ -173,7 +173,7 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
 
     def load_replay_buffer(
         self,
-        path: Union[str, pathlib.Path, io.BufferedIOBase],
+        path: str | pathlib.Path | io.BufferedIOBase,
         truncate_last_traj: bool = True,
     ) -> None:
         super().load_replay_buffer(path, truncate_last_traj)

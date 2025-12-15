@@ -41,7 +41,7 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.7.0a1,<3.0",
+        "stable_baselines3>=2.8.0a0,<3.0",
         "jax>=0.4.24,<0.8.0",
         "jaxlib",
         "flax",
@@ -76,13 +76,13 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     version=__version__,
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     # PyPI package information.
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
 )
