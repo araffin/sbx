@@ -183,7 +183,7 @@ A partial benchmark can be found on [OpenRL Benchmark](https://wandb.ai/openrlbe
 
 ## Citing the Project
 
-To cite this repository in publications:
+To cite this repository in publications, please cite the SB3 paper:
 
 ```bibtex
 @article{stable-baselines3,
