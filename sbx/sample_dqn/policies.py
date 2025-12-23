@@ -1,7 +1,7 @@
+from collections.abc import Callable
 from enum import Enum
 from functools import partial
 from typing import Any
-from collections.abc import Callable
 
 import flax.linen as nn
 import jax
@@ -28,17 +28,17 @@ NAME_TO_SAMPLING_STRATEGY = {
 }
 
 
-@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
+@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations"])
 def find_best_actions_cem(
     qf_state,
     observations,
     key,
     n_sampled_actions: int,
     action_dim: int,
-    n_top: int = 6,
-    n_iterations: int = 10,
-    initial_variance: float = 1.0**2,
-    extra_noise_std: float = 0.1,
+    n_top: int,
+    n_iterations: int,
+    initial_variance: float,
+    extra_noise_std: float,
 ):
     """
     Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -164,6 +164,11 @@ class SampleDQNPolicy(BaseJaxPolicy):
         n_critics: int = 2,
         n_sampled_actions: int = 25,
         sampling_strategy: str | SamplingStrategy = SamplingStrategy.CEM,
+        # CEM params
+        n_top: int = 6,
+        n_iterations: int = 10,
+        initial_variance: float = 1.0**2,
+        extra_noise_std: float = 0.1,
         vector_critic_class: type[nn.Module] = VectorCritic,
     ):
         super().__init__(
@@ -191,6 +196,10 @@ class SampleDQNPolicy(BaseJaxPolicy):
         if isinstance(sampling_strategy, str):
             sampling_strategy = NAME_TO_SAMPLING_STRATEGY[sampling_strategy]
         self.sampling_strategy = sampling_strategy
+        self.n_top = n_top
+        self.n_iterations = n_iterations
+        self.initial_variance = initial_variance
+        self.extra_noise_std = extra_noise_std
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key = jax.random.split(key, 2)
@@ -233,19 +242,32 @@ class SampleDQNPolicy(BaseJaxPolicy):
         return self._predict(obs, deterministic=deterministic)
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "sampling_strategy"])
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "sampling_strategy", "n_top", "n_iterations"])
     def select_action(
         qf_state,
         observations,
         key,
         n_sampled_actions: int,
         action_dim: int,
+        # CEM params
+        n_top: int,
+        n_iterations: int,
+        initial_variance: float,
+        extra_noise_std: float,
         sampling_strategy: int = SamplingStrategy.CEM.value,
     ):
         return jax.lax.cond(
             sampling_strategy == SamplingStrategy.CEM.value,
             # If True: CEM
-            partial(find_best_actions_cem, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
+            partial(
+                find_best_actions_cem,
+                n_sampled_actions=n_sampled_actions,
+                action_dim=action_dim,
+                n_top=n_top,
+                n_iterations=n_iterations,
+                initial_variance=initial_variance,
+                extra_noise_std=extra_noise_std,
+            ),
             # If False: Gaussian/Uniform sampling
             partial(
                 find_best_actions_sample_dist,
@@ -272,6 +294,10 @@ class SampleDQNPolicy(BaseJaxPolicy):
             2 * self.n_sampled_actions if deterministic else self.n_sampled_actions,
             self.action_dim,
             sampling_strategy=self.sampling_strategy.value,
+            n_top=self.n_top,
+            n_iterations=self.n_iterations,
+            initial_variance=self.initial_variance,
+            extra_noise_std=self.extra_noise_std,
         )
         # if deterministic:
         #     return SampleDQNPolicy.select_action(self.qf_state, observation, self.sampling_key)
