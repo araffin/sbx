@@ -41,6 +41,11 @@ class SampleDQN(OffPolicyAlgorithmJax):
         optimize_memory_usage: bool = False,
         n_steps: int = 1,
         train_sampling_strategy: SamplingStrategy | str = SamplingStrategy.UNIFORM,
+        # CEM params
+        n_top: int = 6,
+        n_iterations: int = 10,
+        initial_variance: float = 1.0**2,
+        extra_noise_std: float = 0.1,
         # max_grad_norm: float = 10,
         train_freq: int | tuple[int, str] = 1,
         gradient_steps: int = 1,
@@ -84,6 +89,10 @@ class SampleDQN(OffPolicyAlgorithmJax):
             train_sampling_strategy = NAME_TO_SAMPLING_STRATEGY[train_sampling_strategy]
         self.train_sampling_strategy = train_sampling_strategy
         self.n_sampled_actions = n_sampled_actions
+        self.n_top = n_top
+        self.n_iterations = n_iterations
+        self.initial_variance = initial_variance
+        self.extra_noise_std = extra_noise_std
         if _init_setup_model:
             self._setup_model()
 
@@ -91,9 +100,16 @@ class SampleDQN(OffPolicyAlgorithmJax):
         super()._setup_model()
 
         if not hasattr(self, "policy") or self.policy is None:
-            # Allow to have different n_sampled_actions before exploration and training
-            if "n_sampled_actions" not in self.policy_kwargs:
-                self.policy_kwargs["n_sampled_actions"] = self.n_sampled_actions
+            # Allow to have different n_sampled_actions between exploration and training
+            for key, default_val in [
+                ("n_sampled_actions", self.n_sampled_actions),
+                ("n_top", self.n_top),
+                ("n_iterations", self.n_iterations),
+                ("initial_variance", self.initial_variance),
+                ("extra_noise_std", self.extra_noise_std),
+            ]:
+                if key not in self.policy_kwargs:
+                    self.policy_kwargs[key] = default_val
 
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
@@ -150,6 +166,11 @@ class SampleDQN(OffPolicyAlgorithmJax):
             "key": self.key,
             # To give the right shape and avoid JIT errors
             "sampled_actions": jnp.ones(self.n_sampled_actions),
+            # CEM params
+            "n_top": jnp.ones(self.n_top),
+            "n_iterations": jnp.ones(self.n_iterations),
+            "initial_variance": self.initial_variance,
+            "extra_noise_std": self.extra_noise_std,
             # "sampling_strategy": jnp.array([self.train_sampling_strategy.value]),
             "sampling_strategy": self.train_sampling_strategy.value,
             "tau": self.tau,
@@ -182,17 +203,17 @@ class SampleDQN(OffPolicyAlgorithmJax):
         self.logger.record("train/qf_mean_value", qf_mean_value.item())
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations"])
     def find_max_target_q_cem(
         qf_state,
         next_observations,
         key,
         n_sampled_actions: int,
         action_dim: int,
-        n_top: int = 6,
-        n_iterations: int = 2,
-        initial_variance: float = 1.0**2,
-        extra_noise_std: float = 0.1,
+        n_top: int,
+        n_iterations: int,
+        initial_variance: float,
+        extra_noise_std: float,
     ):
         """
         Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -329,17 +350,33 @@ class SampleDQN(OffPolicyAlgorithmJax):
         discounts: jax.Array,
         key: jax.Array,
         sampled_actions: jax.Array,
+        # CEM params
+        n_top: jax.Array,
+        n_iterations: jax.Array,
+        initial_variance: float,
+        extra_noise_std: float,
         sampling_strategy: int = SamplingStrategy.UNIFORM.value,
     ):
         # Reduce number of sampled action compared to exploration
         # n_sampled_actions = sampled_actions.shape[0] // 2
         n_sampled_actions = sampled_actions.shape[0]
+        n_iterations_int = n_iterations.shape[0]
+        n_top_int = n_top.shape[0]
+
         action_dim = replay_actions.shape[-1]
 
         next_q_values = jax.lax.cond(
             sampling_strategy == SamplingStrategy.CEM.value,
             # If True:
-            partial(SampleDQN.find_max_target_q_cem, n_sampled_actions=n_sampled_actions, action_dim=action_dim),
+            partial(
+                SampleDQN.find_max_target_q_cem,
+                n_sampled_actions=n_sampled_actions,
+                action_dim=action_dim,
+                n_top=n_top_int,
+                n_iterations=n_iterations_int,
+                initial_variance=initial_variance,
+                extra_noise_std=extra_noise_std,
+            ),
             # If False:
             partial(
                 SampleDQN.find_max_target_uniform,
@@ -392,6 +429,10 @@ class SampleDQN(OffPolicyAlgorithmJax):
             key=key,
             sampled_actions=carry["sampled_actions"],
             sampling_strategy=carry["sampling_strategy"],
+            n_top=carry["n_top"],
+            n_iterations=carry["n_iterations"],
+            initial_variance=carry["initial_variance"],
+            extra_noise_std=carry["extra_noise_std"],
         )
         qf_state = SampleDQN.soft_update(carry["tau"], qf_state)
 
