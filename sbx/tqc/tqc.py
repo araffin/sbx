@@ -429,7 +429,7 @@ class TQC(OffPolicyAlgorithmJax):
         target_entropy: ArrayLike,
         key: jax.Array,
     ):
-        (actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy) = cls.update_actor(
+        actor_state, (qf1_state, qf2_state), actor_loss_value, key, entropy = cls.update_actor(
             actor_state,
             qf1_state,
             qf2_state,
@@ -513,7 +513,7 @@ class TQC(OffPolicyAlgorithmJax):
             )
             qf1_state, qf2_state = cls.soft_update(tau, qf1_state, qf2_state)
 
-            (actor_state, (qf1_state, qf2_state), ent_coef_state, actor_loss_value, ent_coef_loss_value, key) = jax.lax.cond(
+            actor_state, (qf1_state, qf2_state), ent_coef_state, actor_loss_value, ent_coef_loss_value, key = jax.lax.cond(
                 (policy_delay_offset + i) % policy_delay == 0,
                 # If True:
                 cls.update_actor_and_temperature,

@@ -63,7 +63,7 @@ setup(
             # Lint code
             "ruff>=0.3.1",
             # Reformat
-            "black>=25.1.0,<26",
+            "black>=26.1.0,<27",
         ],
     },
     description="Jax version of Stable Baselines, implementations of reinforcement learning algorithms.",
