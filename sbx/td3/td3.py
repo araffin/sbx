@@ -325,7 +325,7 @@ class TD3(OffPolicyAlgorithmJax):
             )
             qf_state, actor_state = cls.soft_update(tau, qf_state, actor_state)
 
-            (actor_state, qf_state, actor_loss_value, key) = jax.lax.cond(
+            actor_state, qf_state, actor_loss_value, key = jax.lax.cond(
                 (policy_delay_offset + i) % policy_delay == 0,
                 # If True:
                 cls.update_actor,
