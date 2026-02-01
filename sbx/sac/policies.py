@@ -226,7 +226,7 @@ class SimbaV2SACPolicy(SACPolicy):
         features_extractor_class=None,
         features_extractor_kwargs: dict[str, Any] | None = None,
         normalize_images: bool = True,
-        # AdamW for simba
+        # AdamW for SimbaV2 (different from original implementation)
         optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
         optimizer_kwargs: dict[str, Any] | None = None,
         n_critics: int = 2,
