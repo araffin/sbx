@@ -16,7 +16,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
-from sbx.sac.policies import SACPolicy, SimbaSACPolicy
+from sbx.sac.policies import SACPolicy, SimbaSACPolicy, SimbaV2SACPolicy
 
 
 class EntropyCoef(nn.Module):
@@ -44,6 +44,8 @@ class SAC(OffPolicyAlgorithmJax):
         "MlpPolicy": SACPolicy,
         # Residual net, from https://github.com/SonyResearch/simba
         "SimbaPolicy": SimbaSACPolicy,
+        # Residual net with normalization, from https://github.com/DAVIAN-Robotics/SimbaV2
+        "SimbaV2Policy": SimbaV2SACPolicy,
         # Minimal dict support using flatten()
         "MultiInputPolicy": SACPolicy,
     }

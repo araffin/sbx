@@ -183,13 +183,14 @@ class VectorCritic(nn.Module):
     n_critics: int = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1
+    base_class: type[nn.Module] = ContinuousCritic
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
         # Idea taken from https://github.com/perrin-isir/xpag
         # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
         vmap_critic = nn.vmap(
-            ContinuousCritic,
+            self.base_class,
             variable_axes={"params": 0},  # parameters not shared between the critics
             split_rngs={"params": True, "dropout": True},  # different initializations
             in_axes=None,
@@ -206,34 +207,9 @@ class VectorCritic(nn.Module):
         return q_values
 
 
-class SimbaVectorCritic(nn.Module):
-    net_arch: Sequence[int]
+class SimbaVectorCritic(VectorCritic):
     # Note: we have use_layer_norm for consistency but it is not used (always on)
-    use_layer_norm: bool = True
-    dropout_rate: float | None = None
-    n_critics: int = 2
-    activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
-    output_dim: int = 1
-
-    @nn.compact
-    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
-        # Idea taken from https://github.com/perrin-isir/xpag
-        # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
-        vmap_critic = nn.vmap(
-            SimbaContinuousCritic,
-            variable_axes={"params": 0},  # parameters not shared between the critics
-            split_rngs={"params": True, "dropout": True},  # different initializations
-            in_axes=None,
-            out_axes=0,
-            axis_size=self.n_critics,
-        )
-        q_values = vmap_critic(
-            dropout_rate=self.dropout_rate,
-            net_arch=self.net_arch,
-            activation_fn=self.activation_fn,
-            output_dim=self.output_dim,
-        )(obs, action)
-        return q_values
+    base_class: type[nn.Module] = SimbaContinuousCritic
 
 
 class SquashedGaussianActor(nn.Module):

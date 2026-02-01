@@ -75,7 +75,7 @@ def test_tqc(tmp_path) -> None:
     check_save_load(model, TQC, tmp_path)
 
 
-@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, CrossQ, "SimbaSAC", "SimbaCrossQ"])
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, CrossQ, "SimbaSAC", "SimbaCrossQ", "SimbaV2SAC"])
 def test_sac_td3(tmp_path, model_class) -> None:
     policy = "MlpPolicy"
     net_kwargs = {}
@@ -86,6 +86,10 @@ def test_sac_td3(tmp_path, model_class) -> None:
     elif model_class == "SimbaCrossQ":
         model_class = CrossQ
         policy = "SimbaPolicy"
+        net_kwargs = dict(net_arch=[64])
+    elif model_class == "SimbaV2SAC":
+        model_class = SAC
+        policy = "SimbaV2Policy"
         net_kwargs = dict(net_arch=[64])
 
     model = model_class(
