@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable, Sequence
 
 import flax.linen as nn
@@ -7,6 +8,7 @@ import numpy as np
 
 from sbx.common.distributions import TanhTransformedDistribution
 from sbx.common.policies import Flatten, VectorCritic, tfd
+from sbx.common.type_aliases import RLTrainState
 
 EPS = 1e-8
 
@@ -27,6 +29,54 @@ def l2normalize_layer(tree):
     else:
         raise ValueError(f"Not supported tree: {tree}")
     return jax.tree.map(f=lambda x: l2normalize(x, axis=axis), tree=tree)
+
+
+def l2normalize_network(train_state: RLTrainState, regex: str = "hyper_dense") -> RLTrainState:
+    new_params = tree_map_until_match(
+        f=lambda x: l2normalize_layer(x),
+        tree=train_state.params,
+        target_re=regex,
+        keep_values=True,
+    )
+    return train_state.replace(params=new_params)
+
+
+def tree_map_until_match(f, tree, target_re, *rest_list, keep_structure=True, keep_values=False):
+    """
+    Similar to `jax.tree_util.tree_map_with_path`, but `is_leaf` is a regex condition.
+    args:
+        f: A function to map the discovered nodes (i.e., dict key matches `target_re`).
+           Inputs to f will be (1) the discovered node and (2) the corresponding nodes in `*rest``.
+        target_re: A regex string condition that triggers `f`.
+        tree: A pytree to be searched by `target_re` and mapped by `f`.
+        *rest: List of pytrees that are at least 'almost' identical structure to `tree`.
+               'Almost', since the substructure of matching nodes don't have to be identical.
+               i.e., The tree structure of `tree` and `*rest` should be identical only up to the matching nodes.
+        keep_structure: If false, the returned tree will only contain subtrees that lead to the matching nodes.
+        keep_values: If false, unmatched leaves will become `None`. Assumes `keep_structure=True`.
+    """
+
+    if not isinstance(tree, dict):
+        return tree if keep_values else None
+
+    ret_tree = {}
+    for key, value in tree.items():
+        value_rest = [rest[key] for rest in rest_list]
+        if re.fullmatch(target_re, key):
+            ret_tree[key] = f(value, *value_rest)
+        else:
+            subtree = tree_map_until_match(
+                f,
+                value,
+                target_re,
+                *value_rest,
+                keep_structure=keep_structure,
+                keep_values=keep_values,
+            )
+            if keep_structure or subtree:
+                ret_tree[key] = subtree
+
+    return ret_tree
 
 
 class Scaler(nn.Module):
