@@ -19,6 +19,7 @@ Implemented algorithms:
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
 - [Batch Normalization in Deep Reinforcement Learning (CrossQ)](https://openreview.net/forum?id=PczQtTsTIX)
 - [Simplicity Bias for Scaling Up Parameters in Deep Reinforcement Learning (SimBa)](https://openreview.net/forum?id=jXLiDKsuDo)
+- [Hyperspherical Normalization for Scalable Deep Reinforcement Learning (SimBaV2)](https://openreview.net/forum?id=kfYxyvCYQ4)
 
 
 Note: parameter resets for off-policy algorithms can be activated by passing a list of timesteps to the model constructor (ex: `param_resets=[int(1e5), int(5e5)]` to reset parameters and optimizers after 100_000 and 500_000 timesteps.
@@ -135,9 +136,9 @@ Having a higher learning rate for the q-value function is also helpful: `qf_lear
 
 Note: when using the DroQ configuration with CrossQ, you should set `layer_norm=False` as there is already batch normalization.
 
-## Note about SimBa
+## Note about SimBa and SimBaV2
 
-[SimBa](https://openreview.net/forum?id=jXLiDKsuDo) is a special network architecture for off-policy algorithms (SAC, TQC, ...).
+[SimBa](https://openreview.net/forum?id=jXLiDKsuDo) and [SimbaV2](https://openreview.net/forum?id=kfYxyvCYQ4) are special network architectures for off-policy algorithms (SAC, TQC, ...).
 
 Some recommended hyperparameters (tested on MuJoCo and PyBullet environments):
 ```python
@@ -147,7 +148,7 @@ import optax
 default_hyperparams = dict(
     n_envs=1,
     n_timesteps=int(1e6),
-    policy="SimbaPolicy",
+    policy="SimbaPolicy",  # or SimbaV2Policy
     learning_rate=3e-4,
     # qf_learning_rate=1e-3,
     policy_kwargs={
