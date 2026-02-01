@@ -15,6 +15,7 @@ from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
+
 # from sbx.common.simbav2_layers import l2normalize_network
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
 from sbx.sac.policies import SACPolicy, SimbaSACPolicy, SimbaV2SACPolicy

@@ -17,6 +17,7 @@ from sbx.common.policies import (
     SimbaSquashedGaussianActor,
     SquashedGaussianActor,
 )
+from sbx.common.simbav2_layers import SimbaV2ContinuousCritic, SimbaV2SquashedGaussianActor
 from sbx.common.type_aliases import RLTrainState
 
 
@@ -206,6 +207,59 @@ class SimbaTQCPolicy(TQCPolicy):
         share_features_extractor: bool = False,
         actor_class: type[nn.Module] = SimbaSquashedGaussianActor,
         critic_class: type[nn.Module] = SimbaContinuousCritic,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            net_arch,
+            dropout_rate,
+            layer_norm,
+            top_quantiles_to_drop_per_net,
+            n_quantiles,
+            activation_fn,
+            use_sde,
+            log_std_init,
+            use_expln,
+            clip_mean,
+            features_extractor_class,
+            features_extractor_kwargs,
+            normalize_images,
+            optimizer_class,
+            optimizer_kwargs,
+            n_critics,
+            share_features_extractor,
+            actor_class,
+            critic_class,
+        )
+
+
+class SimbaV2TQCPolicy(TQCPolicy):
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        lr_schedule: Schedule,
+        net_arch: list[int] | dict[str, list[int]] | None = None,
+        dropout_rate: float = 0,
+        layer_norm: bool = False,
+        top_quantiles_to_drop_per_net: int = 2,
+        n_quantiles: int = 25,
+        activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu,
+        use_sde: bool = False,
+        log_std_init: float = 0.0,
+        use_expln: bool = False,
+        clip_mean: float = 2,
+        features_extractor_class=None,
+        features_extractor_kwargs: dict[str, Any] | None = None,
+        normalize_images: bool = True,
+        # AdamW for SimbaV2 (different from original implementation)
+        optimizer_class: Callable[..., optax.GradientTransformation] = optax.adamw,
+        optimizer_kwargs: dict[str, Any] | None = None,
+        n_critics: int = 2,
+        share_features_extractor: bool = False,
+        actor_class: type[nn.Module] = SimbaV2SquashedGaussianActor,
+        critic_class: type[nn.Module] = SimbaV2ContinuousCritic,
     ):
         super().__init__(
             observation_space,

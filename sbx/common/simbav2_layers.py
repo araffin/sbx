@@ -1,3 +1,7 @@
+"""
+Note: all the helpers here are copied and adapted from https://github.com/DAVIAN-Robotics/SimbaV2
+"""
+
 import re
 from collections.abc import Callable, Sequence
 
