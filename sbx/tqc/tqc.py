@@ -629,11 +629,11 @@ class TQC(OffPolicyAlgorithmJax):
             # Aleatoric
             # n_envs x n_critics x n_quantiles
             no_uncertainty_env_indices = []
-            if self.num_timesteps > learning_starts and True and self.num_timesteps % 5 == 0:
+            if self.num_timesteps > learning_starts and True and self.num_timesteps % 2 == 0:
                 # Note: we assume n_envs = 1 for now
                 # TODO: handle for n_envs
-                aleatoric_threshold = 0.00005
-                epistemic_threshold = 0.00005
+                aleatoric_threshold = 0.05
+                epistemic_threshold = 0.0005
                 qf1_quantiles = self.policy.qf.apply(
                     self.policy.qf1_state.params,
                     self._last_obs,
@@ -662,11 +662,15 @@ class TQC(OffPolicyAlgorithmJax):
                 mean_diff = jnp.abs(critics_mean[:, 0] - critics_mean[:, 1]).max().item()
                 if mean_diff < epistemic_threshold and aleatoric_uncertainty < aleatoric_threshold:
                     no_uncertainty_env_indices = [0]
-                if self.num_timesteps % 1000 == 0 or no_uncertainty_env_indices:
+                # self.num_timesteps % 1000 == 0 or
+                if no_uncertainty_env_indices:
                     print(f"{self.num_timesteps=} {mean_diff=:.5f} {aleatoric_uncertainty=:.5f}")
 
             # Rescale and perform action
             new_obs, rewards, dones, infos = env.step(actions)
+
+            # if no_uncertainty_env_indices:
+            #     print(f"Early truncation at {self.num_timesteps}!")
 
             self.num_timesteps += env.num_envs
             num_collected_steps += 1
