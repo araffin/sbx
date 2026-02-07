@@ -634,7 +634,7 @@ class TQC(OffPolicyAlgorithmJax):
             # Aleatoric
             # n_envs x n_critics x n_quantiles
             no_uncertainty_env_indices = []
-            if self.num_timesteps > learning_starts and self.auto_truncate and self.num_timesteps % 20 == 0:
+            if self.num_timesteps > learning_starts and self.auto_truncate and self.num_timesteps % (self.n_envs * 20) == 0:
                 # Note: we assume n_envs = 1 for now
                 # TODO: handle for n_envs
                 # aleatoric_threshold = 0.05
@@ -676,7 +676,7 @@ class TQC(OffPolicyAlgorithmJax):
                 no_uncertainty_env_indices = jnp.where(mean_norm_std < self.auto_truncate_threshold)[0].tolist()
                 self.n_auto_truncate += len(no_uncertainty_env_indices)
 
-                if self.num_timesteps % 10000 == 0:
+                if self.num_timesteps % (self.n_envs * 1000) == 0:
                     print(f"{self.n_auto_truncate=} {(self.n_auto_truncate/self.num_timesteps) * 100:.2f}%")
 
                 # self.num_timesteps % 1000 == 0 or
