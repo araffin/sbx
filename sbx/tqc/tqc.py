@@ -68,6 +68,8 @@ class TQC(OffPolicyAlgorithmJax):
         gradient_steps: int = 1,
         policy_delay: int = 1,
         top_quantiles_to_drop_per_net: int = 2,
+        auto_truncate: bool = False,
+        auto_truncate_threshold: float = 0.0008,
         action_noise: ActionNoise | None = None,
         replay_buffer_class: type[ReplayBuffer] | None = None,
         replay_buffer_kwargs: dict[str, Any] | None = None,
@@ -115,6 +117,9 @@ class TQC(OffPolicyAlgorithmJax):
             support_multi_env=True,
         )
 
+        self.auto_truncate = auto_truncate
+        self.auto_truncate_threshold = auto_truncate_threshold
+        self.n_auto_truncate = 0
         self.policy_delay = policy_delay
         self.ent_coef_init = ent_coef
         self.target_entropy = target_entropy
@@ -629,11 +634,12 @@ class TQC(OffPolicyAlgorithmJax):
             # Aleatoric
             # n_envs x n_critics x n_quantiles
             no_uncertainty_env_indices = []
-            if self.num_timesteps > learning_starts and True and self.num_timesteps % 2 == 0:
+            if self.num_timesteps > learning_starts and self.auto_truncate and self.num_timesteps % 20 == 0:
                 # Note: we assume n_envs = 1 for now
                 # TODO: handle for n_envs
-                aleatoric_threshold = 0.05
-                epistemic_threshold = 0.0005
+                # aleatoric_threshold = 0.05
+                # epistemic_threshold = 0.0005
+                # threshold = 0.0008  # or 0.0001 for mean_norm_abs
                 qf1_quantiles = self.policy.qf.apply(
                     self.policy.qf1_state.params,
                     self._last_obs,
@@ -654,17 +660,33 @@ class TQC(OffPolicyAlgorithmJax):
                 # (n_envs, n_critics, n_quantiles)
                 quantiles = jnp.concatenate((qf1_quantiles, qf2_quantiles), axis=1)
                 # shape: (n_envs, n_critics)
-                aleatoric_uncertainty = jnp.var(quantiles, axis=2).max().item()
+                aleatoric_uncertainty = jnp.var(quantiles, axis=2).max(axis=1)
                 # shape: (n_envs, n_critics)
                 critics_mean = jnp.mean(quantiles, axis=2)
                 # shape: (n_envs, 1)
                 # or: torch.diff(th_mean, dim=1).squeeze(dim=1)
-                mean_diff = jnp.abs(critics_mean[:, 0] - critics_mean[:, 1]).max().item()
-                if mean_diff < epistemic_threshold and aleatoric_uncertainty < aleatoric_threshold:
-                    no_uncertainty_env_indices = [0]
+
+                mean_diff = jnp.abs(critics_mean[:, 0] - critics_mean[:, 1])
+                # normalize: mean_diff / std?
+                # or mean_diff / mean_norm
+                mean_norm_std = mean_diff / (aleatoric_uncertainty + 1e-7)
+                mean_norm_abs = mean_diff / jnp.abs(critics_mean).max(axis=1)
+
+                # if mean_diff < epistemic_threshold and aleatoric_uncertainty < aleatoric_threshold:
+                no_uncertainty_env_indices = jnp.where(mean_norm_std < self.auto_truncate_threshold)[0].tolist()
+                self.n_auto_truncate += len(no_uncertainty_env_indices)
+
+                if self.num_timesteps % 10000 == 0:
+                    print(f"{self.n_auto_truncate=} {(self.n_auto_truncate/self.num_timesteps) * 100:.2f}%")
+
                 # self.num_timesteps % 1000 == 0 or
-                if no_uncertainty_env_indices:
-                    print(f"{self.num_timesteps=} {mean_diff=:.5f} {aleatoric_uncertainty=:.5f}")
+                # if no_uncertainty_env_indices:
+                #     # For debug
+                #     idx = no_uncertainty_env_indices[0]
+                #     print(
+                #         f"{self.num_timesteps=} {mean_norm_std[idx]=:.4f} {mean_norm_abs[idx]=:.4f} "
+                #         # f"\n | {mean_diff=:.5f} {aleatoric_uncertainty=:.5f}"
+                #     )
 
             # Rescale and perform action
             new_obs, rewards, dones, infos = env.step(actions)
