@@ -327,7 +327,8 @@ class SampleDQNPolicy(BaseJaxPolicy):
             n_iterations=self.n_iterations,
             initial_variance=self.initial_variance,
             extra_noise_std=self.extra_noise_std,
-            deterministic=deterministic,
+            # deterministic=deterministic,
+            deterministic=True, # Only used for dropout, do not add additional noise during exploration
         )
         # if deterministic:
         #     return SampleDQNPolicy.select_action(self.qf_state, observation, self.sampling_key)
