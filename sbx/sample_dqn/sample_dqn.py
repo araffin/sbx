@@ -238,7 +238,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
             best_actions = carry["best_actions"]
             best_actions_cov = carry["best_actions_cov"]
             key = carry["key"]
-            key, new_key = jax.random.split(key, 2)
+            key, new_key, dropout_key_target = jax.random.split(key, 3)
 
             # Reduce extra variance over time
             extra_var_multiplier = jnp.max(jnp.array([(1.0 - i / extra_var_decay_time), 0]))
@@ -263,7 +263,12 @@ class SampleDQN(OffPolicyAlgorithmJax):
             next_state_actions = jnp.clip(actions, -1.0, 1.0)
 
             # Shape is (n_critics, batch_size, n_repeated_actions, 1)
-            qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_next_obs, next_state_actions)
+            qf_next_values = qf_state.apply_fn(
+                qf_state.target_params,
+                repeated_next_obs,
+                next_state_actions,
+                rngs={"dropout": dropout_key_target},
+            )
             # Twin network: take the min between q-networks
             # qf_next_values = jnp.min(qf_next_values, axis=0)
             # More optimistic alternative
@@ -297,6 +302,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         action_dim: int,
         sampling_strategy: int = SamplingStrategy.UNIFORM.value,
     ):
+        key, dropout_key_target = jax.random.split(key, 2)
 
         def uniform_sampling(key):
             return jax.random.uniform(
@@ -327,7 +333,12 @@ class SampleDQN(OffPolicyAlgorithmJax):
         repeated_next_obs = jnp.repeat(jnp.expand_dims(next_observations, axis=1), n_sampled_actions, axis=1)
 
         # Compute the next Q-values using the target network
-        qf_next_values = qf_state.apply_fn(qf_state.target_params, repeated_next_obs, next_actions)
+        qf_next_values = qf_state.apply_fn(
+            qf_state.target_params,
+            repeated_next_obs,
+            next_actions,
+            rngs={"dropout": dropout_key_target},
+        )
         # Twin network: take the min between q-networks
         # qf_next_values = jnp.min(qf_next_values, axis=0)
         # More optimistic alternative
@@ -389,22 +400,31 @@ class SampleDQN(OffPolicyAlgorithmJax):
             key,
         )
 
+        # TODO: check if the key should not be updated before
+        key, dropout_key_current = jax.random.split(key, 2)
         # shape is (batch_size, 1)
         target_q_values = rewards[:, None] + (1 - dones[:, None]) * discounts[:, None] * next_q_values
 
-        def critic_loss(params):
+        def critic_loss(params, dropout_key: jax.Array) -> jax.Array:
             # Retrieve the q-values for the actions from the replay buffer
             # shape is (n_critics, batch_size, 1)
-            current_q_values = qf_state.apply_fn(params, observations, replay_actions)
+            current_q_values = qf_state.apply_fn(
+                params,
+                observations,
+                replay_actions,
+                rngs={"dropout": dropout_key},
+            )
             # Compute Huber loss (less sensitive to outliers)
             # return optax.huber_loss(current_q_values, target_q_values).mean(axis=1).sum(), current_q_values.mean()
             # Reduction: mean over batch, sum over critics
             return 0.5 * ((target_q_values - current_q_values) ** 2).mean(axis=1).sum(), current_q_values.mean()
 
-        (qf_loss_value, qf_mean_value), grads = jax.value_and_grad(critic_loss, has_aux=True)(qf_state.params)
+        (qf_loss_value, qf_mean_value), grads = jax.value_and_grad(critic_loss, has_aux=True)(
+            qf_state.params, dropout_key_current
+        )
         qf_state = qf_state.apply_gradients(grads=grads)
 
-        return qf_state, (qf_loss_value, qf_mean_value)
+        return qf_state, (qf_loss_value, qf_mean_value), key
 
     @staticmethod
     @jax.jit
@@ -418,7 +438,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         data = carry["data"]
         carry["key"], key = jax.random.split(carry["key"])
 
-        qf_state, (qf_loss_value, qf_mean_value) = SampleDQN.update_qnetwork(
+        qf_state, (qf_loss_value, qf_mean_value), key = SampleDQN.update_qnetwork(
             carry["qf_state"],
             observations=data.observations[indices],
             replay_actions=data.actions[indices],
@@ -436,6 +456,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         )
         qf_state = SampleDQN.soft_update(carry["tau"], qf_state)
 
+        carry["key"] = key
         carry["qf_state"] = qf_state
         carry["info"]["critic_loss"] += qf_loss_value
         carry["info"]["qf_mean_value"] += qf_mean_value

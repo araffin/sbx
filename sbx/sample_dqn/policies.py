@@ -28,7 +28,7 @@ NAME_TO_SAMPLING_STRATEGY = {
 }
 
 
-@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations"])
+@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations", "deterministic"])
 def find_best_actions_cem(
     qf_state,
     observations,
@@ -39,6 +39,7 @@ def find_best_actions_cem(
     n_iterations: int,
     initial_variance: float,
     extra_noise_std: float,
+    deterministic: bool = False,
 ):
     """
     Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -63,7 +64,7 @@ def find_best_actions_cem(
         best_actions = carry["best_actions"]
         best_actions_cov = carry["best_actions_cov"]
         key = carry["key"]
-        key, new_key = jax.random.split(key, 2)
+        key, new_key, dropout_key = jax.random.split(key, 3)
         # Reduce extra variance over time
         extra_var_multiplier = jnp.max(jnp.array([(1.0 - i / extra_var_decay_time), 0]))
         # Sample using only the diagonal of the covariance matrix (+ extra noise)
@@ -76,7 +77,13 @@ def find_best_actions_cem(
 
         repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
         # Shape is (n_critics, batch_size, n_repeated_actions, 1)
-        qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, jnp.clip(actions, -1.0, 1.0))
+        qf_values = qf_state.apply_fn(
+            qf_state.params,
+            repeated_obs,
+            jnp.clip(actions, -1.0, 1.0),
+            deterministic=deterministic,  # disable dropout at inference
+            rngs={"dropout": dropout_key},
+        )
         # Twin network: take the min between q-networks
         # qf_values = jnp.min(qf_values, axis=0)
         # More optimistic alternative
@@ -105,7 +112,7 @@ def find_best_actions_cem(
     return jnp.clip(best_actions, -1.0, 1.0)
 
 
-@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "gaussian_dist"])
+@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "gaussian_dist", "deterministic"])
 def find_best_actions_sample_dist(
     qf_state,
     observations,
@@ -113,6 +120,7 @@ def find_best_actions_sample_dist(
     n_sampled_actions: int,
     action_dim: int,
     gaussian_dist: bool = True,
+    deterministic: bool = False,
 ):
     # Gaussian distribution
     if gaussian_dist:
@@ -129,10 +137,18 @@ def find_best_actions_sample_dist(
             minval=-1.0,
             maxval=1.0,
         )
+    # Note: key not used
+    key, dropout_key = jax.random.split(key, 2)
 
     repeated_obs = jnp.repeat(jnp.expand_dims(observations, axis=1), n_sampled_actions, axis=1)
     # Shape is (n_critics, batch_size, n_repeated_actions, 1)
-    qf_values = qf_state.apply_fn(qf_state.params, repeated_obs, actions)
+    qf_values = qf_state.apply_fn(
+        qf_state.params,
+        repeated_obs,
+        actions,
+        deterministic=deterministic,  # disable dropout at inference
+        rngs={"dropout": dropout_key},
+    )
     # Twin network: take the min between q-networks
     qf_values = jnp.min(qf_values, axis=0)
 
@@ -202,7 +218,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         self.extra_noise_std = extra_noise_std
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
-        key, qf_key = jax.random.split(key, 2)
+        key, qf_key, dropout_key = jax.random.split(key, 3)
         # Keep a key for the actor
         key, self.key = jax.random.split(key, 2)
         # Initialize sampling
@@ -221,11 +237,18 @@ class SampleDQNPolicy(BaseJaxPolicy):
             flatten=False,
         )
 
-        # TODO: enable dropout?
         self.qf_state = RLTrainState.create(
             apply_fn=self.qf.apply,
-            params=self.qf.init({"params": qf_key}, obs, action),
-            target_params=self.qf.init({"params": qf_key}, obs, action),
+            params=self.qf.init(
+                {"params": qf_key, "dropout": dropout_key},
+                obs,
+                action,
+            ),
+            target_params=self.qf.init(
+                {"params": qf_key, "dropout": dropout_key},
+                obs,
+                action,
+            ),
             tx=self.optimizer_class(
                 learning_rate=lr_schedule(1),  # type: ignore[call-arg]
                 **self.optimizer_kwargs,
@@ -242,7 +265,10 @@ class SampleDQNPolicy(BaseJaxPolicy):
         return self._predict(obs, deterministic=deterministic)
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "sampling_strategy", "n_top", "n_iterations"])
+    @partial(
+        jax.jit,
+        static_argnames=["n_sampled_actions", "action_dim", "sampling_strategy", "n_top", "n_iterations", "deterministic"],
+    )
     def select_action(
         qf_state,
         observations,
@@ -255,6 +281,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         initial_variance: float,
         extra_noise_std: float,
         sampling_strategy: int = SamplingStrategy.CEM.value,
+        deterministic: bool = False,
     ):
         return jax.lax.cond(
             sampling_strategy == SamplingStrategy.CEM.value,
@@ -267,6 +294,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
                 n_iterations=n_iterations,
                 initial_variance=initial_variance,
                 extra_noise_std=extra_noise_std,
+                deterministic=deterministic,
             ),
             # If False: Gaussian/Uniform sampling
             partial(
@@ -274,6 +302,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
                 n_sampled_actions=n_sampled_actions,
                 action_dim=action_dim,
                 gaussian_dist=sampling_strategy == SamplingStrategy.GAUSSIAN.value,
+                deterministic=deterministic,
             ),
             qf_state,
             observations,
@@ -298,6 +327,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
             n_iterations=self.n_iterations,
             initial_variance=self.initial_variance,
             extra_noise_std=self.extra_noise_std,
+            deterministic=deterministic,
         )
         # if deterministic:
         #     return SampleDQNPolicy.select_action(self.qf_state, observation, self.sampling_key)
