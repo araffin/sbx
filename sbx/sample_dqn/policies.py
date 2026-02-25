@@ -1,8 +1,8 @@
+import os
 from collections.abc import Callable
 from enum import Enum
 from functools import partial
 from typing import Any
-import os
 
 import flax.linen as nn
 import jax

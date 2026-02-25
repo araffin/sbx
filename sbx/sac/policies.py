@@ -18,6 +18,7 @@ from sbx.common.policies import (
     VectorCritic,
 )
 from sbx.common.type_aliases import RLTrainState
+from sbx.sample_dqn.policies import ENABLE_RERUN, SampleDQNPolicy
 
 
 class SACPolicy(BaseJaxPolicy):
@@ -74,6 +75,7 @@ class SACPolicy(BaseJaxPolicy):
         self.vector_critic_class = vector_critic_class
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
+        self.n_steps = 0
 
     def build(self, key: jax.Array, lr_schedule: Schedule, qf_learning_rate: float) -> jax.Array:
         key, actor_key, qf_key, dropout_key = jax.random.split(key, 4)
@@ -88,6 +90,7 @@ class SACPolicy(BaseJaxPolicy):
             obs = jnp.array([self.observation_space.sample()])
         action = jnp.array([self.action_space.sample()])
 
+        self.action_dim = int(np.prod(self.action_space.shape))
         self.actor = self.actor_class(
             action_dim=int(np.prod(self.action_space.shape)),
             net_arch=self.net_arch_pi,
@@ -112,6 +115,8 @@ class SACPolicy(BaseJaxPolicy):
             net_arch=self.net_arch_qf,
             n_critics=self.n_critics,
             activation_fn=self.activation_fn,
+            # No flatten layer because we repeat actions for sampling
+            flatten=False,
         )
 
         optimizer_class_qf = optax.inject_hyperparams(self.optimizer_class)(
@@ -152,11 +157,41 @@ class SACPolicy(BaseJaxPolicy):
 
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         if deterministic:
-            return BaseJaxPolicy.select_action(self.actor_state, observation)
-        # Trick to use gSDE: repeat sampled noise by using the same noise key
-        if not self.use_sde:
-            self.reset_noise()
-        return BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
+            action = BaseJaxPolicy.select_action(self.actor_state, observation)
+        else:
+            # Trick to use gSDE: repeat sampled noise by using the same noise key
+            if not self.use_sde:
+                self.reset_noise()
+            action = BaseJaxPolicy.sample_action(self.actor_state, observation, self.noise_key)
+        if ENABLE_RERUN:
+            sampling_key, self.key = jax.random.split(self.key, 2)
+            n_sampled_actions = 64
+            n_iterations = 8
+            n_top = 8
+            extra_noise_std = 0.2774777566569773
+            initial_variance = 0.6591638155238029
+            cem_action = SampleDQNPolicy.select_action(
+                self.qf_state,
+                observation,
+                sampling_key,
+                # Increate search budget at test time
+                n_sampled_actions,
+                self.action_dim,
+                # sampling_strategy=self.sampling_strategy.value,
+                n_top=n_top,
+                n_iterations=n_iterations,
+                initial_variance=initial_variance,
+                extra_noise_std=extra_noise_std,
+            )
+            from sbx.common.rerun_logging import log_step
+
+            self.n_steps += 1
+            # Only log first env
+            log_step(self.n_steps, action[0], cem_action[0])
+            # if deterministic:
+            #     action = cem_action
+
+        return action
 
 
 class SimbaSACPolicy(SACPolicy):
