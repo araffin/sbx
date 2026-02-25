@@ -134,7 +134,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         from sbx.common.rerun_logging import init_rerun
 
         env_id = self.env.get_attr("spec")[0].id
-        init_rerun(f"{tb_log_name}_{env_id}")
+        init_rerun(f"{tb_log_name}_{env_id}", n_actions=self.policy.action_dim)
 
         return super().learn(
             total_timesteps=total_timesteps,
