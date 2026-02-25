@@ -267,7 +267,7 @@ class PPO(OnPolicyAlgorithmJax):
         # Update optimizer learning rate
         if self.target_kl is None:
             self._update_learning_rate(
-                [self.policy.actor_state.opt_state[1], self.policy.vf_state.opt_state[1]],
+                [self.policy.actor_state.opt_state[-1], self.policy.vf_state.opt_state[-1]],
                 learning_rate=self.lr_schedule(self._current_progress_remaining),
             )
         # Compute current clip range
@@ -322,7 +322,7 @@ class PPO(OnPolicyAlgorithmJax):
                     self.adaptive_lr.update(approx_kl_div)
 
                     self._update_learning_rate(
-                        [self.policy.actor_state.opt_state[1], self.policy.vf_state.opt_state[1]],
+                        [self.policy.actor_state.opt_state[-1], self.policy.vf_state.opt_state[-1]],
                         learning_rate=self.adaptive_lr.current_adaptive_lr,
                     )
         self._n_updates += self.n_epochs
