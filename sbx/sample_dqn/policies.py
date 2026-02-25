@@ -2,6 +2,7 @@ from collections.abc import Callable
 from enum import Enum
 from functools import partial
 from typing import Any
+import os
 
 import flax.linen as nn
 import jax
@@ -13,6 +14,9 @@ from stable_baselines3.common.type_aliases import Schedule
 
 from sbx.common.policies import BaseJaxPolicy, VectorCritic
 from sbx.common.type_aliases import RLTrainState
+
+# Trick from Flo: accepts Yes, YES, True, true, 1
+ENABLE_RERUN = os.environ.get("ENABLE_RERUN", "0")[:1].lower() in ("1", "y", "t")
 
 
 class SamplingStrategy(Enum):
@@ -216,6 +220,8 @@ class SampleDQNPolicy(BaseJaxPolicy):
         self.n_iterations = n_iterations
         self.initial_variance = initial_variance
         self.extra_noise_std = extra_noise_std
+        # For logging
+        self.n_steps = 0
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key, dropout_key = jax.random.split(key, 3)
@@ -315,7 +321,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
     def _predict(self, observation: np.ndarray, deterministic: bool = False) -> np.ndarray:  # type: ignore[override]
         # Note: deterministic is currently not properly handled
         self.update_sampling_key()
-        return SampleDQNPolicy.select_action(
+        action = SampleDQNPolicy.select_action(
             self.qf_state,
             observation,
             self.sampling_key,
@@ -328,8 +334,31 @@ class SampleDQNPolicy(BaseJaxPolicy):
             initial_variance=self.initial_variance,
             extra_noise_std=self.extra_noise_std,
             # deterministic=deterministic,
-            deterministic=True, # Only used for dropout, do not add additional noise during exploration
+            deterministic=True,  # Only used for dropout, do not add additional noise during exploration
         )
+        if ENABLE_RERUN:
+            cem_action = SampleDQNPolicy.select_action(
+                self.qf_state,
+                observation,
+                self.sampling_key,
+                # Increate search budget at test time
+                2 * self.n_sampled_actions if deterministic else self.n_sampled_actions,
+                self.action_dim,
+                sampling_strategy=self.sampling_strategy.value,
+                n_top=self.n_top,
+                n_iterations=4 * self.n_iterations,
+                initial_variance=self.initial_variance,
+                extra_noise_std=self.extra_noise_std,
+                # deterministic=deterministic,
+                deterministic=True,  # Only used for dropout, do not add additional noise during exploration
+            )
+            from sbx.common.rerun_logging import log_step
+
+            self.n_steps += 1
+            # Only log first env
+            log_step(self.n_steps, action[0], cem_action[0])
+
+        return action
         # if deterministic:
         #     return SampleDQNPolicy.select_action(self.qf_state, observation, self.sampling_key)
         # return SampleDQNPolicy.sample_action(self.qf_state, observation, self.sampling_key)

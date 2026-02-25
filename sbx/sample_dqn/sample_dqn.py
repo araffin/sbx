@@ -93,6 +93,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         self.n_iterations = n_iterations
         self.initial_variance = initial_variance
         self.extra_noise_std = extra_noise_std
+
         if _init_setup_model:
             self._setup_model()
 
@@ -130,6 +131,11 @@ class SampleDQN(OffPolicyAlgorithmJax):
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
     ):
+        from sbx.common.rerun_logging import init_rerun
+
+        env_id = self.env.get_attr("spec")[0].id
+        init_rerun(f"{tb_log_name}_{env_id}")
+
         return super().learn(
             total_timesteps=total_timesteps,
             callback=callback,
