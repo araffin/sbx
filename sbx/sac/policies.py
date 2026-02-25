@@ -186,10 +186,22 @@ class SACPolicy(BaseJaxPolicy):
             from sbx.common.rerun_logging import log_step
 
             self.n_steps += 1
+            # import ipdb; ipdb.set_trace()
+            n_sampled_actions = 2
+            repeated_obs = jnp.repeat(observation, n_sampled_actions, axis=0)
+            combined_actions = jnp.concatenate([jnp.expand_dims(action[0], axis=1), jnp.expand_dims(cem_action[0], axis=1)])
+            # shape = (n_critics, n_actions, 1)
+            qf_values = self.qf_state.apply_fn(
+                self.qf_state.params,
+                repeated_obs,
+                combined_actions,
+                deterministic=True,  # disable dropout at inference
+                rngs={"dropout": sampling_key},
+            )
             # Only log first env
-            log_step(self.n_steps, action[0], cem_action[0])
-            # if deterministic:
-            #     action = cem_action
+            log_step(self.n_steps, action[0], cem_action[0], qf_values)
+            if deterministic:
+                action = cem_action
 
         return action
 
