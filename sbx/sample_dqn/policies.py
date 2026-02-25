@@ -32,7 +32,7 @@ NAME_TO_SAMPLING_STRATEGY = {
 }
 
 
-@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations", "deterministic"])
+@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations", "deterministic", "optimistic"])
 def find_best_actions_cem(
     qf_state,
     observations,
@@ -44,6 +44,7 @@ def find_best_actions_cem(
     initial_variance: float,
     extra_noise_std: float,
     deterministic: bool = False,
+    optimistic: bool = False,  # use mean(qf1, qf2, ...) instead of min(qf1, qf2, ...)
 ):
     """
     Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -88,10 +89,12 @@ def find_best_actions_cem(
             deterministic=deterministic,  # disable dropout at inference
             rngs={"dropout": dropout_key},
         )
-        # Twin network: take the min between q-networks
-        # qf_values = jnp.min(qf_values, axis=0)
-        # More optimistic alternative
-        qf_values = jnp.mean(qf_values, axis=0)
+        if optimistic:
+            # More optimistic alternative
+            qf_values = jnp.mean(qf_values, axis=0)
+        else:
+            # Twin network: take the min between q-networks
+            qf_values = jnp.min(qf_values, axis=0)
 
         # Keep only the top performing candidates for update
         # Shape is (batch_size, n_top, 1)

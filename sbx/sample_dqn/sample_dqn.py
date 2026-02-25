@@ -209,7 +209,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         self.logger.record("train/qf_mean_value", qf_mean_value.item())
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations"])
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations", "optimistic"])
     def find_max_target_q_cem(
         qf_state,
         next_observations,
@@ -220,6 +220,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         n_iterations: int,
         initial_variance: float,
         extra_noise_std: float,
+        optimistic: bool = False,  # use mean(qf1, qf2, ...) instead of min(qf1, qf2, ...)
     ):
         """
         Noisy Cross Entropy Method: http://dx.doi.org/10.1162/neco.2006.18.12.2936
@@ -275,10 +276,12 @@ class SampleDQN(OffPolicyAlgorithmJax):
                 next_state_actions,
                 rngs={"dropout": dropout_key_target},
             )
-            # Twin network: take the min between q-networks
-            # qf_next_values = jnp.min(qf_next_values, axis=0)
-            # More optimistic alternative
-            qf_next_values = jnp.mean(qf_next_values, axis=0)
+            if optimistic:
+                # More optimistic alternative
+                qf_next_values = jnp.mean(qf_next_values, axis=0)
+            else:
+                # Twin network: take the min between q-networks
+                qf_next_values = jnp.min(qf_next_values, axis=0)
 
             # Keep only the top performing candidates for update
             # Shape is (batch_size, n_top, 1)
@@ -299,7 +302,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         return update_carry["next_q_values"]
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "optimistic"])
     def find_max_target_uniform(
         qf_state,
         next_observations,
@@ -307,6 +310,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         n_sampled_actions: int,
         action_dim: int,
         sampling_strategy: int = SamplingStrategy.UNIFORM.value,
+        optimistic: bool = False,  # use mean(qf1, qf2, ...) instead of min(qf1, qf2, ...)
     ):
         key, dropout_key_target = jax.random.split(key, 2)
 
@@ -345,10 +349,12 @@ class SampleDQN(OffPolicyAlgorithmJax):
             next_actions,
             rngs={"dropout": dropout_key_target},
         )
-        # Twin network: take the min between q-networks
-        # qf_next_values = jnp.min(qf_next_values, axis=0)
-        # More optimistic alternative
-        qf_next_values = jnp.mean(qf_next_values, axis=0)
+        if optimistic:
+            # More optimistic alternative
+            qf_next_values = jnp.mean(qf_next_values, axis=0)
+        else:
+            # Twin network: take the min between q-networks
+            qf_next_values = jnp.min(qf_next_values, axis=0)
 
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
