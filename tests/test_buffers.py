@@ -1,8 +1,29 @@
+import gymnasium as gym
 import pytest
 import torch as th
 from stable_baselines3.common.buffers import ReplayBuffer, RolloutBuffer
+from stable_baselines3.common.utils import ConstantSchedule
 
 from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
+from sbx.ppo.policies import PPOPolicy
+
+
+class DictObsEnv(gym.Env):
+    def __init__(self) -> None:
+        self.observation_space = gym.spaces.Dict(
+            {
+                "a": gym.spaces.Box(-1, 1, shape=(2,)),
+                "b": gym.spaces.Box(-1, 1, shape=(3,)),
+            }
+        )
+        self.action_space = gym.spaces.Discrete(2)
+
+    def reset(self, *, seed: int | None = None, options: dict | None = None):
+        super().reset(seed=seed)
+        return self.observation_space.sample(), {}
+
+    def step(self, action):
+        return self.observation_space.sample(), 0.0, False, False, {}
 
 
 class CustomReplayBuffer(ReplayBuffer):
@@ -63,3 +84,9 @@ def test_off_policy_custom_replay_buffer(model_class, env_id: str):
 
     assert isinstance(model.replay_buffer, CustomReplayBuffer)
     assert model.replay_buffer.custom_flag
+
+
+def test_ppo_dict_obs_space_not_supported():
+    env = DictObsEnv()
+    with pytest.raises(AssertionError, match="Dict observation space is not supported"):
+        PPO(PPOPolicy(env.observation_space, env.action_space, ConstantSchedule(1)), env, n_steps=8, batch_size=8)

@@ -6,7 +6,7 @@ import numpy as np
 import optax
 import torch as th
 from gymnasium import spaces
-from stable_baselines3.common.buffers import DictRolloutBuffer, RolloutBuffer
+from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
@@ -113,10 +113,8 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         self.set_random_seed(self.seed)
 
         if self.rollout_buffer_class is None:
-            if isinstance(self.observation_space, spaces.Dict):
-                self.rollout_buffer_class = DictRolloutBuffer
-            else:
-                self.rollout_buffer_class = RolloutBuffer
+            assert not isinstance(self.observation_space, spaces.Dict), "Dict observation space is not supported yet."
+            self.rollout_buffer_class = RolloutBuffer
 
         self.rollout_buffer = self.rollout_buffer_class(
             self.n_steps,
