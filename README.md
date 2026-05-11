@@ -194,7 +194,7 @@ To cite this repository in publications, please cite the SB3 paper:
   volume  = {22},
   number  = {268},
   pages   = {1-8},
-  url     = {http://jmlr.org/papers/v22/20-1364.html}
+  url     = {https://jmlr.org/papers/v22/20-1364.html}
 }
 ```
 

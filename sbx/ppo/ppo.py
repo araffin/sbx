@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 from flax.training.train_state import TrainState
 from gymnasium import spaces
+from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import FloatSchedule, explained_variance
 
@@ -55,6 +56,8 @@ class PPO(OnPolicyAlgorithmJax):
         instead of action noise exploration (default: False)
     :param sde_sample_freq: Sample a new noise matrix every n steps when using gSDE
         Default: -1 (only sample at the beginning of the rollout)
+    :param rollout_buffer_class: Rollout buffer class to use. If ``None``, it will be automatically selected.
+    :param rollout_buffer_kwargs: Keyword arguments to pass to the rollout buffer on creation.
     :param target_kl: Update the learning rate based on a desired KL divergence (see https://arxiv.org/abs/1707.02286).
         Note: this will overwrite any lr schedule.
         By default, there is no limit on the kl div.
@@ -94,6 +97,8 @@ class PPO(OnPolicyAlgorithmJax):
         max_grad_norm: float = 0.5,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
+        rollout_buffer_class: type[RolloutBuffer] | None = None,
+        rollout_buffer_kwargs: dict[str, Any] | None = None,
         target_kl: float | None = None,
         tensorboard_log: str | None = None,
         policy_kwargs: dict[str, Any] | None = None,
@@ -115,6 +120,8 @@ class PPO(OnPolicyAlgorithmJax):
             # Note: gSDE is not properly implemented,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
+            rollout_buffer_class=rollout_buffer_class,
+            rollout_buffer_kwargs=rollout_buffer_kwargs,
             tensorboard_log=tensorboard_log,
             policy_kwargs=policy_kwargs,
             verbose=verbose,
