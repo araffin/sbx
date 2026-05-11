@@ -15,7 +15,7 @@ https://github.com/DLR-RM/stable-baselines3
 
 
 If you are not familiar with creating a Pull Request, here are some guides:
-- http://stackoverflow.com/questions/14680711/how-to-do-a-github-pull-request
+- https://stackoverflow.com/questions/14680711/how-to-do-a-github-pull-request
 - https://help.github.com/articles/creating-a-pull-request/
 
 
