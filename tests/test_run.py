@@ -6,7 +6,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.envs import BitFlippingEnv
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ
+from sbx import BRO, DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ, DroQ
 
 
 def check_save_load(model, model_class, tmp_path):
@@ -128,7 +128,7 @@ def test_dropout(model_class):
     model.learn(110)
 
 
-@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, DQN, CrossQ])
+@pytest.mark.parametrize("model_class", [SAC, TD3, DDPG, DQN, CrossQ, BRO])
 def test_policy_kwargs(model_class) -> None:
     env_id = "CartPole-v1" if model_class == DQN else "Pendulum-v1"
 
