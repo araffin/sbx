@@ -42,7 +42,7 @@ setup(
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
         "stable_baselines3>=2.9.0a3,<3.0",
-        "jax>=0.4.24,<0.10.0",
+        "jax>=0.4.24,<0.11.0",
         "jaxlib",
         "flax",
         "optax",
