@@ -178,4 +178,4 @@ def test_dict(replay_buffer_class: type[HerReplayBuffer] | None) -> None:
     env = BitFlippingEnv(n_bits=2, continuous=True)
     model = SAC("MultiInputPolicy", env, replay_buffer_class=replay_buffer_class)
 
-    model.learn(200, progress_bar=True)
+    model.learn(128, progress_bar=True)

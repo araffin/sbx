@@ -26,13 +26,13 @@ def test_cnn(tmp_path, model_class):
         "CnnPolicy",
         env,
         policy_kwargs=dict(
-            net_arch=[64],
-            features_extractor_kwargs=dict(features_dim=64),
+            net_arch=[8],
+            features_extractor_kwargs=dict(features_dim=8),
         ),
         verbose=1,
         **kwargs
     )
-    model.learn(total_timesteps=250)
+    model.learn(total_timesteps=256)
 
     obs, _ = env.reset()
 
