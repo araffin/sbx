@@ -11,7 +11,7 @@ from stable_baselines3.common.buffers import DictReplayBuffer, NStepReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.off_policy_algorithm import OffPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
-from stable_baselines3.common.type_aliases import GymEnv, Schedule
+from stable_baselines3.common.type_aliases import DeserializationMode, GymEnv, Schedule
 from stable_baselines3.common.utils import get_device
 
 
@@ -175,8 +175,9 @@ class OffPolicyAlgorithmJax(OffPolicyAlgorithm):
         self,
         path: str | pathlib.Path | io.BufferedIOBase,
         truncate_last_traj: bool = True,
+        deserialization_mode: DeserializationMode = DeserializationMode.SAFE,
     ) -> None:
-        super().load_replay_buffer(path, truncate_last_traj)
+        super().load_replay_buffer(path, truncate_last_traj, deserialization_mode=deserialization_mode)
         # Override replay buffer device to be always cpu for conversion to numpy
         assert self.replay_buffer is not None
         self.replay_buffer.device = get_device("cpu")
