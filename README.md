@@ -183,9 +183,9 @@ When loading saved models (`model.load()`), SBX uses **unrestricted pickle deser
 
 **Why?** The SB3 safe deserialization mode (`deserialization_mode="safe"`) uses an allowlist of
 allowed Python types during unpickling. JAX/Flax types are not in this allowlist, and registering
-all of them would be fragile across JAX/Flax versions.
+all of them would be fragile across JAX/Flax versions (we tried and the list just kept growing...).
 
-**Security implication:** Loading a checkpoint with the default settings will execute arbitrary
+**Security implication:** Loading a checkpoint with the default settings may execute arbitrary
 Python code embedded in the pickle file. **Only load SBX checkpoints from trusted sources.**
 
 You can pass `deserialization_mode="safe"` to `model.load()` to attempt safe deserialization.
@@ -193,15 +193,22 @@ However, this will fail because SBX uses JAX/Flax types (Flax `TrainState`, `nn.
 that are not in the SB3 safe allowlist:
 
 ```python
-from stable_baselines3.common.type_aliases import DeserializationMode
 
 # Default (unsafe/legacy) - recommended for trusted checkpoints
 model = SAC.load("saved_model.zip")
 
 # Safe mode - will fail (SBX types not in allowlist)
-model = SAC.load("saved_model.zip", deserialization_mode=DeserializationMode.SAFE)
+# from stable_baselines3.common.type_aliases import DeserializationMode
+# model = SAC.load("saved_model.zip", deserialization_mode=DeserializationMode.SAFE)
+model = SAC.load("saved_model.zip", deserialization_mode="safe")
 ```
 
+**Note:** When using the default legacy mode, SB3 emits a warning. To suppress it, use:
+```python
+import warnings
+
+warnings.filterwarnings("ignore", message="Loading a model checkpoint that contains cloudpickle-serialized objects", category=UserWarning)
+```
 
 ## Benchmark
 
