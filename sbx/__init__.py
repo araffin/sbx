@@ -1,7 +1,5 @@
 import os
 
-# Import safe_globals to register sbx types with the safe deserialization allowlist
-import sbx.common.safe_globals  # noqa: F401
 from sbx.crossq import CrossQ
 from sbx.ddpg import DDPG
 from sbx.dqn import DQN
