@@ -1,3 +1,6 @@
+import io
+import pathlib
+import warnings
 from typing import Any, TypeVar
 
 import gymnasium as gym
@@ -10,7 +13,7 @@ from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
 from stable_baselines3.common.policies import BasePolicy
-from stable_baselines3.common.type_aliases import GymEnv, Schedule
+from stable_baselines3.common.type_aliases import DeserializationMode, GymEnv, Schedule
 from stable_baselines3.common.vec_env import VecEnv
 
 from sbx.ppo.policies import Actor, Critic, PPOPolicy
@@ -125,6 +128,59 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             n_envs=self.n_envs,
             device="cpu",  # force cpu device to easy torch -> numpy conversion
             **self.rollout_buffer_kwargs,
+        )
+
+    @classmethod
+    def load(
+        cls,
+        path: str | pathlib.Path | io.BufferedIOBase,
+        env: GymEnv | None = None,
+        device: str = "auto",
+        custom_objects: dict[str, Any] | None = None,
+        print_system_info: bool = False,
+        force_reset: bool = True,
+        deserialization_mode: DeserializationMode = DeserializationMode.LEGACY,
+        **kwargs,
+    ):
+        """
+        Load the model from a zip-file.
+
+        Uses ``deserialization_mode="legacy"`` (unrestricted pickle) by default because
+        SBX models contain JAX/Flax types (TrainState, flax.linen modules) that are not
+        in the SB3 safe deserialization allowlist.
+
+        Warning: The legacy mode executes arbitrary Python code during deserialization.
+        Only load SBX checkpoints from trusted sources.
+
+        :param path: path to the file (or a file-like) where to
+            load the agent from
+        :param env: the new environment to run the loaded model on
+        :param device: Device on which the code should run.
+        :param custom_objects: Dictionary of objects to replace upon loading.
+        :param print_system_info: Whether to print system info from the saved model
+        :param force_reset: Force call to ``reset()`` before training
+        :param deserialization_mode: How to handle deserialization.
+            Default is ``"legacy"`` (unrestricted pickle). ``"safe"`` will fail
+            because SBX uses JAX/Flax types not in the SB3 allowlist.
+        :param kwargs: extra arguments to change the model when loading
+        :return: new model instance with loaded parameters
+        """
+        if deserialization_mode == DeserializationMode.SAFE:
+            warnings.warn(
+                "Loading SBX model with deserialization_mode='safe'. "
+                "SBX uses JAX/Flax types that are not in the SB3 safe allowlist. "
+                "Loading will fail. Use deserialization_mode='legacy' (the default).",
+                UserWarning,
+            )
+        return super().load(
+            path,
+            env=env,
+            device=device,
+            custom_objects=custom_objects,
+            print_system_info=print_system_info,
+            force_reset=force_reset,
+            deserialization_mode=deserialization_mode,
+            **kwargs,
         )
 
     def collect_rollouts(

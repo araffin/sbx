@@ -1,6 +1,6 @@
 <!-- <img src="docs/\_static/img/logo.png" align="right" width="40%"/> -->
 
-<!-- [![Documentation Status](https://readthedocs.org/projects/stable-baselines/badge/?version=master)](https://stable-baselines3.readthedocs.io/en/master/?badge=master) [![coverage report](https://gitlab.com/araffin/stable-baselines3/badges/master/coverage.svg)](https://gitlab.com/araffin/stable-baselines3/-/commits/master) -->
+<!-- [![Documentation Status](https://readthedocs.org/projects/stable-baselines3/badge/?badge=master)](https://stable-baselines3.readthedocs.io/en/master/?badge=master) [![coverage report](https://gitlab.com/araffin/stable-baselines3/badges/master/coverage.svg)](https://gitlab.com/araffin/stable-baselines3/-/commits/master) -->
 ![CI](https://github.com/araffin/sbx/workflows/CI/badge.svg)
 [![codestyle](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
@@ -174,6 +174,33 @@ for env_id in [
 ```
 
 and then using the RL Zoo script defined above: `python train.py --algo tqc --env HalfCheetah-v4 -c simba.py -P`.
+
+
+## Model Loading
+
+SBX models use **JAX/Flax** internals (Flax `TrainState`, `nn.Module` objects) rather than PyTorch.
+When loading saved models (`model.load()`), SBX uses **unrestricted pickle deserialization** (`deserialization_mode="legacy"`) by default.
+
+**Why?** The SB3 safe deserialization mode (`deserialization_mode="safe"`) uses an allowlist of
+allowed Python types during unpickling. JAX/Flax types are not in this allowlist, and registering
+all of them would be fragile across JAX/Flax versions.
+
+**Security implication:** Loading a checkpoint with the default settings will execute arbitrary
+Python code embedded in the pickle file. **Only load SBX checkpoints from trusted sources.**
+
+You can pass `deserialization_mode="safe"` to `model.load()` to attempt safe deserialization.
+However, this will fail because SBX uses JAX/Flax types (Flax `TrainState`, `nn.Module`, etc.)
+that are not in the SB3 safe allowlist:
+
+```python
+from stable_baselines3.common.type_aliases import DeserializationMode
+
+# Default (unsafe/legacy) - recommended for trusted checkpoints
+model = SAC.load("saved_model.zip")
+
+# Safe mode - will fail (SBX types not in allowlist)
+model = SAC.load("saved_model.zip", deserialization_mode=DeserializationMode.SAFE)
+```
 
 
 ## Benchmark
