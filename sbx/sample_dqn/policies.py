@@ -22,7 +22,7 @@ ENABLE_RERUN = os.environ.get("ENABLE_RERUN", "0")[:1].lower() in ("1", "y", "t"
 class SamplingStrategy(Enum):
     UNIFORM = 0
     GAUSSIAN = 1
-    CEM = 1
+    CEM = 2
 
 
 NAME_TO_SAMPLING_STRATEGY = {
