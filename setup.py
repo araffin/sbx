@@ -41,9 +41,9 @@ setup(
     packages=[package for package in find_packages() if package.startswith("sbx")],
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
-        "stable_baselines3>=2.8.0a0,<3.0",
-        "jax>=0.4.24,<0.9.0",
-        "jaxlib",
+        "stable_baselines3>=2.9.0,<3.0",
+        "jax>=0.4.24,<0.12.0",
+        # "jaxlib",
         "flax",
         "optax",
         "tqdm",
@@ -56,8 +56,6 @@ setup(
             # Run tests and coverage
             "pytest",
             "pytest-cov",
-            "pytest-env",
-            "pytest-xdist",
             # Type check
             "mypy",
             # Lint code

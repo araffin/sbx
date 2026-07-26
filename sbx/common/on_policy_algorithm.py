@@ -36,6 +36,8 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         max_grad_norm: float,
         use_sde: bool,
         sde_sample_freq: int,
+        rollout_buffer_class: type[RolloutBuffer] | None = None,
+        rollout_buffer_kwargs: dict[str, Any] | None = None,
         tensorboard_log: str | None = None,
         monitor_wrapper: bool = True,
         policy_kwargs: dict[str, Any] | None = None,
@@ -57,6 +59,8 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             max_grad_norm=max_grad_norm,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
+            rollout_buffer_class=rollout_buffer_class,
+            rollout_buffer_kwargs=rollout_buffer_kwargs,
             monitor_wrapper=monitor_wrapper,
             policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log,
@@ -108,7 +112,11 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
         self._setup_lr_schedule()
         self.set_random_seed(self.seed)
 
-        self.rollout_buffer = RolloutBuffer(
+        if self.rollout_buffer_class is None:
+            assert not isinstance(self.observation_space, spaces.Dict), "Dict observation space is not supported yet."
+            self.rollout_buffer_class = RolloutBuffer
+
+        self.rollout_buffer = self.rollout_buffer_class(
             self.n_steps,
             self.observation_space,
             self.action_space,
@@ -116,6 +124,7 @@ class OnPolicyAlgorithmJax(OnPolicyAlgorithm):
             gae_lambda=self.gae_lambda,
             n_envs=self.n_envs,
             device="cpu",  # force cpu device to easy torch -> numpy conversion
+            **self.rollout_buffer_kwargs,
         )
 
     def collect_rollouts(

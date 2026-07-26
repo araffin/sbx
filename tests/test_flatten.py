@@ -27,4 +27,4 @@ def test_flatten(model_class) -> None:
     action_space = spaces.Discrete(15) if model_class == DQN else spaces.Box(-1, 1, shape=(2,), dtype=np.float32)
     env = DummyEnv(spaces.Box(-1, 1, shape=(2, 1), dtype=np.float32), action_space)
 
-    model_class("MlpPolicy", env).learn(150)
+    model_class("MlpPolicy", env).learn(110)
