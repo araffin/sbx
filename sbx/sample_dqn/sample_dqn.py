@@ -133,6 +133,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
     ):
         from sbx.common.rerun_logging import init_rerun
 
+        assert self.env is not None
         env_id = self.env.get_attr("spec")[0].id
         init_rerun(f"{tb_log_name}_{env_id}", n_actions=self.policy.action_dim)
 
@@ -417,7 +418,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         # shape is (batch_size, 1)
         target_q_values = rewards[:, None] + (1 - dones[:, None]) * discounts[:, None] * next_q_values
 
-        def critic_loss(params, dropout_key: jax.Array) -> jax.Array:
+        def critic_loss(params, dropout_key: jax.Array) -> tuple[jax.Array, jax.Array]:
             # Retrieve the q-values for the actions from the replay buffer
             # shape is (n_critics, batch_size, 1)
             current_q_values = qf_state.apply_fn(
