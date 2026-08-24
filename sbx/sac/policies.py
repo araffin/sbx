@@ -116,7 +116,7 @@ class SACPolicy(BaseJaxPolicy):
             n_critics=self.n_critics,
             activation_fn=self.activation_fn,
             # No flatten layer because we repeat actions for sampling
-            flatten=False,
+            # flatten=False,
         )
 
         optimizer_class_qf = optax.inject_hyperparams(self.optimizer_class)(
