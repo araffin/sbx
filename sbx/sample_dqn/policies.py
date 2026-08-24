@@ -231,7 +231,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         self.extra_noise_std = extra_noise_std
         self.optimistic = optimistic
         # For logging
-        self.n_steps = 0
+        self.n_log_steps = 0
 
     def build(self, key: jax.Array, lr_schedule: Schedule) -> jax.Array:
         key, qf_key, dropout_key = jax.random.split(key, 3)
@@ -377,9 +377,9 @@ class SampleDQNPolicy(BaseJaxPolicy):
             )
             from sbx.common.rerun_logging import log_step
 
-            self.n_steps += 1
+            self.n_log_steps += 1
             # Only log first env
-            log_step(self.n_steps, action[0], cem_action[0])
+            log_step(self.n_log_steps, action[0], cem_action[0])
 
         return action
         # if deterministic:

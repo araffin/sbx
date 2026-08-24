@@ -75,7 +75,7 @@ class SACPolicy(BaseJaxPolicy):
         self.vector_critic_class = vector_critic_class
 
         self.key = self.noise_key = jax.random.PRNGKey(0)
-        self.n_steps = 0
+        self.n_log_steps = 0
 
     def build(self, key: jax.Array, lr_schedule: Schedule, qf_learning_rate: float) -> jax.Array:
         key, actor_key, qf_key, dropout_key = jax.random.split(key, 4)
@@ -185,7 +185,7 @@ class SACPolicy(BaseJaxPolicy):
             )
             from sbx.common.rerun_logging import log_step
 
-            self.n_steps += 1
+            self.n_log_steps += 1
             n_sampled_actions = 2
             # Only check first env
             env_idx = 0
@@ -205,7 +205,7 @@ class SACPolicy(BaseJaxPolicy):
                 rngs={"dropout": sampling_key},
             )
             # Only log first env
-            log_step(self.n_steps, action[0], cem_action[0], qf_values)
+            log_step(self.n_log_steps, action[0], cem_action[0], qf_values)
             if deterministic:
                 action = cem_action
 
