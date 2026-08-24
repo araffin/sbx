@@ -46,6 +46,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         n_iterations: int = 10,
         initial_variance: float = 1.0**2,
         extra_noise_std: float = 0.1,
+        optimistic: bool = False,
         # max_grad_norm: float = 10,
         train_freq: int | tuple[int, str] = 1,
         gradient_steps: int = 1,
@@ -93,6 +94,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         self.n_iterations = n_iterations
         self.initial_variance = initial_variance
         self.extra_noise_std = extra_noise_std
+        self.optimistic = optimistic
 
         if _init_setup_model:
             self._setup_model()
@@ -108,6 +110,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
                 ("n_iterations", self.n_iterations),
                 ("initial_variance", self.initial_variance),
                 ("extra_noise_std", self.extra_noise_std),
+                ("optimistic", self.optimistic),
             ]:
                 if key not in self.policy_kwargs:
                     self.policy_kwargs[key] = default_val
@@ -178,7 +181,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
             "n_iterations": jnp.ones(self.n_iterations),
             "initial_variance": self.initial_variance,
             "extra_noise_std": self.extra_noise_std,
-            # "sampling_strategy": jnp.array([self.train_sampling_strategy.value]),
+            "optimistic": self.optimistic,
             "sampling_strategy": self.train_sampling_strategy.value,
             "tau": self.tau,
             "qf_state": self.policy.qf_state,
@@ -210,7 +213,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         self.logger.record("train/qf_mean_value", qf_mean_value.item())
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations", "optimistic"])
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations"])
     def find_max_target_q_cem(
         qf_state,
         next_observations,
@@ -277,12 +280,13 @@ class SampleDQN(OffPolicyAlgorithmJax):
                 next_state_actions,
                 rngs={"dropout": dropout_key_target},
             )
-            if optimistic:
-                # More optimistic alternative
-                qf_next_values = jnp.mean(qf_next_values, axis=0)
-            else:
-                # Twin network: take the min between q-networks
-                qf_next_values = jnp.min(qf_next_values, axis=0)
+            # use mean(qf1, qf2, ...) instead of min(qf1, qf2, ...) when optimistic
+            qf_next_values = jax.lax.cond(
+                optimistic,
+                lambda q: jnp.mean(q, axis=0),
+                lambda q: jnp.min(q, axis=0),
+                qf_next_values,
+            )
 
             # Keep only the top performing candidates for update
             # Shape is (batch_size, n_top, 1)
@@ -303,7 +307,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         return update_carry["next_q_values"]
 
     @staticmethod
-    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "optimistic"])
+    @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim"])
     def find_max_target_uniform(
         qf_state,
         next_observations,
@@ -350,12 +354,13 @@ class SampleDQN(OffPolicyAlgorithmJax):
             next_actions,
             rngs={"dropout": dropout_key_target},
         )
-        if optimistic:
-            # More optimistic alternative
-            qf_next_values = jnp.mean(qf_next_values, axis=0)
-        else:
-            # Twin network: take the min between q-networks
-            qf_next_values = jnp.min(qf_next_values, axis=0)
+        # use mean(qf1, qf2, ...) instead of min(qf1, qf2, ...) when optimistic
+        qf_next_values = jax.lax.cond(
+            optimistic,
+            lambda q: jnp.mean(q, axis=0),
+            lambda q: jnp.min(q, axis=0),
+            qf_next_values,
+        )
 
         # Follow greedy policy: use the one with the highest value
         next_q_values = qf_next_values.max(axis=1)
@@ -380,6 +385,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         initial_variance: float,
         extra_noise_std: float,
         sampling_strategy: int = SamplingStrategy.UNIFORM.value,
+        optimistic: bool = False,
     ):
         # Reduce number of sampled action compared to exploration
         # n_sampled_actions = sampled_actions.shape[0] // 2
@@ -400,6 +406,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
                 n_iterations=n_iterations_int,
                 initial_variance=initial_variance,
                 extra_noise_std=extra_noise_std,
+                optimistic=optimistic,
             ),
             # If False:
             partial(
@@ -407,6 +414,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
                 n_sampled_actions=n_sampled_actions,
                 action_dim=action_dim,
                 sampling_strategy=sampling_strategy,
+                optimistic=optimistic,
             ),
             qf_state,
             next_observations,
@@ -466,6 +474,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
             n_iterations=carry["n_iterations"],
             initial_variance=carry["initial_variance"],
             extra_noise_std=carry["extra_noise_std"],
+            optimistic=carry["optimistic"],
         )
         qf_state = SampleDQN.soft_update(carry["tau"], qf_state)
 

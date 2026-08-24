@@ -119,7 +119,7 @@ def find_best_actions_cem(
     return jnp.clip(best_actions, -1.0, 1.0)
 
 
-@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "gaussian_dist", "deterministic"])
+@partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "gaussian_dist", "deterministic", "optimistic"])
 def find_best_actions_sample_dist(
     qf_state,
     observations,
@@ -128,6 +128,7 @@ def find_best_actions_sample_dist(
     action_dim: int,
     gaussian_dist: bool = True,
     deterministic: bool = False,
+    optimistic: bool = False,
 ):
     # Gaussian distribution
     if gaussian_dist:
@@ -157,7 +158,11 @@ def find_best_actions_sample_dist(
         rngs={"dropout": dropout_key},
     )
     # Twin network: take the min between q-networks
-    qf_values = jnp.min(qf_values, axis=0)
+    if optimistic:
+        # More optimistic alternative
+        qf_values = jnp.mean(qf_values, axis=0)
+    else:
+        qf_values = jnp.min(qf_values, axis=0)
 
     actions_indices = jnp.argmax(qf_values, axis=1)
 
@@ -192,6 +197,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         n_iterations: int = 10,
         initial_variance: float = 1.0**2,
         extra_noise_std: float = 0.1,
+        optimistic: bool = False,
         vector_critic_class: type[nn.Module] = VectorCritic,
     ):
         super().__init__(
@@ -223,6 +229,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         self.n_iterations = n_iterations
         self.initial_variance = initial_variance
         self.extra_noise_std = extra_noise_std
+        self.optimistic = optimistic
         # For logging
         self.n_steps = 0
 
@@ -276,7 +283,15 @@ class SampleDQNPolicy(BaseJaxPolicy):
     @staticmethod
     @partial(
         jax.jit,
-        static_argnames=["n_sampled_actions", "action_dim", "sampling_strategy", "n_top", "n_iterations", "deterministic"],
+        static_argnames=[
+            "n_sampled_actions",
+            "action_dim",
+            "sampling_strategy",
+            "n_top",
+            "n_iterations",
+            "deterministic",
+            "optimistic",
+        ],
     )
     def select_action(
         qf_state,
@@ -291,6 +306,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
         extra_noise_std: float,
         sampling_strategy: int = SamplingStrategy.CEM.value,
         deterministic: bool = False,
+        optimistic: bool = False,
     ):
         return jax.lax.cond(
             sampling_strategy == SamplingStrategy.CEM.value,
@@ -304,6 +320,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
                 initial_variance=initial_variance,
                 extra_noise_std=extra_noise_std,
                 deterministic=deterministic,
+                optimistic=optimistic,
             ),
             # If False: Gaussian/Uniform sampling
             partial(
@@ -312,6 +329,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
                 action_dim=action_dim,
                 gaussian_dist=sampling_strategy == SamplingStrategy.GAUSSIAN.value,
                 deterministic=deterministic,
+                optimistic=optimistic,
             ),
             qf_state,
             observations,
@@ -328,7 +346,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
             self.qf_state,
             observation,
             self.sampling_key,
-            # Increate search budget at test time
+            # Increase search budget at test time
             2 * self.n_sampled_actions if deterministic else self.n_sampled_actions,
             self.action_dim,
             sampling_strategy=self.sampling_strategy.value,
@@ -336,6 +354,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
             n_iterations=self.n_iterations,
             initial_variance=self.initial_variance,
             extra_noise_std=self.extra_noise_std,
+            optimistic=self.optimistic,
             # deterministic=deterministic,
             deterministic=True,  # Only used for dropout, do not add additional noise during exploration
         )
@@ -344,7 +363,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
                 self.qf_state,
                 observation,
                 self.sampling_key,
-                # Increate search budget at test time
+                # Increase search budget at test time
                 2 * self.n_sampled_actions if deterministic else self.n_sampled_actions,
                 self.action_dim,
                 sampling_strategy=self.sampling_strategy.value,
@@ -352,6 +371,7 @@ class SampleDQNPolicy(BaseJaxPolicy):
                 n_iterations=4 * self.n_iterations,
                 initial_variance=self.initial_variance,
                 extra_noise_std=self.extra_noise_std,
+                optimistic=self.optimistic,
                 # deterministic=deterministic,
                 deterministic=True,  # Only used for dropout, do not add additional noise during exploration
             )
