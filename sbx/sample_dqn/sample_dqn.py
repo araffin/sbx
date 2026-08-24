@@ -161,8 +161,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         # Convert to numpy
         data = ReplayBufferSamplesNp(
             data.observations.numpy(),
-            # Convert to int64
-            data.actions.long().numpy(),
+            data.actions.numpy(),
             data.next_observations.numpy(),
             data.dones.numpy().flatten(),
             data.rewards.numpy().flatten(),
