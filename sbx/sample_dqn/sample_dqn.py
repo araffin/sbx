@@ -446,7 +446,8 @@ class SampleDQN(OffPolicyAlgorithmJax):
         (qf_loss_value, qf_mean_value), grads = jax.value_and_grad(critic_loss, has_aux=True)(
             qf_state.params, dropout_key_current
         )
-        grad_norm = jnp.sqrt(jnp.sum(jnp.stack([jnp.sum(grad**2) for grad in jax.tree_util.tree_leaves(grads)])))
+        # Global L2 norm over all gradient leaves; == jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grads)))
+        grad_norm = optax.tree_utils.tree_norm(grads)
         qf_state = qf_state.apply_gradients(grads=grads)
 
         return qf_state, (qf_loss_value, qf_mean_value, grad_norm), key

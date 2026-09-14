@@ -45,7 +45,7 @@ setup(
         "jax>=0.4.24,<0.12.0",
         # "jaxlib",
         "flax",
-        "optax",
+        "optax>=0.2.8",
         "tqdm",
         "rich",
         # tf probability not compatible yet with latest jax version
