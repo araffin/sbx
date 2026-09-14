@@ -190,6 +190,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
             "info": {
                 "critic_loss": jnp.array([0.0]),
                 "qf_mean_value": jnp.array([0.0]),
+                "grad_norm": jnp.array([0.0]),
             },
         }
 
@@ -206,11 +207,13 @@ class SampleDQN(OffPolicyAlgorithmJax):
         self.key = update_carry["key"]
         qf_loss_value = update_carry["info"]["critic_loss"] / gradient_steps
         qf_mean_value = update_carry["info"]["qf_mean_value"] / gradient_steps
+        grad_norm = update_carry["info"]["grad_norm"] / gradient_steps
 
         self._n_updates += gradient_steps
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/critic_loss", qf_loss_value.item())
         self.logger.record("train/qf_mean_value", qf_mean_value.item())
+        self.logger.record("train/grad_norm", grad_norm.item())
 
     @staticmethod
     @partial(jax.jit, static_argnames=["n_sampled_actions", "action_dim", "n_top", "n_iterations"])
@@ -443,9 +446,10 @@ class SampleDQN(OffPolicyAlgorithmJax):
         (qf_loss_value, qf_mean_value), grads = jax.value_and_grad(critic_loss, has_aux=True)(
             qf_state.params, dropout_key_current
         )
+        grad_norm = jnp.sqrt(jnp.sum(jnp.stack([jnp.sum(grad**2) for grad in jax.tree_util.tree_leaves(grads)])))
         qf_state = qf_state.apply_gradients(grads=grads)
 
-        return qf_state, (qf_loss_value, qf_mean_value), key
+        return qf_state, (qf_loss_value, qf_mean_value, grad_norm), key
 
     @staticmethod
     @jax.jit
@@ -459,7 +463,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         data = carry["data"]
         carry["key"], key = jax.random.split(carry["key"])
 
-        qf_state, (qf_loss_value, qf_mean_value), key = SampleDQN.update_qnetwork(
+        qf_state, (qf_loss_value, qf_mean_value, grad_norm), key = SampleDQN.update_qnetwork(
             carry["qf_state"],
             observations=data.observations[indices],
             replay_actions=data.actions[indices],
@@ -482,6 +486,7 @@ class SampleDQN(OffPolicyAlgorithmJax):
         carry["qf_state"] = qf_state
         carry["info"]["critic_loss"] += qf_loss_value
         carry["info"]["qf_mean_value"] += qf_mean_value
+        carry["info"]["grad_norm"] += grad_norm
 
         return carry, None
 
