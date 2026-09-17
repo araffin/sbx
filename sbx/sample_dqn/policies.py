@@ -61,7 +61,7 @@ def find_best_actions_cem(
     carry = {
         "best_actions": best_actions,
         "best_actions_cov": best_actions_cov,
-        "top_one_actions": best_actions,
+        # "top_one_actions": best_actions,
         "key": key,
     }
 
@@ -104,7 +104,7 @@ def find_best_actions_cem(
 
         # Update centroid: barycenter of the best candidates
         return {
-            "top_one_actions": best_actions[:, :1, :].squeeze(axis=1),
+            # "top_one_actions": best_actions[:, :1, :].squeeze(axis=1),
             "best_actions": best_actions.mean(axis=1),
             "best_actions_cov": best_actions.var(axis=1),
             "key": new_key,
