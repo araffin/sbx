@@ -236,7 +236,7 @@ class SimbaVectorCritic(nn.Module):
             net_arch=self.net_arch,
             activation_fn=self.activation_fn,
             output_dim=self.output_dim,
-        )(obs, action, deterministic=deterministic)
+        )(obs, action, deterministic)
         return q_values
 
 
