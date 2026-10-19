@@ -5,6 +5,7 @@ from sbx.ddpg import DDPG
 from sbx.dqn import DQN
 from sbx.ppo import PPO
 from sbx.sac import SAC
+from sbx.sample_dqn import SampleDQN
 from sbx.td3 import TD3
 from sbx.tqc import TQC
 
@@ -30,4 +31,5 @@ __all__ = [
     "TD3",
     "TQC",
     "CrossQ",
+    "SampleDQN",
 ]

@@ -42,10 +42,10 @@ setup(
     package_data={"sbx": ["py.typed", "version.txt"]},
     install_requires=[
         "stable_baselines3>=2.9.0,<3.0",
-        "jax>=0.4.24,<0.12.0",
+        "jax>=0.4.31,<0.12.0",
         # "jaxlib",
         "flax",
-        "optax",
+        "optax>=0.2.8",
         "tqdm",
         "rich",
         # tf probability not compatible yet with latest jax version

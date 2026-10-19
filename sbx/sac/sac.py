@@ -183,6 +183,13 @@ class SAC(OffPolicyAlgorithmJax):
         reset_num_timesteps: bool = True,
         progress_bar: bool = False,
     ):
+        from sbx.common.rerun_logging import init_rerun
+
+        assert self.env is not None
+        env_spec = self.env.get_attr("spec")[0]
+        env_id = env_spec.id if env_spec is not None else "unknown"
+        init_rerun(f"{tb_log_name}_{env_id}", n_actions=self.policy.action_dim)
+
         return super().learn(
             total_timesteps=total_timesteps,
             callback=callback,
