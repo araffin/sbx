@@ -176,8 +176,9 @@ class BatchRenorm(Module):
                 # BatchNorm normalization, using minibatch stats and running average stats
                 # Because we use _normalize, this is equivalent to
                 # ((x - x_mean) / sigma) * r + d = ((x - x_mean) * r + d * sigma) / sigma
-                # where sigma = sqrt(var)
-                affine_mean = batch_mean - d * jnp.sqrt(batch_var) / r
+                # where sigma = sqrt(var + eps), so the gradient stays finite when a
+                # feature is constant over the batch (batch_var == 0)
+                affine_mean = batch_mean - d * std / r
                 affine_var = batch_var / (r**2)
 
                 # Note: in the original paper, after some warmup phase (batch norm phase of 5k steps)
