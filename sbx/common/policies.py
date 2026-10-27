@@ -135,15 +135,17 @@ class ContinuousCritic(nn.Module):
     dropout_rate: float | None = None
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1
+    flatten: bool = True
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
-        x = Flatten()(x)
+    def __call__(self, x: jnp.ndarray, action: jnp.ndarray, deterministic: bool = False) -> jnp.ndarray:
+        if self.flatten:
+            x = Flatten()(x)
         x = jnp.concatenate([x, action], -1)
         for n_units in self.net_arch:
             x = nn.Dense(n_units)(x)
             if self.dropout_rate is not None and self.dropout_rate > 0:
-                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
+                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
             if self.use_layer_norm:
                 x = nn.LayerNorm()(x)
             x = self.activation_fn(x)
@@ -160,7 +162,7 @@ class SimbaContinuousCritic(nn.Module):
     scale_factor: int = 4
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, action: jnp.ndarray, deterministic: bool = False) -> jnp.ndarray:
         x = Flatten()(x)
         x = jnp.concatenate([x, action], -1)
         # Note: simba was using kernel_init=orthogonal_init(1)
@@ -169,7 +171,7 @@ class SimbaContinuousCritic(nn.Module):
             x = SimbaResidualBlock(n_units, self.activation_fn, self.scale_factor)(x)
             # TODO: double check where to put the dropout
             if self.dropout_rate is not None and self.dropout_rate > 0:
-                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=False)
+                x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
         x = nn.LayerNorm()(x)
 
         x = nn.Dense(self.output_dim)(x)
@@ -183,9 +185,10 @@ class VectorCritic(nn.Module):
     n_critics: int = 2
     activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = nn.relu
     output_dim: int = 1
+    flatten: bool = True
 
     @nn.compact
-    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
+    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray, deterministic: bool = False):
         # Idea taken from https://github.com/perrin-isir/xpag
         # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
         vmap_critic = nn.vmap(
@@ -202,7 +205,8 @@ class VectorCritic(nn.Module):
             net_arch=self.net_arch,
             activation_fn=self.activation_fn,
             output_dim=self.output_dim,
-        )(obs, action)
+            flatten=self.flatten,
+        )(obs, action, deterministic)
         return q_values
 
 
@@ -216,7 +220,7 @@ class SimbaVectorCritic(nn.Module):
     output_dim: int = 1
 
     @nn.compact
-    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray):
+    def __call__(self, obs: jnp.ndarray, action: jnp.ndarray, deterministic: bool = False):
         # Idea taken from https://github.com/perrin-isir/xpag
         # Similar to https://github.com/tinkoff-ai/CORL for PyTorch
         vmap_critic = nn.vmap(
@@ -232,7 +236,7 @@ class SimbaVectorCritic(nn.Module):
             net_arch=self.net_arch,
             activation_fn=self.activation_fn,
             output_dim=self.output_dim,
-        )(obs, action)
+        )(obs, action, deterministic)
         return q_values
 
 
