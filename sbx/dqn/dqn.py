@@ -10,6 +10,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import LinearSchedule
 
+from sbx.common.gpu_replay_buffer import GpuReplayBuffer, check_n_steps, to_training_samples
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
 from sbx.dqn.policies import CNNPolicy, DQNPolicy
@@ -142,21 +143,25 @@ class DQN(OffPolicyAlgorithmJax):
         # Sample all at once for efficiency (so we can jit the for loop)
         data = self.replay_buffer.sample(batch_size * gradient_steps, env=self._vec_normalize_env)
 
-        if data.discounts is None:
-            discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
+        if isinstance(self.replay_buffer, GpuReplayBuffer):
+            # Keep the jax device arrays: no host round-trip in front of the jitted update
+            data = to_training_samples(data, self.gamma, batch_size * gradient_steps)  # type: ignore[arg-type]
         else:
-            # For bootstrapping with n-step returns
-            discounts = data.discounts.numpy().flatten()
-        # Convert to numpy
-        data = ReplayBufferSamplesNp(
-            data.observations.numpy(),
-            # Convert to int64
-            data.actions.long().numpy(),
-            data.next_observations.numpy(),
-            data.dones.numpy().flatten(),
-            data.rewards.numpy().flatten(),
-            discounts,
-        )
+            if data.discounts is None:
+                discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
+            else:
+                # For bootstrapping with n-step returns
+                discounts = data.discounts.numpy().flatten()
+            # Convert to numpy
+            data = ReplayBufferSamplesNp(
+                data.observations.numpy(),
+                # Convert to int64
+                data.actions.long().numpy(),
+                data.next_observations.numpy(),
+                data.dones.numpy().flatten(),
+                data.rewards.numpy().flatten(),
+                discounts,
+            )
         # Pre compute the slice indices
         # otherwise jax will complain
         indices = jnp.arange(len(data.dones)).reshape(gradient_steps, batch_size)
@@ -292,3 +297,21 @@ class DQN(OffPolicyAlgorithmJax):
         carry["info"]["qf_mean_value"] += qf_mean_value
 
         return carry, None
+
+
+class GPUDQN(DQN):
+    """DQN with a GPU-based replay buffer.
+
+    Usage::
+
+        from sbx import GPUDQN
+
+        model = GPUDQN("MlpPolicy", env, buffer_size=250_000)
+        model.learn(total_timesteps)
+    """
+
+    def __init__(self, *args, replay_buffer_class=None, **kwargs):
+        check_n_steps(kwargs.get("n_steps", 1), type(self).__name__)
+        if replay_buffer_class is None:
+            replay_buffer_class = GpuReplayBuffer
+        super().__init__(*args, replay_buffer_class=replay_buffer_class, **kwargs)

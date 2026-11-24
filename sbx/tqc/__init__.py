@@ -1,3 +1,3 @@
-from sbx.tqc.tqc import TQC
+from sbx.tqc.tqc import TQC, GPUTQC
 
-__all__ = ["TQC"]
+__all__ = ["TQC", "GPUTQC"]
