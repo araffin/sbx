@@ -1,3 +1,3 @@
-from sbx.ddpg.ddpg import DDPG, GPUDDPG
+from sbx.ddpg.ddpg import DDPG
 
-__all__ = ["DDPG", "GPUDDPG"]
+__all__ = ["DDPG"]

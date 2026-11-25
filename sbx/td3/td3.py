@@ -11,7 +11,6 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
-from sbx.common.gpu_replay_buffer import GpuReplayBuffer, check_n_steps, to_training_samples
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
 from sbx.td3.policies import TD3Policy
@@ -134,33 +133,29 @@ class TD3(OffPolicyAlgorithmJax):
         # Maybe reset the parameters/optimizers fully
         self._maybe_reset_params()
 
-        if isinstance(self.replay_buffer, GpuReplayBuffer):
-            # Keep the jax device arrays: no host round-trip in front of the jitted update
-            data = to_training_samples(data, self.gamma, batch_size * gradient_steps)  # type: ignore[arg-type]
+        if isinstance(data.observations, dict):
+            keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
+            obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
+            next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
         else:
-            if isinstance(data.observations, dict):
-                keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
-                obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
-                next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
-            else:
-                obs = data.observations.numpy()
-                next_obs = data.next_observations.numpy()
+            obs = data.observations.numpy()
+            next_obs = data.next_observations.numpy()
 
-            if data.discounts is None:
-                discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
-            else:
-                # For bootstrapping with n-step returns
-                discounts = data.discounts.numpy().flatten()
+        if data.discounts is None:
+            discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
+        else:
+            # For bootstrapping with n-step returns
+            discounts = data.discounts.numpy().flatten()
 
-            # Convert to numpy
-            data = ReplayBufferSamplesNp(  # type: ignore[assignment]
-                obs,
-                data.actions.numpy(),
-                next_obs,
-                data.dones.numpy().flatten(),
-                data.rewards.numpy().flatten(),
-                discounts,
-            )
+        # Convert to numpy
+        data = ReplayBufferSamplesNp(  # type: ignore[assignment]
+            obs,
+            data.actions.numpy(),
+            next_obs,
+            data.dones.numpy().flatten(),
+            data.rewards.numpy().flatten(),
+            discounts,
+        )
 
         (
             self.policy.qf_state,
@@ -358,21 +353,3 @@ class TD3(OffPolicyAlgorithmJax):
             update_carry["key"],
             (update_carry["info"]["actor_loss"], update_carry["info"]["qf_loss"]),
         )
-
-
-class GPUTD3(TD3):
-    """TD3 with a GPU-based replay buffer.
-
-    Usage::
-
-        from sbx import GPUTD3
-
-        model = GPUTD3("MlpPolicy", env, buffer_size=250_000)
-        model.learn(total_timesteps)
-    """
-
-    def __init__(self, *args, replay_buffer_class=None, **kwargs):
-        check_n_steps(kwargs.get("n_steps", 1), type(self).__name__)
-        if replay_buffer_class is None:
-            replay_buffer_class = GpuReplayBuffer
-        super().__init__(*args, replay_buffer_class=replay_buffer_class, **kwargs)

@@ -4,7 +4,6 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 
-from sbx.common.gpu_replay_buffer import GpuReplayBuffer, check_n_steps
 from sbx.td3.policies import TD3Policy
 from sbx.td3.td3 import TD3
 
@@ -73,21 +72,3 @@ class DDPG(TD3):
 
         if _init_setup_model:
             self._setup_model()
-
-
-class GPUDDPG(DDPG):
-    """DDPG with a GPU-based replay buffer.
-
-    Usage::
-
-        from sbx import GPUDDPG
-
-        model = GPUDDPG("MlpPolicy", env, buffer_size=250_000)
-        model.learn(total_timesteps)
-    """
-
-    def __init__(self, *args, replay_buffer_class=None, **kwargs):
-        check_n_steps(kwargs.get("n_steps", 1), type(self).__name__)
-        if replay_buffer_class is None:
-            replay_buffer_class = GpuReplayBuffer
-        super().__init__(*args, replay_buffer_class=replay_buffer_class, **kwargs)

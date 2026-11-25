@@ -1,3 +1,3 @@
-from sbx.dqn.dqn import DQN, GPUDQN
+from sbx.dqn.dqn import DQN
 
-__all__ = ["DQN", "GPUDQN"]
+__all__ = ["DQN"]

@@ -1,3 +1,3 @@
-from sbx.sac.sac import SAC, GPUSAC
+from sbx.sac.sac import SAC
 
-__all__ = ["SAC", "GPUSAC"]
+__all__ = ["SAC"]

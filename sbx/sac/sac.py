@@ -14,7 +14,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
-from sbx.common.gpu_replay_buffer import GpuReplayBuffer, check_n_steps, to_training_samples
+from sbx.common.gpu_replay_buffer import GpuReplayBuffer, to_training_samples
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
 from sbx.sac.policies import SACPolicy, SimbaSACPolicy
@@ -122,6 +122,9 @@ class SAC(OffPolicyAlgorithmJax):
 
     def _setup_model(self) -> None:
         super()._setup_model()
+
+        if isinstance(self.replay_buffer, GpuReplayBuffer) and self.n_steps != 1:
+            raise ValueError("GpuReplayBuffer is a 1-step buffer: use n_steps=1 with it")
 
         if not hasattr(self, "policy") or self.policy is None:
             self.policy = self.policy_class(  # type: ignore[assignment]
@@ -494,26 +497,3 @@ class SAC(OffPolicyAlgorithmJax):
                 update_carry["info"]["ent_coef_value"],
             ),
         )
-
-
-class GPUSAC(SAC):
-    """SAC with a GPU-based replay buffer.
-
-    Usage::
-
-        from sbx import GPUSAC
-
-        model = GPUSAC("MlpPolicy", env, buffer_size=250_000)
-        model.learn(total_timesteps)
-
-    To leave an already-normalized observation slice untouched at sample
-    time (mirror ``VecNormalizeSkipSlice``)::
-
-        GPUSAC("MlpPolicy", env, replay_buffer_kwargs={"norm_skip_slices": [(start, dim)]})
-    """
-
-    def __init__(self, *args, replay_buffer_class=None, **kwargs):
-        check_n_steps(kwargs.get("n_steps", 1), type(self).__name__)
-        if replay_buffer_class is None:
-            replay_buffer_class = GpuReplayBuffer
-        super().__init__(*args, replay_buffer_class=replay_buffer_class, **kwargs)
