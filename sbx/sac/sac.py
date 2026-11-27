@@ -14,6 +14,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.noise import ActionNoise
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 
+from sbx.common.gpu_replay_buffer import GpuReplayBuffer, to_training_samples
 from sbx.common.off_policy_algorithm import OffPolicyAlgorithmJax
 from sbx.common.type_aliases import ReplayBufferSamplesNp, RLTrainState
 from sbx.sac.policies import SACPolicy, SimbaSACPolicy
@@ -122,6 +123,9 @@ class SAC(OffPolicyAlgorithmJax):
     def _setup_model(self) -> None:
         super()._setup_model()
 
+        if isinstance(self.replay_buffer, GpuReplayBuffer) and self.n_steps != 1:
+            raise ValueError(f"GpuReplayBuffer is a 1-step buffer: use n_steps=1, got n_steps={self.n_steps}")
+
         if not hasattr(self, "policy") or self.policy is None:
             self.policy = self.policy_class(  # type: ignore[assignment]
                 self.observation_space,
@@ -212,29 +216,33 @@ class SAC(OffPolicyAlgorithmJax):
         # Maybe reset the parameters/optimizers fully
         self._maybe_reset_params()
 
-        if isinstance(data.observations, dict):
-            keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
-            obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
-            next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
+        if isinstance(self.replay_buffer, GpuReplayBuffer):
+            # Keep the jax device arrays: no host round-trip in front of the jitted update
+            data = to_training_samples(data, self.gamma, batch_size * gradient_steps)  # type: ignore[arg-type, assignment]
         else:
-            obs = data.observations.numpy()
-            next_obs = data.next_observations.numpy()
+            if isinstance(data.observations, dict):
+                keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
+                obs = np.concatenate([data.observations[key].numpy() for key in keys], axis=1)
+                next_obs = np.concatenate([data.next_observations[key].numpy() for key in keys], axis=1)
+            else:
+                obs = data.observations.numpy()
+                next_obs = data.next_observations.numpy()
 
-        if data.discounts is None:
-            discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
-        else:
-            # For bootstrapping with n-step returns
-            discounts = data.discounts.numpy().flatten()
+            if data.discounts is None:
+                discounts = np.full((batch_size * gradient_steps,), self.gamma, dtype=np.float32)
+            else:
+                # For bootstrapping with n-step returns
+                discounts = data.discounts.numpy().flatten()
 
-        # Convert to numpy
-        data = ReplayBufferSamplesNp(  # type: ignore[assignment]
-            obs,
-            data.actions.numpy(),
-            next_obs,
-            data.dones.numpy().flatten(),
-            data.rewards.numpy().flatten(),
-            discounts,
-        )
+            # Convert to numpy
+            data = ReplayBufferSamplesNp(  # type: ignore[assignment]
+                obs,
+                data.actions.numpy(),
+                next_obs,
+                data.dones.numpy().flatten(),
+                data.rewards.numpy().flatten(),
+                discounts,
+            )
 
         (
             self.policy.qf_state,
