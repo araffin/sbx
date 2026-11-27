@@ -9,6 +9,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from gymnasium import spaces
+from stable_baselines3.common.buffers import BaseBuffer, ReplayBuffer
+from stable_baselines3.common.vec_env import VecNormalize
 
 from sbx.common.type_aliases import ReplayBufferSamplesNp
 
@@ -55,7 +57,7 @@ def to_training_samples(
     )
 
 
-class GpuReplayBuffer:
+class GpuReplayBuffer(ReplayBuffer):
     """
     Replay buffer used in SBX off-policy algorithms like SAC.
 
@@ -76,12 +78,8 @@ class GpuReplayBuffer:
         If None, use the default JAX backend.
     """
 
-    observations: jax.Array
-    next_observations: jax.Array
-    actions: np.ndarray
-    rewards: np.ndarray
-    dones: np.ndarray
-    timeouts: np.ndarray
+    observations: jax.Array  # type: ignore[assignment]
+    next_observations: jax.Array  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -111,19 +109,16 @@ class GpuReplayBuffer:
         if int(chunk_count) < 1:
             raise ValueError("chunk_count must be >= 1")
 
-        self.observation_space = observation_space
-        self.action_space = action_space
-        self.obs_shape = observation_space.shape
-        self.action_dim = int(np.prod(action_space.shape)) if action_space.shape is not None else 1
-        self.pos = 0
-        self.full = False
-        self.n_envs = int(n_envs)
+        # ReplayBuffer.__init__ is deliberately not called: it allocates the whole
+        # buffer in host numpy memory, while this class stores the observations
+        # on the JAX device. BaseBuffer.__init__ only performs bookkeeping.
+        BaseBuffer.__init__(self, buffer_size, observation_space, action_space, device, n_envs=n_envs)
 
         # Adjust buffer size
         self.buffer_size = max(int(buffer_size) // self.n_envs, 1)
         self.optimize_memory_usage = optimize_memory_usage
 
-        # Use the JAX device independently of the PyTorch device passed by SBX
+        # Override the PyTorch device set by BaseBuffer: storage uses a JAX device
         self._backend = jax_backend if jax_backend is not None else jax.default_backend()
         self.device = jax.devices(self._backend)[0]
         self.observations = jnp.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=jnp.float32, device=self.device)
@@ -145,14 +140,6 @@ class GpuReplayBuffer:
         self._norm_cache_key: tuple[int, int, float, float, float] | None = None
         self._norm_mean: jax.Array | None = None
         self._norm_scale: jax.Array | None = None
-
-    def size(self) -> int:
-        """
-        :return: The current size of the buffer
-        """
-        if self.full:
-            return self.buffer_size
-        return self.pos
 
     def add(
         self,
@@ -205,22 +192,7 @@ class GpuReplayBuffer:
         # Donate the observation arrays so that JAX can update them in place
         return observations.at[pos].set(obs), next_observations.at[pos].set(next_obs)
 
-    def extend(self, *args: Any) -> None:
-        """
-        Add a new batch of transitions to the buffer.
-        """
-        # Do a for loop along the batch axis
-        for data in zip(*args, strict=True):
-            self.add(*data)
-
-    def reset(self) -> None:
-        """
-        Reset the buffer.
-        """
-        self.pos = 0
-        self.full = False
-
-    def sample(self, batch_size: int, env: Any = None) -> GpuReplayBufferSamples:
+    def sample(self, batch_size: int, env: VecNormalize | None = None) -> GpuReplayBufferSamples:  # type: ignore[override]
         """
         Sample elements from the replay buffer.
 
@@ -234,10 +206,11 @@ class GpuReplayBuffer:
             raise RuntimeError("GpuReplayBuffer.sample() called before any transition was added")
         if int(batch_size) < 1:
             raise ValueError("batch_size must be >= 1")
-        batch_inds = np.random.randint(0, upper_bound, size=int(batch_size), dtype=np.int32)
-        return self._get_samples(batch_inds, env=env)
+        return super(ReplayBuffer, self).sample(batch_size=batch_size, env=env)
 
-    def _get_samples(self, batch_inds: np.ndarray, env: Any = None) -> GpuReplayBufferSamples:
+    def _get_samples(  # type: ignore[override]
+        self, batch_inds: np.ndarray, env: VecNormalize | None = None
+    ) -> GpuReplayBufferSamples:
         # Sample randomly the env idx
         batch_inds = np.asarray(batch_inds, dtype=np.int32)
         env_indices = np.random.randint(0, high=self.n_envs, size=len(batch_inds), dtype=np.int32)
@@ -257,7 +230,7 @@ class GpuReplayBuffer:
         self,
         batch_inds: np.ndarray,
         env_indices: np.ndarray,
-        env: Any = None,
+        env: VecNormalize | None = None,
     ) -> tuple[jax.Array, jax.Array]:
         mean, scale, clip_obs = self._get_normalization_params(env)
 
@@ -287,21 +260,30 @@ class GpuReplayBuffer:
         next_obs = next_observations[batch_inds, env_indices, :]
 
         if mean is not None:
-            obs = GpuReplayBuffer._normalize_obs(obs, mean, scale, clip_obs)
-            next_obs = GpuReplayBuffer._normalize_obs(next_obs, mean, scale, clip_obs)
+            # mean and scale are set together by _get_normalization_params
+            assert scale is not None
+            # Same affine normalization pass as SB3 VecNormalize.normalize_obs
+            obs = jnp.clip((obs - mean) * scale, -clip_obs, clip_obs)
+            next_obs = jnp.clip((next_obs - mean) * scale, -clip_obs, clip_obs)
 
         return obs, next_obs
 
     def _get_normalization_params(
         self,
-        env: Any = None,
+        env: VecNormalize | None = None,
     ) -> tuple[jax.Array | None, jax.Array | None, float]:
-        if env is None or not getattr(env, "norm_obs", True):
+        if env is None or not env.norm_obs:
             return None, None, float("inf")
 
         obs_rms = env.obs_rms
+        # VecNormalize keeps one RunningMeanStd per key for Dict observation spaces;
+        # this buffer only supports Box spaces (checked in __init__).
+        if isinstance(obs_rms, dict):
+            raise TypeError("Dict observation spaces are not supported (Box observations only)")
         clip_obs = float(env.clip_obs)
         epsilon = float(env.epsilon)
+        # Cache the mean and scale on the device to avoid repeated transfers.
+        # Refresh them when the environment, statistics object, update count, epsilon or clipping limit changes.
         key = (id(env), id(obs_rms), float(obs_rms.count), epsilon, clip_obs)
 
         if key != self._norm_cache_key:
@@ -315,29 +297,6 @@ class GpuReplayBuffer:
             self._norm_cache_key = key
 
         return self._norm_mean, self._norm_scale, clip_obs
-
-    @staticmethod
-    @jax.jit
-    def _normalize_obs(obs: jax.Array, mean: jax.Array, scale: jax.Array, clip_obs: float) -> jax.Array:
-        return jnp.clip((obs - mean) * scale, -clip_obs, clip_obs)
-
-    @staticmethod
-    def _normalize_reward(reward: np.ndarray, env: Any = None) -> np.ndarray:
-        if env is not None:
-            return env.normalize_reward(reward).astype(np.float32)
-        return reward
-
-    @staticmethod
-    def _maybe_cast_dtype(dtype: Any) -> Any:
-        """
-        Cast float64 action datatype to float32, keep the others dtype unchanged.
-
-        :param dtype: The original action space dtype
-        :return: float32 if the dtype was float64, the original dtype otherwise
-        """
-        if dtype == np.float64:
-            return np.float32
-        return dtype
 
     def __getstate__(self) -> dict[str, Any]:
         state = self.__dict__.copy()
@@ -361,9 +320,3 @@ class GpuReplayBuffer:
         self._norm_cache_key = None
         self._norm_mean = None
         self._norm_scale = None
-
-    def _read_all_slots(self) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Return observations and next observations as numpy arrays for debugging.
-        """
-        return np.asarray(self.observations), np.asarray(self.next_observations)

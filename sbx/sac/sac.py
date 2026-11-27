@@ -124,7 +124,7 @@ class SAC(OffPolicyAlgorithmJax):
         super()._setup_model()
 
         if isinstance(self.replay_buffer, GpuReplayBuffer) and self.n_steps != 1:
-            raise ValueError("GpuReplayBuffer is a 1-step buffer: use n_steps=1 with it")
+            raise ValueError(f"GpuReplayBuffer is a 1-step buffer: use n_steps=1, got n_steps={self.n_steps}")
 
         if not hasattr(self, "policy") or self.policy is None:
             self.policy = self.policy_class(  # type: ignore[assignment]
@@ -218,7 +218,7 @@ class SAC(OffPolicyAlgorithmJax):
 
         if isinstance(self.replay_buffer, GpuReplayBuffer):
             # Keep the jax device arrays: no host round-trip in front of the jitted update
-            data = to_training_samples(data, self.gamma, batch_size * gradient_steps)  # type: ignore[arg-type]
+            data = to_training_samples(data, self.gamma, batch_size * gradient_steps)  # type: ignore[arg-type, assignment]
         else:
             if isinstance(data.observations, dict):
                 keys = list(self.observation_space.keys())  # type: ignore[attr-defined]
