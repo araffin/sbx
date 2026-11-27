@@ -26,44 +26,6 @@ class GpuReplayBufferSamples(NamedTuple):
     discounts: None = None
 
 
-@partial(jax.jit, donate_argnums=(0, 1))
-def _add(
-    observations: jax.Array,
-    next_observations: jax.Array,
-    pos: jax.Array,
-    obs: jax.Array,
-    next_obs: jax.Array,
-) -> tuple[jax.Array, jax.Array]:
-    # Donate the observation arrays so that JAX can update them in place
-    return observations.at[pos].set(obs), next_observations.at[pos].set(next_obs)
-
-
-@jax.jit
-def _normalize_obs(obs: jax.Array, mean: jax.Array, scale: jax.Array, clip_obs: float) -> jax.Array:
-    return jnp.clip((obs - mean) * scale, -clip_obs, clip_obs)
-
-
-@jax.jit
-def _gather_and_normalize(
-    observations: jax.Array,
-    next_observations: jax.Array,
-    batch_inds: jax.Array,
-    env_indices: jax.Array,
-    mean: jax.Array | None,
-    scale: jax.Array | None,
-    clip_obs: float,
-) -> tuple[jax.Array, jax.Array]:
-    # Gather and normalize both observation batches in the same compiled call
-    obs = observations[batch_inds, env_indices, :]
-    next_obs = next_observations[batch_inds, env_indices, :]
-
-    if mean is not None:
-        obs = _normalize_obs(obs, mean, scale, clip_obs)
-        next_obs = _normalize_obs(next_obs, mean, scale, clip_obs)
-
-    return obs, next_obs
-
-
 def to_training_samples(
     data: GpuReplayBufferSamples,
     gamma: float,
@@ -212,7 +174,7 @@ class GpuReplayBuffer:
         # Reshape to handle multi-dim and discrete action spaces
         action = np.asarray(action).reshape((self.n_envs, self.action_dim))
 
-        self.observations, self.next_observations = _add(
+        self.observations, self.next_observations = self._add(
             self.observations,
             self.next_observations,
             jax.device_put(np.int32(self.pos), self.device),
@@ -230,6 +192,18 @@ class GpuReplayBuffer:
         if self.pos == self.buffer_size:
             self.full = True
             self.pos = 0
+
+    @staticmethod
+    @partial(jax.jit, donate_argnums=(0, 1))
+    def _add(
+        observations: jax.Array,
+        next_observations: jax.Array,
+        pos: jax.Array,
+        obs: jax.Array,
+        next_obs: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
+        # Donate the observation arrays so that JAX can update them in place
+        return observations.at[pos].set(obs), next_observations.at[pos].set(next_obs)
 
     def extend(self, *args: Any) -> None:
         """
@@ -287,7 +261,7 @@ class GpuReplayBuffer:
     ) -> tuple[jax.Array, jax.Array]:
         mean, scale, clip_obs = self._get_normalization_params(env)
 
-        return _gather_and_normalize(
+        return self._gather_and_normalize(
             self.observations,
             self.next_observations,
             jax.device_put(batch_inds, self.device),
@@ -296,6 +270,27 @@ class GpuReplayBuffer:
             scale,
             clip_obs,
         )
+
+    @staticmethod
+    @jax.jit
+    def _gather_and_normalize(
+        observations: jax.Array,
+        next_observations: jax.Array,
+        batch_inds: jax.Array,
+        env_indices: jax.Array,
+        mean: jax.Array | None,
+        scale: jax.Array | None,
+        clip_obs: float,
+    ) -> tuple[jax.Array, jax.Array]:
+        # Gather and normalize both observation batches in the same compiled call
+        obs = observations[batch_inds, env_indices, :]
+        next_obs = next_observations[batch_inds, env_indices, :]
+
+        if mean is not None:
+            obs = GpuReplayBuffer._normalize_obs(obs, mean, scale, clip_obs)
+            next_obs = GpuReplayBuffer._normalize_obs(next_obs, mean, scale, clip_obs)
+
+        return obs, next_obs
 
     def _get_normalization_params(
         self,
@@ -321,11 +316,10 @@ class GpuReplayBuffer:
 
         return self._norm_mean, self._norm_scale, clip_obs
 
-    def _normalize_obs(self, obs: jax.Array, env: Any = None) -> jax.Array:
-        mean, scale, clip_obs = self._get_normalization_params(env)
-        if mean is not None:
-            return _normalize_obs(obs, mean, scale, clip_obs)
-        return obs
+    @staticmethod
+    @jax.jit
+    def _normalize_obs(obs: jax.Array, mean: jax.Array, scale: jax.Array, clip_obs: float) -> jax.Array:
+        return jnp.clip((obs - mean) * scale, -clip_obs, clip_obs)
 
     @staticmethod
     def _normalize_reward(reward: np.ndarray, env: Any = None) -> np.ndarray:
